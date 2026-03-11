@@ -1,0 +1,14 @@
+
+> @remocoder/shared@0.0.1 test
+> vitest run
+
+
+ RUN  v2.1.9 /Users/shunokada/projects/remocoder/packages/shared
+
+ ✓ src/__tests__/types.test.ts (12 tests) 3ms
+
+ Test Files  1 passed (1)
+      Tests  12 passed (12)
+   Start at  08:36:25
+   Duration  373ms (transform 35ms, setup 0ms, collect 30ms, tests 3ms, environment 0ms, prepare 132ms)
+

@@ -1,0 +1,18 @@
+{
+  "name": "remocoder",
+  "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "test": "turbo test",
+    "test:watch": "turbo test:watch"
+  },
+  "devDependencies": {
+    "turbo": "^2.0.0",
+    "jest": "^29.0.0",
+    "ts-jest": "^29.0.0",
+    "@types/jest": "^29.0.0"
+  },
+  "packageManager": "npm@10.8.0"
+}

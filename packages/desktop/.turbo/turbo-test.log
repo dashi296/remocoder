@@ -1,0 +1,17 @@
+
+> @remocoder/desktop@0.0.1 test
+> vitest run
+
+
+ RUN  v2.1.9 /Users/shunokada/projects/remocoder/packages/desktop
+
+ ✓ src/renderer/__tests__/StatusPanel.test.tsx (11 tests) 38ms
+ ✓ src/renderer/__tests__/SessionList.test.tsx (11 tests) 45ms
+ ✓ src/renderer/__tests__/App.test.tsx (9 tests) 111ms
+ ✓ src/renderer/__tests__/TokenDisplay.test.tsx (11 tests) 131ms
+
+ Test Files  4 passed (4)
+      Tests  42 passed (42)
+   Start at  08:44:38
+   Duration  672ms (transform 97ms, setup 184ms, collect 336ms, tests 325ms, environment 1.03s, prepare 174ms)
+

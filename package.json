@@ -1,9 +1,6 @@
 {
   "name": "remocoder",
   "private": true,
-  "workspaces": [
-    "packages/*"
-  ],
   "scripts": {
     "test": "turbo test",
     "test:watch": "turbo test:watch"
@@ -14,5 +11,5 @@
     "ts-jest": "^29.0.0",
     "@types/jest": "^29.0.0"
   },
-  "packageManager": "npm@10.8.0"
+  "packageManager": "pnpm@9.15.4"
 }

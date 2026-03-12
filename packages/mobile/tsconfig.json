@@ -1,7 +1,10 @@
 {
   "compilerOptions": {
     "target": "ES2020",
-    "lib": ["ES2020", "DOM"],
+    "lib": [
+      "ES2020",
+      "DOM"
+    ],
     "module": "ESNext",
     "moduleResolution": "bundler",
     "jsx": "react-native",
@@ -11,8 +14,14 @@
     "skipLibCheck": true,
     "resolveJsonModule": true,
     "paths": {
-      "@remocoder/shared": ["../shared/src/index.ts"]
+      "@remocoder/shared": [
+        "../shared/src/index.ts"
+      ]
     }
   },
-  "include": ["src", "index.js"]
+  "include": [
+    "src",
+    "index.js"
+  ],
+  "extends": "expo/tsconfig.base"
 }

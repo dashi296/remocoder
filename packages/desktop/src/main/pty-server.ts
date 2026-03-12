@@ -1,19 +1,29 @@
 import * as pty from 'node-pty'
 import { WebSocketServer, WebSocket } from 'ws'
-import { WsMessage, DEFAULT_WS_PORT } from '@remocoder/shared'
+import type { IncomingMessage } from 'http'
+import { WsMessage, SessionInfo, DEFAULT_WS_PORT } from '@remocoder/shared'
 import { v4 as uuidv4 } from 'uuid'
 
 const AUTH_TOKEN = process.env.REMOTE_TOKEN ?? uuidv4()
 
-export function startPtyServer(port = DEFAULT_WS_PORT) {
+export function startPtyServer(
+  port = DEFAULT_WS_PORT,
+  onSessionsChange?: (sessions: SessionInfo[]) => void,
+) {
   const wss = new WebSocketServer({ port })
+  const sessions = new Map<string, SessionInfo>()
+
+  const notify = () => {
+    onSessionsChange?.(Array.from(sessions.values()))
+  }
 
   console.log(`PTY server started on port ${port}`)
   console.log(`Auth token: ${AUTH_TOKEN}`)
 
-  wss.on('connection', (ws) => {
+  wss.on('connection', (ws, req: IncomingMessage) => {
     let authenticated = false
     let shell: pty.IPty | null = null
+    let sessionId: string | null = null
 
     const authTimeout = setTimeout(() => {
       if (!authenticated) ws.close()
@@ -27,6 +37,16 @@ export function startPtyServer(port = DEFAULT_WS_PORT) {
           authenticated = true
           clearTimeout(authTimeout)
           shell = spawnClaude(ws)
+
+          sessionId = uuidv4()
+          sessions.set(sessionId, {
+            id: sessionId,
+            createdAt: new Date().toISOString(),
+            status: 'active',
+            clientIP: req?.socket?.remoteAddress,
+          })
+          notify()
+
           ws.send(JSON.stringify({ type: 'auth_ok' }))
         } else {
           ws.send(JSON.stringify({ type: 'auth_error', reason: 'invalid token' }))
@@ -45,6 +65,10 @@ export function startPtyServer(port = DEFAULT_WS_PORT) {
     ws.on('close', () => {
       clearTimeout(authTimeout)
       shell?.kill()
+      if (sessionId) {
+        sessions.delete(sessionId)
+        notify()
+      }
     })
   })
 

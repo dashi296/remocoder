@@ -14,7 +14,7 @@ export default defineConfig({
     globals: true,
     css: false,
     setupFiles: ['./src/renderer/__tests__/setup.ts'],
-    include: ['src/renderer/**/*.test.{ts,tsx}'],
+    include: ['src/renderer/**/*.test.{ts,tsx}', 'src/main/**/*.test.ts'],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'lcov'],

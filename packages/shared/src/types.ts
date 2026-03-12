@@ -8,6 +8,7 @@ export type WsMessage =
   | { type: 'auth'; token: string }
   | { type: 'auth_ok' }
   | { type: 'auth_error'; reason: string }
+  | { type: 'shell_exit'; exitCode: number }
 
 export interface SessionInfo {
   id: string

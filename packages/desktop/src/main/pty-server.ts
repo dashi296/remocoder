@@ -6,6 +6,13 @@ import { v4 as uuidv4 } from 'uuid'
 
 const AUTH_TOKEN = process.env.REMOTE_TOKEN ?? uuidv4()
 
+// サーバーからクライアントへのping間隔（ms）
+const SERVER_PING_INTERVAL = 30000
+// pong未応答タイムアウト（ms）: ping送信後この時間内にpongがなければ切断
+const PONG_TIMEOUT = 10000
+// アイドル判定時間（ms）: 最後の入力からこの時間経過でidleに変更
+const IDLE_TIMEOUT = 300000
+
 export function startPtyServer(
   port = DEFAULT_WS_PORT,
   onSessionsChange?: (sessions: SessionInfo[]) => void,
@@ -24,13 +31,62 @@ export function startPtyServer(
     let authenticated = false
     let shell: pty.IPty | null = null
     let sessionId: string | null = null
+    let pongPending = false
+    let pingIntervalId: ReturnType<typeof setInterval> | null = null
+    let pongTimeoutId: ReturnType<typeof setTimeout> | null = null
+    let idleTimeoutId: ReturnType<typeof setTimeout> | null = null
 
     const authTimeout = setTimeout(() => {
       if (!authenticated) ws.close()
     }, 5000)
 
+    const setActive = () => {
+      if (!sessionId) return
+      const session = sessions.get(sessionId)
+      if (session && session.status !== 'active') {
+        sessions.set(sessionId, { ...session, status: 'active' })
+        notify()
+      }
+      if (idleTimeoutId) clearTimeout(idleTimeoutId)
+      idleTimeoutId = setTimeout(() => {
+        if (!sessionId) return
+        const s = sessions.get(sessionId)
+        if (s) {
+          sessions.set(sessionId, { ...s, status: 'idle' })
+          notify()
+        }
+      }, IDLE_TIMEOUT)
+    }
+
+    const startPingInterval = () => {
+      pingIntervalId = setInterval(() => {
+        if (ws.readyState !== ws.OPEN) return
+        pongPending = true
+        ws.send(JSON.stringify({ type: 'ping' }))
+        pongTimeoutId = setTimeout(() => {
+          if (pongPending) {
+            console.log(`Session ${sessionId}: pong timeout, closing connection`)
+            ws.close()
+          }
+        }, PONG_TIMEOUT)
+      }, SERVER_PING_INTERVAL)
+    }
+
+    const cleanup = () => {
+      clearTimeout(authTimeout)
+      if (pingIntervalId) clearInterval(pingIntervalId)
+      if (pongTimeoutId) clearTimeout(pongTimeoutId)
+      if (idleTimeoutId) clearTimeout(idleTimeoutId)
+    }
+
     ws.on('message', (raw) => {
-      const msg: WsMessage = JSON.parse(raw.toString())
+      let msg: WsMessage
+      try {
+        msg = JSON.parse(raw.toString())
+      } catch {
+        console.warn('Received malformed message, ignoring')
+        return
+      }
 
       if (!authenticated) {
         if (msg.type === 'auth' && msg.token === AUTH_TOKEN) {
@@ -46,6 +102,15 @@ export function startPtyServer(
             clientIP: req?.socket?.remoteAddress,
           })
           notify()
+          startPingInterval()
+          idleTimeoutId = setTimeout(() => {
+            if (!sessionId) return
+            const s = sessions.get(sessionId)
+            if (s) {
+              sessions.set(sessionId, { ...s, status: 'idle' })
+              notify()
+            }
+          }, IDLE_TIMEOUT)
 
           ws.send(JSON.stringify({ type: 'auth_ok' }))
         } else {
@@ -57,13 +122,23 @@ export function startPtyServer(
 
       if (!shell) return
 
-      if (msg.type === 'input') shell.write(msg.data)
+      if (msg.type === 'input') {
+        shell.write(msg.data)
+        setActive()
+      }
       if (msg.type === 'resize') shell.resize(msg.cols, msg.rows)
       if (msg.type === 'ping') ws.send(JSON.stringify({ type: 'pong' }))
+      if (msg.type === 'pong') {
+        pongPending = false
+        if (pongTimeoutId) {
+          clearTimeout(pongTimeoutId)
+          pongTimeoutId = null
+        }
+      }
     })
 
     ws.on('close', () => {
-      clearTimeout(authTimeout)
+      cleanup()
       shell?.kill()
       if (sessionId) {
         sessions.delete(sessionId)
@@ -92,11 +167,7 @@ function spawnClaude(ws: WebSocket): pty.IPty {
 
   shell.onExit(({ exitCode }) => {
     if (ws.readyState === ws.OPEN) {
-      const msg: WsMessage = {
-        type: 'output',
-        data: `\r\n[claudeが終了しました (exit code: ${exitCode})]`,
-      }
-      ws.send(JSON.stringify(msg))
+      ws.send(JSON.stringify({ type: 'shell_exit', exitCode } satisfies WsMessage))
       ws.close()
     }
   })

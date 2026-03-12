@@ -182,6 +182,50 @@ describe('startPtyServer', () => {
     })
   })
 
+  describe('セッション一覧のリアルタイム更新', () => {
+    it('session_create 後に picker クライアントへ session_list が送信される', () => {
+      startPtyServer()
+
+      // picker クライアント（セッション未選択）
+      const pickerWs = createMockWs()
+      wssState.instance!.emit('connection', pickerWs)
+      sendMessage(pickerWs, { type: 'auth', token: 'test-token' })
+      pickerWs.send.mockClear()
+
+      // 別クライアントがセッションを作成
+      const terminalWs = createMockWs()
+      wssState.instance!.emit('connection', terminalWs)
+      sendMessage(terminalWs, { type: 'auth', token: 'test-token' })
+      sendMessage(terminalWs, { type: 'session_create' })
+
+      // picker クライアントに session_list がプッシュされる
+      const pickerCalls = pickerWs.send.mock.calls.map((c: any) => JSON.parse(c[0]))
+      const sessionListMsg = pickerCalls.find((m: any) => m.type === 'session_list')
+      expect(sessionListMsg).toBeDefined()
+      expect(sessionListMsg.sessions.length).toBe(1)
+    })
+
+    it('session_create 後は picker クライアントでなくなる（二重送信されない）', () => {
+      startPtyServer()
+
+      const ws = createMockWs()
+      wssState.instance!.emit('connection', ws)
+      sendMessage(ws, { type: 'auth', token: 'test-token' })
+      sendMessage(ws, { type: 'session_create' })
+      ws.send.mockClear()
+
+      // 別クライアントがセッション作成してもこのクライアントには送信されない
+      const ws2 = createMockWs()
+      wssState.instance!.emit('connection', ws2)
+      sendMessage(ws2, { type: 'auth', token: 'test-token' })
+      sendMessage(ws2, { type: 'session_create' })
+
+      const calls = ws.send.mock.calls.map((c: any) => JSON.parse(c[0]))
+      const sessionListMsg = calls.find((m: any) => m.type === 'session_list')
+      expect(sessionListMsg).toBeUndefined()
+    })
+  })
+
   describe('セッション操作（session_create 後）', () => {
     it('input メッセージが shell.write() を呼ぶ', () => {
       const { ws } = connectAuthAndCreate(startPtyServer)
@@ -237,8 +281,7 @@ describe('startPtyServer', () => {
 
     it('onPtyOutput コールバックが PTY 出力時に呼ばれる', () => {
       const onPtyOutput = vi.fn()
-      const mod = { startPtyServer }
-      mod.startPtyServer(undefined, { onPtyOutput })
+      startPtyServer(undefined, { onPtyOutput })
       const ws = createMockWs()
       wssState.instance!.emit('connection', ws)
       sendMessage(ws, { type: 'auth', token: 'test-token' })

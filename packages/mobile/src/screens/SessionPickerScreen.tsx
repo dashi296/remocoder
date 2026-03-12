@@ -50,6 +50,9 @@ export function SessionPickerScreen({ ip, token, onSelectSession, onBack }: Prop
         } else if (msg.type === 'auth_error') {
           setStatus('error')
           ws.close()
+        } else if (msg.type === 'ping') {
+          // サーバーのpongタイムアウトで切断されないよう応答する
+          ws.send(JSON.stringify({ type: 'pong' }))
         }
       } catch {
         // ignore parse errors

@@ -43,6 +43,12 @@ interface PtySession {
 /** 永続PTYセッションマップ（WS切断後も保持） */
 const ptySessions = new Map<string, PtySession>()
 
+/**
+ * 認証済みでまだセッションを選択していないWSクライアント（セッション選択画面）。
+ * セッション一覧が変化したときにリアルタイムで session_list をプッシュするために使用する。
+ */
+const pickerClients = new Set<WebSocket>()
+
 export interface PtyServerCallbacks {
   onSessionsChange?: (sessions: SessionInfo[]) => void
   /** デスクトップRenderer向けPTY出力通知 */
@@ -54,7 +60,18 @@ export interface PtyServerCallbacks {
 let serverCallbacks: PtyServerCallbacks = {}
 
 function notifySessions() {
-  serverCallbacks.onSessionsChange?.(getSessionInfos())
+  const infos = getSessionInfos()
+  serverCallbacks.onSessionsChange?.(infos)
+
+  // セッション選択中のモバイルクライアントへ最新一覧をプッシュ
+  if (pickerClients.size > 0) {
+    const msg = JSON.stringify({ type: 'session_list', sessions: infos } satisfies WsMessage)
+    for (const client of pickerClients) {
+      if (client.readyState === WebSocket.OPEN) {
+        client.send(msg)
+      }
+    }
+  }
 }
 
 function getSessionInfos(): SessionInfo[] {
@@ -243,6 +260,8 @@ export function startPtyServer(port = DEFAULT_WS_PORT, callbacks: PtyServerCallb
           authenticated = true
           clearTimeout(authTimeout)
           startPingInterval()
+          // picker クライアントとして登録（session_create/attach が来るまで保持）
+          pickerClients.add(ws)
           // auth_ok → session_list の順で送信
           ws.send(JSON.stringify({ type: 'auth_ok' } satisfies WsMessage))
           ws.send(
@@ -262,6 +281,8 @@ export function startPtyServer(port = DEFAULT_WS_PORT, callbacks: PtyServerCallb
 
       // ── セッション選択フェーズ ─────────────────────────────────────────
       if (msg.type === 'session_create') {
+        // セッションに接続するので picker から外す
+        pickerClients.delete(ws)
         detachFromSession()
         const session = createPtySession(clientIP)
         attachedSessionId = session.id
@@ -279,6 +300,8 @@ export function startPtyServer(port = DEFAULT_WS_PORT, callbacks: PtyServerCallb
       }
 
       if (msg.type === 'session_attach') {
+        // セッションに接続するので picker から外す
+        pickerClients.delete(ws)
         const session = ptySessions.get(msg.sessionId)
         if (!session) {
           ws.send(
@@ -334,6 +357,7 @@ export function startPtyServer(port = DEFAULT_WS_PORT, callbacks: PtyServerCallb
 
     ws.on('close', () => {
       cleanup()
+      pickerClients.delete(ws)
       // PTYは維持したままWSクライアントだけデタッチ
       detachFromSession()
     })

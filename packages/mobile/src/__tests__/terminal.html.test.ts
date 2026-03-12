@@ -1,4 +1,4 @@
-import { buildTerminalHtml } from '../assets/terminal.html'
+import { buildTerminalHtml } from '../assets/terminalHtml'
 
 describe('buildTerminalHtml', () => {
   const wsUrl = 'ws://100.64.0.1:8080'

@@ -2,7 +2,7 @@ import React, { useRef, useCallback, useState } from 'react'
 import { View, StyleSheet, TouchableOpacity, Text } from 'react-native'
 import { WebView, WebViewMessageEvent } from 'react-native-webview'
 import { DEFAULT_WS_PORT } from '@remocoder/shared'
-import { buildTerminalHtml } from '../assets/terminal.html'
+import { buildTerminalHtml } from '../assets/terminalHtml'
 
 type ConnectionStatus = 'connecting' | 'connected' | 'reconnecting' | 'auth_error' | 'shell_exit'
 

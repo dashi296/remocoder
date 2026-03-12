@@ -2,8 +2,7 @@
   "name": "@remocoder/shared",
   "version": "0.0.1",
   "private": true,
-  "type": "module",
-  "main": "./src/index.ts",
+"main": "./src/index.ts",
   "scripts": {
     "test": "vitest run",
     "test:watch": "vitest"

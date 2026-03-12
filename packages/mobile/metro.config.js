@@ -16,4 +16,10 @@ config.resolver.nodeModulesPaths = [
 // pnpm symlink 対応
 config.resolver.unstable_enableSymlinks = true
 
+// pnpm モノレポで複数の React インスタンスが生成されるのを防ぐ
+config.resolver.extraNodeModules = {
+  'react': path.resolve(projectRoot, 'node_modules/react'),
+  'react-native': path.resolve(projectRoot, 'node_modules/react-native'),
+}
+
 module.exports = config

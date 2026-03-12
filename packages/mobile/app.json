@@ -19,7 +19,6 @@
       "usesCleartextTraffic": true
     },
     "plugins": [
-      "react-native-webview",
       [
         "expo-camera",
         {

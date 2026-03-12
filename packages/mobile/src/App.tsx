@@ -1,34 +1,62 @@
 import React, { useState } from 'react'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
 import { ConnectScreen } from './screens/ConnectScreen'
+import { SessionPickerScreen } from './screens/SessionPickerScreen'
 import { TerminalScreen } from './screens/TerminalScreen'
 
-interface Connection {
+type Screen = 'connect' | 'sessionPicker' | 'terminal'
+
+interface AppState {
+  screen: Screen
   ip: string
   token: string
+  /** 接続先セッションID。null は新規セッション作成 */
+  sessionId?: string | null
 }
 
 export default function App() {
-  const [connection, setConnection] = useState<Connection | null>(null)
+  const [state, setState] = useState<AppState>({
+    screen: 'connect',
+    ip: '',
+    token: '',
+  })
 
   const handleConnect = (ip: string, token: string) => {
-    setConnection({ ip, token })
+    setState({ screen: 'sessionPicker', ip, token })
+  }
+
+  const handleSelectSession = (sessionId: string | null) => {
+    setState((prev) => ({ ...prev, screen: 'terminal', sessionId }))
+  }
+
+  const handleBack = () => {
+    setState((prev) => ({ ...prev, screen: 'connect' }))
   }
 
   const handleDisconnect = () => {
-    setConnection(null)
+    setState({ screen: 'connect', ip: '', token: '' })
   }
 
   return (
     <SafeAreaProvider>
-      {connection ? (
+      {state.screen === 'connect' && (
+        <ConnectScreen onConnect={handleConnect} />
+      )}
+      {state.screen === 'sessionPicker' && (
+        <SessionPickerScreen
+          ip={state.ip}
+          token={state.token}
+          onSelectSession={handleSelectSession}
+          onBack={handleBack}
+        />
+      )}
+      {state.screen === 'terminal' && (
         <TerminalScreen
-          ip={connection.ip}
-          token={connection.token}
+          ip={state.ip}
+          token={state.token}
+          sessionId={state.sessionId}
           onDisconnect={handleDisconnect}
         />
-      ) : (
-        <ConnectScreen onConnect={handleConnect} />
       )}
     </SafeAreaProvider>
   )

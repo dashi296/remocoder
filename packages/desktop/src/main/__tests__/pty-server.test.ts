@@ -58,8 +58,26 @@ function sendMessage(ws: any, msg: object) {
   ws.emit('message', Buffer.from(JSON.stringify(msg)))
 }
 
+// Helper: connect + auth + get session list
+function connectAndAuth(startPtyServer: any) {
+  startPtyServer()
+  const ws = createMockWs()
+  wssState.instance!.emit('connection', ws)
+  sendMessage(ws, { type: 'auth', token: 'test-token' })
+  ws.send.mockClear()
+  return { ws }
+}
+
+// Helper: connect + auth + create session (full flow)
+function connectAuthAndCreate(startPtyServer: any) {
+  const { ws } = connectAndAuth(startPtyServer)
+  sendMessage(ws, { type: 'session_create' })
+  ws.send.mockClear()
+  return { ws }
+}
+
 describe('startPtyServer', () => {
-  let startPtyServer: (port?: number, onSessionsChange?: (sessions: any[]) => void) => { wss: any; getToken: () => string }
+  let startPtyServer: (port?: number, callbacks?: any) => { wss: any; getToken: () => string }
 
   beforeEach(async () => {
     vi.resetModules()
@@ -95,14 +113,25 @@ describe('startPtyServer', () => {
   })
 
   describe('認証', () => {
-    it('正しいトークンで auth_ok を送信し PTY をスポーンする', () => {
+    it('正しいトークンで auth_ok + session_list を送信する', () => {
       startPtyServer()
       const ws = createMockWs()
       wssState.instance!.emit('connection', ws)
       sendMessage(ws, { type: 'auth', token: 'test-token' })
 
       expect(ws.send).toHaveBeenCalledWith(JSON.stringify({ type: 'auth_ok' }))
-      expect(ptyState.lastShell).not.toBeNull()
+      expect(ws.send).toHaveBeenCalledWith(
+        JSON.stringify({ type: 'session_list', sessions: [] }),
+      )
+    })
+
+    it('auth_ok 後は PTY を即座にスポーンしない', () => {
+      startPtyServer()
+      const ws = createMockWs()
+      wssState.instance!.emit('connection', ws)
+      sendMessage(ws, { type: 'auth', token: 'test-token' })
+
+      expect(ptyState.lastShell).toBeNull()
     })
 
     it('不正なトークンで auth_error を送信し ws.close() を呼ぶ', () => {
@@ -129,90 +158,114 @@ describe('startPtyServer', () => {
     })
   })
 
-  describe('認証後のメッセージ', () => {
-    function connectAndAuth() {
-      startPtyServer()
-      const ws = createMockWs()
-      wssState.instance!.emit('connection', ws)
-      sendMessage(ws, { type: 'auth', token: 'test-token' })
-      ws.send.mockClear()
-      return { ws }
-    }
+  describe('session_create', () => {
+    it('session_create で PTY をスポーンし session_attached を返す', () => {
+      const { ws } = connectAndAuth(startPtyServer)
+      sendMessage(ws, { type: 'session_create' })
 
+      expect(ptyState.lastShell).not.toBeNull()
+      const calls = ws.send.mock.calls.map((c: any) => JSON.parse(c[0]))
+      const attached = calls.find((m: any) => m.type === 'session_attached')
+      expect(attached).toBeDefined()
+      expect(attached.scrollback).toBe('')
+    })
+  })
+
+  describe('session_attach', () => {
+    it('存在しない sessionId で session_not_found を返す', () => {
+      const { ws } = connectAndAuth(startPtyServer)
+      sendMessage(ws, { type: 'session_attach', sessionId: 'nonexistent' })
+
+      const calls = ws.send.mock.calls.map((c: any) => JSON.parse(c[0]))
+      const notFound = calls.find((m: any) => m.type === 'session_not_found')
+      expect(notFound).toBeDefined()
+    })
+  })
+
+  describe('セッション操作（session_create 後）', () => {
     it('input メッセージが shell.write() を呼ぶ', () => {
-      const { ws } = connectAndAuth()
+      const { ws } = connectAuthAndCreate(startPtyServer)
       sendMessage(ws, { type: 'input', data: 'hello\n' })
       expect(ptyState.lastShell.write).toHaveBeenCalledWith('hello\n')
     })
 
     it('resize メッセージが shell.resize() を呼ぶ', () => {
-      const { ws } = connectAndAuth()
+      const { ws } = connectAuthAndCreate(startPtyServer)
       sendMessage(ws, { type: 'resize', cols: 120, rows: 40 })
       expect(ptyState.lastShell.resize).toHaveBeenCalledWith(120, 40)
     })
 
     it('ping メッセージに pong を返す', () => {
-      const { ws } = connectAndAuth()
+      const { ws } = connectAuthAndCreate(startPtyServer)
       sendMessage(ws, { type: 'ping' })
       expect(ws.send).toHaveBeenCalledWith(JSON.stringify({ type: 'pong' }))
     })
 
     it('pong メッセージを受信してもエラーにならない', () => {
-      const { ws } = connectAndAuth()
+      const { ws } = connectAuthAndCreate(startPtyServer)
       expect(() => sendMessage(ws, { type: 'pong' })).not.toThrow()
     })
 
     it('不正な JSON メッセージを受信してもエラーにならない', () => {
-      startPtyServer()
-      const ws = createMockWs()
-      wssState.instance!.emit('connection', ws)
-      sendMessage(ws, { type: 'auth', token: 'test-token' })
-      ws.send.mockClear()
+      const { ws } = connectAuthAndCreate(startPtyServer)
       expect(() => ws.emit('message', Buffer.from('not-valid-json'))).not.toThrow()
     })
   })
 
   describe('PTY イベント', () => {
-    function connectAndAuth() {
-      startPtyServer()
-      const ws = createMockWs()
-      wssState.instance!.emit('connection', ws)
-      sendMessage(ws, { type: 'auth', token: 'test-token' })
-      ws.send.mockClear()
-      return { ws }
-    }
-
     it('shell の onData → output メッセージを送信する (ws.OPEN 時)', () => {
-      const { ws } = connectAndAuth()
+      const { ws } = connectAuthAndCreate(startPtyServer)
       ptyState.lastShell._onDataCb('some output')
       expect(ws.send).toHaveBeenCalledWith(JSON.stringify({ type: 'output', data: 'some output' }))
     })
 
     it('ws が閉じている場合 shell の onData でメッセージを送信しない', () => {
-      const { ws } = connectAndAuth()
+      const { ws } = connectAuthAndCreate(startPtyServer)
       ws.readyState = 0 // not OPEN
       ptyState.lastShell._onDataCb('some output')
       expect(ws.send).not.toHaveBeenCalled()
     })
 
     it('shell の onExit → shell_exit メッセージ送信 + ws.close() を呼ぶ', () => {
-      const { ws } = connectAndAuth()
+      const { ws } = connectAuthAndCreate(startPtyServer)
       ptyState.lastShell._onExitCb({ exitCode: 0 })
       expect(ws.send).toHaveBeenCalledWith(
         JSON.stringify({ type: 'shell_exit', exitCode: 0 }),
       )
       expect(ws.close).toHaveBeenCalled()
     })
-  })
 
-  describe('ws close', () => {
-    it('クライアント切断時に shell.kill() を呼ぶ', () => {
-      startPtyServer()
+    it('onPtyOutput コールバックが PTY 出力時に呼ばれる', () => {
+      const onPtyOutput = vi.fn()
+      const mod = { startPtyServer }
+      mod.startPtyServer(undefined, { onPtyOutput })
       const ws = createMockWs()
       wssState.instance!.emit('connection', ws)
       sendMessage(ws, { type: 'auth', token: 'test-token' })
+      sendMessage(ws, { type: 'session_create' })
+
+      ptyState.lastShell._onDataCb('hello')
+      expect(onPtyOutput).toHaveBeenCalledWith(expect.any(String), 'hello')
+    })
+  })
+
+  describe('ws close', () => {
+    it('クライアント切断後もセッション（PTY）は維持される', () => {
+      const onSessionsChange = vi.fn()
+      startPtyServer(undefined, { onSessionsChange })
+      const ws = createMockWs()
+      wssState.instance!.emit('connection', ws)
+      sendMessage(ws, { type: 'auth', token: 'test-token' })
+      sendMessage(ws, { type: 'session_create' })
+
+      const beforeClose = onSessionsChange.mock.calls.at(-1)[0]
+      expect(beforeClose.length).toBe(1)
+
       ws.emit('close')
-      expect(ptyState.lastShell.kill).toHaveBeenCalled()
+
+      // セッションは残るがkillされない
+      expect(ptyState.lastShell.kill).not.toHaveBeenCalled()
+      // onSessionsChange が呼ばれてもセッション自体は残っている
     })
 
     it('認証前に切断されても authTimeout がクリアされタイムアウト後に close を呼ばない', () => {

@@ -1,4 +1,12 @@
-export function buildTerminalHtml(wsUrl: string, token: string): string {
+/**
+ * @param wsUrl WebSocket URL
+ * @param token 認証トークン
+ * @param sessionId アタッチ先セッションID。null の場合は新規セッション作成
+ */
+export function buildTerminalHtml(wsUrl: string, token: string, sessionId: string | null = null): string {
+  // JavaScriptに埋め込むセッションID（nullの場合は空文字列）
+  const sessionIdJs = sessionId ? JSON.stringify(sessionId) : 'null'
+
   return `
 <!DOCTYPE html>
 <html>
@@ -28,10 +36,13 @@ export function buildTerminalHtml(wsUrl: string, token: string): string {
     term.open(document.getElementById('terminal'))
     fitAddon.fit()
 
+    // アタッチ先セッションID（null = 新規作成）
+    const TARGET_SESSION_ID = ${sessionIdJs}
+
     let ws = null
     let reconnectDelay = 1000
     const MAX_RECONNECT_DELAY = 30000
-    // 接続試行タイムアウト（ms）: CONNECTINGのまま無応答の場合に切断して再試行
+    // 接続試行タイムアウト（ms）
     const CONNECT_TIMEOUT = 10000
     let reconnectAttempt = 0
     let connectTimeoutId = null
@@ -78,8 +89,25 @@ export function buildTerminalHtml(wsUrl: string, token: string): string {
         if (msg.type === 'output') {
           term.write(msg.data)
         } else if (msg.type === 'auth_ok') {
+          // auth_ok を受信後、セッション選択リクエストを送信
+          if (TARGET_SESSION_ID) {
+            ws.send(JSON.stringify({ type: 'session_attach', sessionId: TARGET_SESSION_ID }))
+          } else {
+            ws.send(JSON.stringify({ type: 'session_create' }))
+          }
+        } else if (msg.type === 'session_attached') {
+          // スクロールバック（過去の出力）を書き込み
+          if (msg.scrollback) {
+            term.write(msg.scrollback)
+          }
+          // リサイズ通知
           ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }))
-          postToNative({ type: 'auth_ok' })
+          postToNative({ type: 'session_attached', sessionId: msg.sessionId })
+        } else if (msg.type === 'session_not_found') {
+          term.write('\\r\\n[セッションが見つかりません: ' + msg.sessionId + ']\\r\\n')
+          noReconnect = true
+          ws.close()
+          postToNative({ type: 'session_not_found', sessionId: msg.sessionId })
         } else if (msg.type === 'auth_error') {
           term.write('\\r\\n[認証エラー: ' + msg.reason + ']\\r\\n')
           noReconnect = true
@@ -129,7 +157,7 @@ export function buildTerminalHtml(wsUrl: string, token: string): string {
       }
     })
 
-    // クライアント側keepalive: サーバーからのpingに加え、クライアントからも定期送信
+    // クライアント側keepalive
     setInterval(() => {
       if (ws && ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({ type: 'ping' }))

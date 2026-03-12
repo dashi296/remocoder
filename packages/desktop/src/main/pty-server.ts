@@ -19,64 +19,191 @@ export function rotateToken(): string {
 
 // サーバーからクライアントへのping間隔（ms）
 const SERVER_PING_INTERVAL = 30000
-// pong未応答タイムアウト（ms）: ping送信後この時間内にpongがなければ切断
+// pong未応答タイムアウト（ms）
 const PONG_TIMEOUT = 10000
-// アイドル判定時間（ms）: 最後の入力からこの時間経過でidleに変更
+// アイドル判定時間（ms）
 const IDLE_TIMEOUT = 300000
+// スクロールバックの最大バイト数（500KB）
+const SCROLLBACK_MAX_BYTES = 500_000
 
-export function startPtyServer(
-  port = DEFAULT_WS_PORT,
-  onSessionsChange?: (sessions: SessionInfo[]) => void,
-) {
-  const wss = new WebSocketServer({ port })
-  const sessions = new Map<string, SessionInfo>()
+/** サーバー内部で管理するPTYセッション */
+interface PtySession {
+  id: string
+  pty: pty.IPty
+  createdAt: string
+  status: 'active' | 'idle'
+  /** PTY出力履歴（最大SCROLLBACK_MAX_BYTES） */
+  scrollback: string
+  /** 接続中のモバイルWSクライアント（1台のみ） */
+  wsClient: WebSocket | null
+  clientIP?: string
+  idleTimeoutId: ReturnType<typeof setTimeout> | null
+}
 
-  const notify = () => {
-    onSessionsChange?.(Array.from(sessions.values()))
+/** 永続PTYセッションマップ（WS切断後も保持） */
+const ptySessions = new Map<string, PtySession>()
+
+export interface PtyServerCallbacks {
+  onSessionsChange?: (sessions: SessionInfo[]) => void
+  /** デスクトップRenderer向けPTY出力通知 */
+  onPtyOutput?: (sessionId: string, data: string) => void
+  /** デスクトップRenderer向けPTY終了通知 */
+  onPtyExit?: (sessionId: string, exitCode: number) => void
+}
+
+let serverCallbacks: PtyServerCallbacks = {}
+
+function notifySessions() {
+  serverCallbacks.onSessionsChange?.(getSessionInfos())
+}
+
+function getSessionInfos(): SessionInfo[] {
+  return Array.from(ptySessions.values()).map((s) => ({
+    id: s.id,
+    createdAt: s.createdAt,
+    status: s.status,
+    clientIP: s.clientIP,
+    hasClient: s.wsClient !== null && s.wsClient.readyState === WebSocket.OPEN,
+  }))
+}
+
+function setSessionActive(session: PtySession) {
+  if (session.status !== 'active') {
+    session.status = 'active'
+    notifySessions()
   }
+  if (session.idleTimeoutId) clearTimeout(session.idleTimeoutId)
+  session.idleTimeoutId = setTimeout(() => {
+    const s = ptySessions.get(session.id)
+    if (s) {
+      s.status = 'idle'
+      notifySessions()
+    }
+  }, IDLE_TIMEOUT)
+}
+
+function createPtySession(clientIP?: string): PtySession {
+  const id = uuidv4()
+  const ptyProc = spawnShell()
+
+  const session: PtySession = {
+    id,
+    pty: ptyProc,
+    createdAt: new Date().toISOString(),
+    status: 'active',
+    scrollback: '',
+    wsClient: null,
+    clientIP,
+    idleTimeoutId: null,
+  }
+
+  ptyProc.onData((data) => {
+    // スクロールバックに追記（最大バイト数を超えたら先頭を切り捨て）
+    session.scrollback += data
+    if (session.scrollback.length > SCROLLBACK_MAX_BYTES) {
+      session.scrollback = session.scrollback.slice(
+        session.scrollback.length - SCROLLBACK_MAX_BYTES,
+      )
+    }
+    // モバイルWSクライアントへブロードキャスト
+    if (session.wsClient?.readyState === WebSocket.OPEN) {
+      session.wsClient.send(JSON.stringify({ type: 'output', data } satisfies WsMessage))
+    }
+    // デスクトップRendererへIPC経由でブロードキャスト
+    serverCallbacks.onPtyOutput?.(id, data)
+  })
+
+  ptyProc.onExit(({ exitCode }) => {
+    if (session.idleTimeoutId) clearTimeout(session.idleTimeoutId)
+    // モバイルクライアントへ終了通知
+    if (session.wsClient?.readyState === WebSocket.OPEN) {
+      session.wsClient.send(JSON.stringify({ type: 'shell_exit', exitCode } satisfies WsMessage))
+      session.wsClient.close()
+    }
+    // デスクトップRendererへ終了通知
+    serverCallbacks.onPtyExit?.(id, exitCode)
+    // セッション削除
+    ptySessions.delete(id)
+    notifySessions()
+  })
+
+  ptySessions.set(id, session)
+
+  // アイドルタイマー開始
+  session.idleTimeoutId = setTimeout(() => {
+    const s = ptySessions.get(id)
+    if (s) {
+      s.status = 'idle'
+      notifySessions()
+    }
+  }, IDLE_TIMEOUT)
+
+  notifySessions()
+  console.log(`Created PTY session: ${id}`)
+  return session
+}
+
+// ─── デスクトップRenderer向けパブリックAPI ─────────────────────────────────────
+
+/** デスクトップから新規PTYセッションを作成する */
+export function desktopCreateSession(): string {
+  const session = createPtySession()
+  return session.id
+}
+
+/** デスクトップからセッションのスクロールバックを取得する */
+export function desktopGetScrollback(sessionId: string): string | null {
+  return ptySessions.get(sessionId)?.scrollback ?? null
+}
+
+/** デスクトップからPTYへ入力を送る */
+export function desktopSendInput(sessionId: string, data: string): void {
+  const session = ptySessions.get(sessionId)
+  if (session) {
+    session.pty.write(data)
+    setSessionActive(session)
+  }
+}
+
+/** デスクトップからPTYをリサイズする */
+export function desktopResize(sessionId: string, cols: number, rows: number): void {
+  ptySessions.get(sessionId)?.pty.resize(cols, rows)
+}
+
+/** 現在のセッション一覧を返す */
+export function getSessions(): SessionInfo[] {
+  return getSessionInfos()
+}
+
+// ─── WebSocketサーバー ──────────────────────────────────────────────────────
+
+export function startPtyServer(port = DEFAULT_WS_PORT, callbacks: PtyServerCallbacks = {}) {
+  serverCallbacks = callbacks
+  const wss = new WebSocketServer({ port })
 
   console.log(`PTY server started on port ${port}`)
   console.log(`Auth token: ${AUTH_TOKEN}`)
 
   wss.on('connection', (ws, req: IncomingMessage) => {
     let authenticated = false
-    let shell: pty.IPty | null = null
-    let sessionId: string | null = null
+    let attachedSessionId: string | null = null
     let pongPending = false
     let pingIntervalId: ReturnType<typeof setInterval> | null = null
     let pongTimeoutId: ReturnType<typeof setTimeout> | null = null
-    let idleTimeoutId: ReturnType<typeof setTimeout> | null = null
+    const clientIP = req?.socket?.remoteAddress
 
     const authTimeout = setTimeout(() => {
       if (!authenticated) ws.close()
     }, 5000)
 
-    const setActive = () => {
-      if (!sessionId) return
-      const session = sessions.get(sessionId)
-      if (session && session.status !== 'active') {
-        sessions.set(sessionId, { ...session, status: 'active' })
-        notify()
-      }
-      if (idleTimeoutId) clearTimeout(idleTimeoutId)
-      idleTimeoutId = setTimeout(() => {
-        if (!sessionId) return
-        const s = sessions.get(sessionId)
-        if (s) {
-          sessions.set(sessionId, { ...s, status: 'idle' })
-          notify()
-        }
-      }, IDLE_TIMEOUT)
-    }
-
     const startPingInterval = () => {
       pingIntervalId = setInterval(() => {
         if (ws.readyState !== ws.OPEN) return
         pongPending = true
-        ws.send(JSON.stringify({ type: 'ping' }))
+        ws.send(JSON.stringify({ type: 'ping' } satisfies WsMessage))
         pongTimeoutId = setTimeout(() => {
           if (pongPending) {
-            console.log(`Session ${sessionId}: pong timeout, closing connection`)
+            console.log(`Session ${attachedSessionId}: pong timeout, closing connection`)
             ws.close()
           }
         }, PONG_TIMEOUT)
@@ -87,7 +214,18 @@ export function startPtyServer(
       clearTimeout(authTimeout)
       if (pingIntervalId) clearInterval(pingIntervalId)
       if (pongTimeoutId) clearTimeout(pongTimeoutId)
-      if (idleTimeoutId) clearTimeout(idleTimeoutId)
+    }
+
+    const detachFromSession = () => {
+      if (attachedSessionId) {
+        const session = ptySessions.get(attachedSessionId)
+        if (session && session.wsClient === ws) {
+          session.wsClient = null
+          session.clientIP = undefined
+          notifySessions()
+        }
+        attachedSessionId = null
+      }
     }
 
     ws.on('message', (raw) => {
@@ -99,53 +237,92 @@ export function startPtyServer(
         return
       }
 
+      // ── 未認証フェーズ ──────────────────────────────────────────────────
       if (!authenticated) {
         if (msg.type === 'auth' && msg.token === AUTH_TOKEN) {
           authenticated = true
           clearTimeout(authTimeout)
-          try {
-            shell = spawnClaude(ws)
-          } catch (err) {
-            console.error('Failed to spawn claude:', err)
-            ws.send(JSON.stringify({ type: 'auth_error', reason: `Failed to start shell: ${err}` } satisfies WsMessage))
-            ws.close()
-            return
-          }
-
-          sessionId = uuidv4()
-          sessions.set(sessionId, {
-            id: sessionId,
-            createdAt: new Date().toISOString(),
-            status: 'active',
-            clientIP: req?.socket?.remoteAddress,
-          })
-          notify()
           startPingInterval()
-          idleTimeoutId = setTimeout(() => {
-            if (!sessionId) return
-            const s = sessions.get(sessionId)
-            if (s) {
-              sessions.set(sessionId, { ...s, status: 'idle' })
-              notify()
-            }
-          }, IDLE_TIMEOUT)
-
-          ws.send(JSON.stringify({ type: 'auth_ok' }))
+          // auth_ok → session_list の順で送信
+          ws.send(JSON.stringify({ type: 'auth_ok' } satisfies WsMessage))
+          ws.send(
+            JSON.stringify({
+              type: 'session_list',
+              sessions: getSessionInfos(),
+            } satisfies WsMessage),
+          )
         } else {
-          ws.send(JSON.stringify({ type: 'auth_error', reason: 'invalid token' }))
+          ws.send(
+            JSON.stringify({ type: 'auth_error', reason: 'invalid token' } satisfies WsMessage),
+          )
           ws.close()
         }
         return
       }
 
-      if (!shell) return
+      // ── セッション選択フェーズ ─────────────────────────────────────────
+      if (msg.type === 'session_create') {
+        detachFromSession()
+        const session = createPtySession(clientIP)
+        attachedSessionId = session.id
+        session.wsClient = ws
+        session.clientIP = clientIP
+        notifySessions()
+        ws.send(
+          JSON.stringify({
+            type: 'session_attached',
+            sessionId: session.id,
+            scrollback: '',
+          } satisfies WsMessage),
+        )
+        return
+      }
+
+      if (msg.type === 'session_attach') {
+        const session = ptySessions.get(msg.sessionId)
+        if (!session) {
+          ws.send(
+            JSON.stringify({
+              type: 'session_not_found',
+              sessionId: msg.sessionId,
+            } satisfies WsMessage),
+          )
+          return
+        }
+        detachFromSession()
+        // 既存のモバイルクライアントを切断（上書きアタッチ）
+        if (
+          session.wsClient &&
+          session.wsClient !== ws &&
+          session.wsClient.readyState === WebSocket.OPEN
+        ) {
+          session.wsClient.close()
+        }
+        session.wsClient = ws
+        session.clientIP = clientIP
+        attachedSessionId = session.id
+        notifySessions()
+        ws.send(
+          JSON.stringify({
+            type: 'session_attached',
+            sessionId: session.id,
+            scrollback: session.scrollback,
+          } satisfies WsMessage),
+        )
+        return
+      }
+
+      // ── セッション操作フェーズ ────────────────────────────────────────
+      if (!attachedSessionId) return
+      const session = ptySessions.get(attachedSessionId)
+      if (!session) return
 
       if (msg.type === 'input') {
-        shell.write(msg.data)
-        setActive()
+        session.pty.write(msg.data)
+        setSessionActive(session)
       }
-      if (msg.type === 'resize') shell.resize(msg.cols, msg.rows)
-      if (msg.type === 'ping') ws.send(JSON.stringify({ type: 'pong' }))
+      if (msg.type === 'resize') session.pty.resize(msg.cols, msg.rows)
+      if (msg.type === 'ping') ws.send(JSON.stringify({ type: 'pong' } satisfies WsMessage))
       if (msg.type === 'pong') {
         pongPending = false
         if (pongTimeoutId) {
@@ -157,11 +334,8 @@ export function startPtyServer(
 
     ws.on('close', () => {
       cleanup()
-      shell?.kill()
-      if (sessionId) {
-        sessions.delete(sessionId)
-        notify()
-      }
+      // PTYは維持したままWSクライアントだけデタッチ
+      detachFromSession()
     })
   })
 
@@ -176,29 +350,13 @@ function resolveShell(): string {
   return '/bin/sh'
 }
 
-function spawnClaude(ws: WebSocket): pty.IPty {
+function spawnShell(): pty.IPty {
   const loginShell = resolveShell()
   console.log(`Spawning claude via shell: ${loginShell}`)
-  const shell = pty.spawn(loginShell, ['-lc', 'exec claude'], {
+  return pty.spawn(loginShell, ['-lc', 'exec claude'], {
     name: 'xterm-color',
     cols: 80,
     rows: 30,
     env: { ...process.env },
   })
-
-  shell.onData((data) => {
-    if (ws.readyState === ws.OPEN) {
-      const msg: WsMessage = { type: 'output', data }
-      ws.send(JSON.stringify(msg))
-    }
-  })
-
-  shell.onExit(({ exitCode }) => {
-    if (ws.readyState === ws.OPEN) {
-      ws.send(JSON.stringify({ type: 'shell_exit', exitCode } satisfies WsMessage))
-      ws.close()
-    }
-  })
-
-  return shell
 }

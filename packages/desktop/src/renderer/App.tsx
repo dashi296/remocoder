@@ -2,7 +2,9 @@ import React, { useEffect, useState } from 'react'
 import './index.css'
 import { StatusPanel } from './components/StatusPanel'
 import { TokenDisplay } from './components/TokenDisplay'
-import { SessionList, SessionInfo } from './components/SessionList'
+import { SessionList } from './components/SessionList'
+import { TerminalPanel } from './components/TerminalPanel'
+import type { SessionInfo } from '@remocoder/shared'
 
 const DEFAULT_WS_PORT = 8080
 
@@ -18,17 +20,27 @@ const mockAPI = {
       createdAt: new Date(Date.now() - 1000 * 60 * 3).toISOString(),
       status: 'active',
       clientIP: '100.88.44.55',
+      hasClient: true,
     },
     {
       id: 'sess-002',
       createdAt: new Date(Date.now() - 1000 * 30).toISOString(),
       status: 'idle',
-      clientIP: '100.88.44.77',
+      hasClient: false,
     },
   ],
-  onSessionsUpdate: (cb: (sessions: SessionInfo[]) => void) => {
-    // no-op in mock mode
-  },
+  onSessionsUpdate: (_cb: (sessions: SessionInfo[]) => void) => { /* mock no-op */ },
+  rotateToken: async () => 'new-token',
+  ptyCreate: async () => 'mock-session-id',
+  ptyGetScrollback: async (_sessionId: string) => null as string | null,
+  ptyInput: (_sessionId: string, _data: string) => { /* mock no-op */ },
+  ptyResize: (_sessionId: string, _cols: number, _rows: number) => { /* mock no-op */ },
+  openTerminalWindow: async (_sessionId: string) => { /* mock no-op */ },
+  closeTerminalWindow: async () => { /* mock no-op */ },
+  onPtyOutput: (_cb: (sessionId: string, data: string) => void) => () => { /* mock no-op */ },
+  onPtyExit: (_cb: (sessionId: string, exitCode: number) => void) => () => { /* mock no-op */ },
+  onTerminalOpened: (_cb: (sessionId: string) => void) => { /* mock no-op */ },
+  onTerminalClosed: (_cb: () => void) => { /* mock no-op */ },
 }
 
 const api = MOCK_MODE ? mockAPI : (window as any).electronAPI
@@ -40,6 +52,7 @@ export default function App() {
   const [token, setToken] = useState<string>('')
   const [sessions, setSessions] = useState<SessionInfo[]>([])
   const [wsRunning] = useState(true)
+  const [activeTerminalSessionId, setActiveTerminalSessionId] = useState<string | null>(null)
 
   useEffect(() => {
     api.getTailscaleIP().then(setTailscaleIP)
@@ -48,7 +61,36 @@ export default function App() {
     api.onSessionsUpdate(setSessions)
     api.onTokenRotated?.((newToken: string) => setToken(newToken))
     api.onTailscaleIPUpdated?.((newIp: string | null) => setTailscaleIP(newIp))
+
+    // ターミナルウィンドウの開閉通知（別のウィンドウから通知される場合を考慮）
+    api.onTerminalOpened?.((sessionId: string) => setActiveTerminalSessionId(sessionId))
+    api.onTerminalClosed?.(() => setActiveTerminalSessionId(null))
   }, [])
+
+  const handleOpenTerminal = async (sessionId: string) => {
+    await api.openTerminalWindow(sessionId)
+    setActiveTerminalSessionId(sessionId)
+  }
+
+  const handleNewSession = async () => {
+    const sessionId = await api.ptyCreate()
+    await api.openTerminalWindow(sessionId)
+    setActiveTerminalSessionId(sessionId)
+  }
+
+  const handleCloseTerminal = () => {
+    setActiveTerminalSessionId(null)
+  }
+
+  // ターミナルモード: TerminalPanelをフルスクリーンで表示
+  if (activeTerminalSessionId) {
+    return (
+      <TerminalPanel
+        sessionId={activeTerminalSessionId}
+        onClose={handleCloseTerminal}
+      />
+    )
+  }
 
   return (
     <div style={styles.app}>
@@ -83,7 +125,11 @@ export default function App() {
             onRotate={api.rotateToken ? async () => { const t = await api.rotateToken(); setToken(t) } : undefined}
           />
         )}
-        <SessionList sessions={sessions} />
+        <SessionList
+          sessions={sessions}
+          onOpenTerminal={handleOpenTerminal}
+          onNewSession={handleNewSession}
+        />
       </main>
 
       {/* Footer */}
@@ -123,7 +169,6 @@ const styles: Record<string, React.CSSProperties> = {
     width: '100%',
     minHeight: '100vh',
     background: 'var(--bg-base)',
-    // Subtle grid background
     backgroundImage: `
       linear-gradient(var(--border) 1px, transparent 1px),
       linear-gradient(90deg, var(--border) 1px, transparent 1px)
@@ -139,7 +184,6 @@ const styles: Record<string, React.CSSProperties> = {
     borderBottom: '1px solid var(--border-bright)',
     background: 'var(--bg-surface)',
     position: 'relative',
-    // Bottom accent line
   },
   logoArea: {
     display: 'flex',

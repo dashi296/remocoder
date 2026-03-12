@@ -7,6 +7,7 @@ function makeSession(overrides: Partial<SessionInfo> = {}): SessionInfo {
     id: 'sess-001',
     createdAt: '2026-03-12T10:00:00.000Z',
     status: 'active',
+    hasClient: false,
     ...overrides,
   }
 }

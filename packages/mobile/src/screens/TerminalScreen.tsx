@@ -10,6 +10,8 @@ type ConnectionStatus = 'connecting' | 'connected' | 'reconnecting' | 'auth_erro
 interface Props {
   ip: string
   token: string
+  /** アタッチ先セッションID。null または未指定で新規セッション作成 */
+  sessionId?: string | null
   onDisconnect: () => void
 }
 
@@ -24,7 +26,7 @@ const STATUS_CONFIG: Record<
   shell_exit: { label: 'セッション終了', color: '#d4d4d4', bgColor: 'rgba(50,50,50,0.8)' },
 }
 
-export function TerminalScreen({ ip, token, onDisconnect }: Props) {
+export function TerminalScreen({ ip, token, sessionId, onDisconnect }: Props) {
   const wsUrl = `ws://${ip}:${DEFAULT_WS_PORT}`
   const [status, setStatus] = useState<ConnectionStatus>('connecting')
   const [webViewKey, setWebViewKey] = useState(0)
@@ -39,6 +41,8 @@ export function TerminalScreen({ ip, token, onDisconnect }: Props) {
         } else if (msg.type === 'auth_error') {
           setStatus('auth_error')
         } else if (msg.type === 'auth_ok') {
+          // auth_ok 後はセッション選択待ち状態 → session_attached で connected へ
+        } else if (msg.type === 'session_attached') {
           setStatus('connected')
         } else if (msg.type === 'connected') {
           setStatus('connected')
@@ -46,6 +50,8 @@ export function TerminalScreen({ ip, token, onDisconnect }: Props) {
           setStatus('reconnecting')
         } else if (msg.type === 'shell_exit') {
           setStatus('shell_exit')
+        } else if (msg.type === 'session_not_found') {
+          setStatus('auth_error')
         }
       } catch {
         // 無視
@@ -60,7 +66,7 @@ export function TerminalScreen({ ip, token, onDisconnect }: Props) {
     setWebViewKey((k) => k + 1)
   }, [])
 
-  const html = buildTerminalHtml(wsUrl, token)
+  const html = buildTerminalHtml(wsUrl, token, sessionId ?? null)
   const statusCfg = STATUS_CONFIG[status]
   const showRetry = status === 'auth_error' || status === 'shell_exit'
 

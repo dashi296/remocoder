@@ -3,11 +3,28 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react-nativ
 import App from '../App'
 import AsyncStorage from '../__mocks__/async-storage'
 
+// SessionPickerScreen が使う WebSocket をモック
+const mockWs = {
+  send: jest.fn(),
+  close: jest.fn(),
+  readyState: 0,
+  onopen: null as (() => void) | null,
+  onmessage: null as ((e: { data: string }) => void) | null,
+  onerror: null as (() => void) | null,
+  onclose: null as (() => void) | null,
+}
+
+;(globalThis as Record<string, unknown>).WebSocket = jest.fn().mockImplementation(() => mockWs)
+
 describe('App', () => {
   beforeEach(() => {
     jest.clearAllMocks()
     AsyncStorage.clear()
     AsyncStorage.getItem.mockResolvedValue(null)
+    mockWs.onopen = null
+    mockWs.onmessage = null
+    mockWs.onerror = null
+    mockWs.onclose = null
   })
 
   it('初期画面: ConnectScreen が表示される', async () => {
@@ -16,7 +33,7 @@ describe('App', () => {
     expect(screen.getByText('接続先がありません')).toBeTruthy()
   })
 
-  it('接続後: TerminalScreen が表示される', async () => {
+  it('接続後: SessionPickerScreen が表示される', async () => {
     const profiles = [{ id: '1', name: 'MacBook', ip: '100.64.0.1', token: 'tok' }]
     AsyncStorage.getItem.mockResolvedValue(JSON.stringify(profiles))
     AsyncStorage.setItem.mockResolvedValue(undefined)
@@ -25,12 +42,13 @@ describe('App', () => {
     await waitFor(() => screen.getByText('MacBook'))
     fireEvent.press(screen.getByText('MacBook'))
 
-    await waitFor(() => screen.getByTestId('webview'))
-    expect(screen.getByTestId('webview')).toBeTruthy()
+    // SessionPickerScreen が表示される（「セッションを選択」ヘッダー）
+    await waitFor(() => screen.getByText('セッションを選択'))
+    expect(screen.getByText('セッションを選択')).toBeTruthy()
   })
 
-  it('切断後: ConnectScreen に戻る', async () => {
-    const profiles = [{ id: '1', name: 'MacBook', ip: '10.0.0.1', token: 'tok' }]
+  it('SessionPickerScreen の「戻る」でConnectScreenに戻る', async () => {
+    const profiles = [{ id: '1', name: 'MacBook', ip: '100.64.0.1', token: 'tok' }]
     AsyncStorage.getItem.mockResolvedValue(JSON.stringify(profiles))
     AsyncStorage.setItem.mockResolvedValue(undefined)
 
@@ -38,11 +56,9 @@ describe('App', () => {
     await waitFor(() => screen.getByText('MacBook'))
     fireEvent.press(screen.getByText('MacBook'))
 
-    await waitFor(() => screen.getByTestId('webview'))
+    await waitFor(() => screen.getByText('← 戻る'))
+    fireEvent.press(screen.getByText('← 戻る'))
 
-    fireEvent.press(screen.getByText('切断'))
-
-    // プロファイル一覧画面に戻る（MacBook プロファイルが表示される）
     await waitFor(() => screen.getByText('MacBook'))
     expect(screen.getByText('MacBook')).toBeTruthy()
   })

@@ -1,14 +1,12 @@
 import React from 'react'
+import type { SessionInfo } from '@remocoder/shared'
 
-export interface SessionInfo {
-  id: string
-  createdAt: string
-  status: 'active' | 'idle'
-  clientIP?: string
-}
+export type { SessionInfo }
 
 interface SessionListProps {
   sessions: SessionInfo[]
+  onOpenTerminal?: (sessionId: string) => void
+  onNewSession?: () => void
 }
 
 function formatTime(iso: string): string {
@@ -19,8 +17,17 @@ function formatTime(iso: string): string {
   return `${hh}:${mm}:${ss}`
 }
 
-function SessionRow({ session, index }: { session: SessionInfo; index: number }) {
+function SessionRow({
+  session,
+  index,
+  onOpen,
+}: {
+  session: SessionInfo
+  index: number
+  onOpen?: (id: string) => void
+}) {
   const isActive = session.status === 'active'
+  const hasClient = session.hasClient ?? false
 
   return (
     <div
@@ -49,22 +56,30 @@ function SessionRow({ session, index }: { session: SessionInfo; index: number })
         </div>
       </div>
 
-      {/* Status badge */}
-      <span
-        style={{
-          ...styles.statusBadge,
-          color: isActive ? 'var(--green)' : 'var(--amber)',
-          borderColor: isActive ? 'var(--green-dim)' : 'var(--amber-dim)',
-          background: isActive ? 'var(--green-pulse)' : 'var(--amber-glow)',
-        }}
-      >
-        {session.status.toUpperCase()}
-      </span>
+      {/* Right side: badge + open button */}
+      <div style={styles.rowRight}>
+        <span
+          style={{
+            ...styles.statusBadge,
+            color: isActive ? 'var(--green)' : 'var(--amber)',
+            borderColor: isActive ? 'var(--green-dim)' : 'var(--amber-dim)',
+            background: isActive ? 'var(--green-pulse)' : 'var(--amber-glow)',
+          }}
+        >
+          {session.status.toUpperCase()}
+          {hasClient ? ' · 接続中' : ''}
+        </span>
+        {onOpen && (
+          <button style={styles.openButton} onClick={() => onOpen(session.id)} title="ターミナルを開く">
+            <TerminalIcon />
+          </button>
+        )}
+      </div>
     </div>
   )
 }
 
-export function SessionList({ sessions }: SessionListProps) {
+export function SessionList({ sessions, onOpenTerminal, onNewSession }: SessionListProps) {
   return (
     <section style={styles.section}>
       <div style={styles.sectionHeader}>
@@ -73,6 +88,11 @@ export function SessionList({ sessions }: SessionListProps) {
         <span style={styles.count}>
           {sessions.length > 0 ? `${sessions.length} ACTIVE` : '—'}
         </span>
+        {onNewSession && (
+          <button style={styles.newButton} onClick={onNewSession} title="新規セッション作成">
+            <PlusIcon />
+          </button>
+        )}
       </div>
 
       {sessions.length === 0 ? (
@@ -85,15 +105,38 @@ export function SessionList({ sessions }: SessionListProps) {
             <span style={{ color: 'var(--green)', animation: 'blink 1.2s step-end infinite' }}>▮</span>
             {' '}モバイルアプリからの接続を待っています
           </p>
+          {onNewSession && (
+            <button style={styles.newSessionBtn} onClick={onNewSession}>
+              + 新規セッションを作成
+            </button>
+          )}
         </div>
       ) : (
         <div style={styles.list}>
           {sessions.map((s, i) => (
-            <SessionRow key={s.id} session={s} index={i} />
+            <SessionRow key={s.id} session={s} index={i} onOpen={onOpenTerminal} />
           ))}
         </div>
       )}
     </section>
+  )
+}
+
+function TerminalIcon() {
+  return (
+    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="4 17 10 11 4 5" />
+      <line x1="12" y1="19" x2="20" y2="19" />
+    </svg>
+  )
+}
+
+function PlusIcon() {
+  return (
+    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+      <line x1="12" y1="5" x2="12" y2="19" />
+      <line x1="5" y1="12" x2="19" y2="12" />
+    </svg>
   )
 }
 
@@ -149,6 +192,19 @@ const styles: Record<string, React.CSSProperties> = {
     color: 'var(--green)',
     whiteSpace: 'nowrap',
   },
+  newButton: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: 20,
+    height: 20,
+    background: 'var(--bg-elevated)',
+    border: '1px solid var(--border-bright)',
+    borderRadius: 'var(--radius)',
+    color: 'var(--green)',
+    cursor: 'pointer',
+    padding: 0,
+  },
   empty: {
     display: 'flex',
     flexDirection: 'column',
@@ -173,6 +229,17 @@ const styles: Record<string, React.CSSProperties> = {
     letterSpacing: '0.05em',
     textAlign: 'center',
   },
+  newSessionBtn: {
+    marginTop: 8,
+    padding: '5px 12px',
+    background: 'var(--bg-elevated)',
+    border: '1px solid var(--green-dim)',
+    borderRadius: 'var(--radius)',
+    color: 'var(--green)',
+    fontSize: 10,
+    cursor: 'pointer',
+    letterSpacing: '0.05em',
+  },
   list: {
     display: 'flex',
     flexDirection: 'column',
@@ -193,6 +260,14 @@ const styles: Record<string, React.CSSProperties> = {
     display: 'flex',
     alignItems: 'center',
     gap: 8,
+    minWidth: 0,
+    flex: 1,
+  },
+  rowRight: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 6,
+    flexShrink: 0,
   },
   dot: {
     display: 'inline-block',
@@ -205,12 +280,16 @@ const styles: Record<string, React.CSSProperties> = {
     display: 'flex',
     flexDirection: 'column',
     gap: 1,
+    minWidth: 0,
   },
   sessionId: {
     fontSize: 10,
     fontWeight: 600,
     color: 'var(--text-primary)',
     letterSpacing: '0.05em',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
   },
   sessionTime: {
     fontSize: 9,
@@ -224,5 +303,20 @@ const styles: Record<string, React.CSSProperties> = {
     padding: '2px 6px',
     border: '1px solid',
     borderRadius: 2,
+    whiteSpace: 'nowrap',
+  },
+  openButton: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: 22,
+    height: 22,
+    background: 'var(--bg-base)',
+    border: '1px solid var(--border-bright)',
+    borderRadius: 'var(--radius)',
+    color: 'var(--green)',
+    cursor: 'pointer',
+    padding: 0,
+    flexShrink: 0,
   },
 }

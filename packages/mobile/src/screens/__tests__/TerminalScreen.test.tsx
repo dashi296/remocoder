@@ -21,12 +21,14 @@ describe('TerminalScreen', () => {
     expect(screen.getByText('接続中...')).toBeTruthy()
   })
 
-  it('auth_ok メッセージ → 「接続済み」ステータスに変わる', () => {
+  it('session_attached メッセージ → 「接続済み」ステータスに変わる', () => {
     render(<TerminalScreen {...defaultProps} />)
     const webViewEl = screen.UNSAFE_getByType(WebView)
     act(() => {
       webViewEl.props.onMessage({
-        nativeEvent: { data: JSON.stringify({ type: 'auth_ok' }) },
+        nativeEvent: {
+          data: JSON.stringify({ type: 'session_attached', sessionId: 'test-session', scrollback: '' }),
+        },
       })
     })
     expect(screen.getByText('接続済み')).toBeTruthy()

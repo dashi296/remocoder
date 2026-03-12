@@ -2,7 +2,10 @@
   "name": "remocoder",
   "private": true,
   "scripts": {
-    "dev": "pnpm --filter @remocoder/desktop dev",
+"dev": "pnpm --filter @remocoder/desktop dev",
+    "mobile": "pnpm --filter @remocoder/mobile start",
+    "mobile:ios": "pnpm --filter @remocoder/mobile ios",
+    "mobile:android": "pnpm --filter @remocoder/mobile android",
     "test": "turbo test",
     "test:watch": "turbo test:watch"
   },

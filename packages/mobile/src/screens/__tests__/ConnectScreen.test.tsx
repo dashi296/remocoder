@@ -8,44 +8,52 @@ describe('ConnectScreen', () => {
 
   beforeEach(() => {
     jest.clearAllMocks()
-    AsyncStorage.getMany.mockResolvedValue({ lastIp: null, lastToken: null })
+    AsyncStorage.clear()
+    AsyncStorage.getItem.mockResolvedValue(null)
   })
 
   it('ローディング中は ActivityIndicator が表示される', () => {
-    // Never-resolving promise to keep loading state
-    AsyncStorage.getMany.mockReturnValue(new Promise(() => {}))
+    AsyncStorage.getItem.mockReturnValue(new Promise(() => {}))
     render(<ConnectScreen onConnect={onConnect} />)
-    // During loading, form inputs are not rendered
-    expect(screen.queryByPlaceholderText('100.x.x.x')).toBeNull()
+    expect(screen.queryByText('接続先を追加')).toBeNull()
   })
 
-  it('AsyncStorage に値があれば入力欄に反映される', async () => {
-    AsyncStorage.getMany.mockResolvedValue({ lastIp: '100.64.0.1', lastToken: 'saved-token' })
+  it('プロファイルがない場合は空状態が表示される', async () => {
     render(<ConnectScreen onConnect={onConnect} />)
-    await waitFor(() => screen.getByDisplayValue('100.64.0.1'))
-    expect(screen.getByDisplayValue('100.64.0.1')).toBeTruthy()
-    expect(screen.getByDisplayValue('saved-token')).toBeTruthy()
+    await waitFor(() => screen.getByText('接続先がありません'))
+    expect(screen.getByText('接続先がありません')).toBeTruthy()
+    expect(screen.getByText('+ 接続先を追加')).toBeTruthy()
   })
 
-  it('AsyncStorage が null を返す場合も正常動作する', async () => {
-    AsyncStorage.getMany.mockResolvedValue({ lastIp: null, lastToken: null })
+  it('プロファイル一覧が表示される', async () => {
+    const profiles = [
+      { id: '1', name: 'MacBook', ip: '100.64.0.1', token: 'tok1' },
+      { id: '2', name: 'Desktop', ip: '100.64.0.2', token: 'tok2' },
+    ]
+    AsyncStorage.getItem.mockResolvedValue(JSON.stringify(profiles))
     render(<ConnectScreen onConnect={onConnect} />)
-    await waitFor(() => screen.getByPlaceholderText('100.x.x.x'))
-    expect(screen.getByPlaceholderText('100.x.x.x')).toBeTruthy()
+    await waitFor(() => screen.getByText('MacBook'))
+    expect(screen.getByText('MacBook')).toBeTruthy()
+    expect(screen.getByText('Desktop')).toBeTruthy()
   })
 
-  it('ip か token が空の場合はボタンを押しても onConnect が呼ばれない', async () => {
+  it('プロファイルをタップすると onConnect が呼ばれる', async () => {
+    AsyncStorage.setItem.mockResolvedValue(undefined)
+    const profiles = [{ id: '1', name: 'MacBook', ip: '100.64.0.1', token: 'tok1' }]
+    AsyncStorage.getItem.mockResolvedValue(JSON.stringify(profiles))
     render(<ConnectScreen onConnect={onConnect} />)
-    await waitFor(() => screen.getByText('接続'))
-    // Only ip filled, token empty
-    fireEvent.changeText(screen.getByPlaceholderText('100.x.x.x'), '10.0.0.1')
-    fireEvent.press(screen.getByText('接続'))
-    expect(onConnect).not.toHaveBeenCalled()
+    await waitFor(() => screen.getByText('MacBook'))
+    fireEvent.press(screen.getByText('MacBook'))
+    await waitFor(() => expect(onConnect).toHaveBeenCalledWith('100.64.0.1', 'tok1'))
   })
 
-  it('両方入力済みならボタン押下で onConnect が呼ばれる', async () => {
-    AsyncStorage.setMany.mockResolvedValue(undefined)
+  it('新規フォームでプロファイルを追加できる', async () => {
+    AsyncStorage.getItem.mockResolvedValue(null)
+    AsyncStorage.setItem.mockResolvedValue(undefined)
     render(<ConnectScreen onConnect={onConnect} />)
+    await waitFor(() => screen.getByText('+ 接続先を追加'))
+
+    fireEvent.press(screen.getByText('+ 接続先を追加'))
     await waitFor(() => screen.getByPlaceholderText('100.x.x.x'))
 
     fireEvent.changeText(screen.getByPlaceholderText('100.x.x.x'), '10.0.0.1')
@@ -53,26 +61,28 @@ describe('ConnectScreen', () => {
       screen.getByPlaceholderText('xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx'),
       'my-token',
     )
-    fireEvent.press(screen.getByText('接続'))
-    await waitFor(() => expect(onConnect).toHaveBeenCalledWith('10.0.0.1', 'my-token'))
+    fireEvent.press(screen.getByText('保存'))
+
+    await waitFor(() => screen.getAllByText('10.0.0.1'))
+    expect(screen.getAllByText('10.0.0.1').length).toBeGreaterThan(0)
   })
 
-  it('接続時に AsyncStorage.setMany が正しい値で呼ばれる', async () => {
-    AsyncStorage.setMany.mockResolvedValue(undefined)
+  it('フォームで ip か token が空の場合は保存ボタンが無効', async () => {
     render(<ConnectScreen onConnect={onConnect} />)
-    await waitFor(() => screen.getByPlaceholderText('100.x.x.x'))
+    await waitFor(() => screen.getByText('+ 接続先を追加'))
+    fireEvent.press(screen.getByText('+ 接続先を追加'))
+    await waitFor(() => screen.getByText('保存'))
+    fireEvent.press(screen.getByText('保存'))
+    expect(onConnect).not.toHaveBeenCalled()
+  })
 
-    fireEvent.changeText(screen.getByPlaceholderText('100.x.x.x'), '10.0.0.1')
-    fireEvent.changeText(
-      screen.getByPlaceholderText('xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx'),
-      'save-token',
-    )
-    fireEvent.press(screen.getByText('接続'))
-    await waitFor(() =>
-      expect(AsyncStorage.setMany).toHaveBeenCalledWith({
-        lastIp: '10.0.0.1',
-        lastToken: 'save-token',
-      }),
-    )
+  it('キャンセルボタンで一覧画面に戻る', async () => {
+    render(<ConnectScreen onConnect={onConnect} />)
+    await waitFor(() => screen.getByText('+ 接続先を追加'))
+    fireEvent.press(screen.getByText('+ 接続先を追加'))
+    await waitFor(() => screen.getByText('キャンセル'))
+    fireEvent.press(screen.getByText('キャンセル'))
+    await waitFor(() => screen.getByText('+ 接続先を追加'))
+    expect(screen.getByText('+ 接続先を追加')).toBeTruthy()
   })
 })

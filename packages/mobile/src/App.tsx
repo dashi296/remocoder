@@ -1,4 +1,5 @@
 import React, { useState } from 'react'
+import { SafeAreaProvider } from 'react-native-safe-area-context'
 import { ConnectScreen } from './screens/ConnectScreen'
 import { TerminalScreen } from './screens/TerminalScreen'
 
@@ -18,15 +19,17 @@ export default function App() {
     setConnection(null)
   }
 
-  if (connection) {
-    return (
-      <TerminalScreen
-        ip={connection.ip}
-        token={connection.token}
-        onDisconnect={handleDisconnect}
-      />
-    )
-  }
-
-  return <ConnectScreen onConnect={handleConnect} />
+  return (
+    <SafeAreaProvider>
+      {connection ? (
+        <TerminalScreen
+          ip={connection.ip}
+          token={connection.token}
+          onDisconnect={handleDisconnect}
+        />
+      ) : (
+        <ConnectScreen onConnect={handleConnect} />
+      )}
+    </SafeAreaProvider>
+  )
 }

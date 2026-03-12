@@ -47,7 +47,9 @@ export function buildTerminalHtml(wsUrl: string, token: string): string {
       if (noReconnect) return
 
       reconnectAttempt++
+      postToNative({ type: 'debug', msg: 'connecting to: ${wsUrl}' })
       ws = new WebSocket('${wsUrl}')
+      postToNative({ type: 'debug', msg: 'ws created, readyState: ' + ws.readyState })
 
       // 接続タイムアウト: CONNECTINGのまま応答がない場合
       connectTimeoutId = setTimeout(() => {

@@ -1,8 +1,9 @@
 import React, { useRef, useCallback, useState } from 'react'
 import { View, StyleSheet, TouchableOpacity, Text } from 'react-native'
+import { SafeAreaView } from 'react-native-safe-area-context'
 import { WebView, WebViewMessageEvent } from 'react-native-webview'
 import { DEFAULT_WS_PORT } from '@remocoder/shared'
-import { buildTerminalHtml } from '../assets/terminal.html'
+import { buildTerminalHtml } from '../assets/terminalHtml'
 
 type ConnectionStatus = 'connecting' | 'connected' | 'reconnecting' | 'auth_error' | 'shell_exit'
 
@@ -33,7 +34,9 @@ export function TerminalScreen({ ip, token, onDisconnect }: Props) {
     (event: WebViewMessageEvent) => {
       try {
         const msg = JSON.parse(event.nativeEvent.data)
-        if (msg.type === 'auth_error') {
+        if (msg.type === 'debug') {
+          console.log('[WebView debug]', msg.msg)
+        } else if (msg.type === 'auth_error') {
           setStatus('auth_error')
         } else if (msg.type === 'auth_ok') {
           setStatus('connected')
@@ -62,18 +65,7 @@ export function TerminalScreen({ ip, token, onDisconnect }: Props) {
   const showRetry = status === 'auth_error' || status === 'shell_exit'
 
   return (
-    <View style={styles.container}>
-      <WebView
-        key={webViewKey}
-        ref={webViewRef}
-        source={{ html }}
-        style={styles.webview}
-        scrollEnabled={false}
-        keyboardDisplayRequiresUserAction={false}
-        javaScriptEnabled
-        onMessage={handleMessage}
-        allowFileAccess={false}
-      />
+    <SafeAreaView style={styles.container}>
       {/* ステータスバー */}
       <View style={[styles.statusBar, { backgroundColor: statusCfg.bgColor }]}>
         <Text style={[styles.statusText, { color: statusCfg.color }]}>{statusCfg.label}</Text>
@@ -88,7 +80,20 @@ export function TerminalScreen({ ip, token, onDisconnect }: Props) {
           </TouchableOpacity>
         </View>
       </View>
-    </View>
+      <WebView
+        key={webViewKey}
+        ref={webViewRef}
+        source={{ html, baseUrl: 'http://localhost/' }}
+        style={styles.webview}
+        scrollEnabled={false}
+        keyboardDisplayRequiresUserAction={false}
+        javaScriptEnabled
+        onMessage={handleMessage}
+        allowFileAccess={false}
+        onError={(e) => console.error('WebView error:', e.nativeEvent)}
+        onHttpError={(e) => console.error('WebView HTTP error:', e.nativeEvent.statusCode)}
+      />
+    </SafeAreaView>
   )
 }
 
@@ -96,10 +101,6 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#1e1e1e' },
   webview: { flex: 1 },
   statusBar: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',

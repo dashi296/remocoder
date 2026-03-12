@@ -1,10 +1,21 @@
 import * as pty from 'node-pty'
 import { WebSocketServer, WebSocket } from 'ws'
 import type { IncomingMessage } from 'http'
+import { existsSync } from 'fs'
 import { WsMessage, SessionInfo, DEFAULT_WS_PORT } from '@remocoder/shared'
 import { v4 as uuidv4 } from 'uuid'
 
-const AUTH_TOKEN = process.env.REMOTE_TOKEN ?? uuidv4()
+let AUTH_TOKEN = process.env.REMOTE_TOKEN ?? uuidv4()
+
+export function initToken(token: string) {
+  AUTH_TOKEN = token
+}
+
+export function rotateToken(): string {
+  AUTH_TOKEN = uuidv4()
+  console.log(`Auth token rotated: ${AUTH_TOKEN}`)
+  return AUTH_TOKEN
+}
 
 // サーバーからクライアントへのping間隔（ms）
 const SERVER_PING_INTERVAL = 30000
@@ -92,7 +103,14 @@ export function startPtyServer(
         if (msg.type === 'auth' && msg.token === AUTH_TOKEN) {
           authenticated = true
           clearTimeout(authTimeout)
-          shell = spawnClaude(ws)
+          try {
+            shell = spawnClaude(ws)
+          } catch (err) {
+            console.error('Failed to spawn claude:', err)
+            ws.send(JSON.stringify({ type: 'auth_error', reason: `Failed to start shell: ${err}` } satisfies WsMessage))
+            ws.close()
+            return
+          }
 
           sessionId = uuidv4()
           sessions.set(sessionId, {
@@ -147,11 +165,21 @@ export function startPtyServer(
     })
   })
 
-  return { wss, token: AUTH_TOKEN }
+  return { wss, getToken: () => AUTH_TOKEN }
+}
+
+function resolveShell(): string {
+  const candidates = [process.env.SHELL, '/bin/zsh', '/bin/bash', '/bin/sh']
+  for (const s of candidates) {
+    if (s && existsSync(s)) return s
+  }
+  return '/bin/sh'
 }
 
 function spawnClaude(ws: WebSocket): pty.IPty {
-  const shell = pty.spawn('claude', [], {
+  const loginShell = resolveShell()
+  console.log(`Spawning claude via shell: ${loginShell}`)
+  const shell = pty.spawn(loginShell, ['-lc', 'exec claude'], {
     name: 'xterm-color',
     cols: 80,
     rows: 30,

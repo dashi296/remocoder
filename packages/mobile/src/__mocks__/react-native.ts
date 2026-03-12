@@ -28,6 +28,22 @@ const Button = ({ title, onPress, disabled, testID }: any) =>
     React.createElement('Text', null, title),
   )
 
+// FlatList renders each item via renderItem
+const FlatList = ({ data, renderItem, keyExtractor }: any) =>
+  React.createElement(
+    'View',
+    null,
+    ...(data ?? []).map((item: any, index: number) =>
+      renderItem({ item, index }),
+    ),
+  )
+
+const Alert = {
+  alert: jest.fn((title: string, message: string, buttons: any[]) => {
+    // テスト内で手動にボタンを呼び出せるよう最後のボタンの onPress を即時実行しない
+  }),
+}
+
 const StyleSheet = {
   create: (styles: any) => styles,
   flatten: (style: any) => style,
@@ -51,6 +67,8 @@ export {
   ScrollView,
   Modal,
   Button,
+  FlatList,
+  Alert,
   StyleSheet,
   Platform,
 }

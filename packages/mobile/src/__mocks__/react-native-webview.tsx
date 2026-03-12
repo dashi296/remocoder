@@ -1,11 +1,9 @@
 import React from 'react'
 import { View } from 'react-native'
 
-export const WebView = React.forwardRef((props: any, _ref: any) => (
-  <View testID="webview" />
-))
-
-WebView.displayName = 'WebView'
+export function WebView(props: any) {
+  return <View testID="webview" {...props} />
+}
 
 export type WebViewMessageEvent = {
   nativeEvent: { data: string }

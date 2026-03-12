@@ -6,7 +6,8 @@ on:
   pull_request:
 
 jobs:
-  test:
+  typecheck:
+    name: Type Check
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -20,4 +21,63 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      - name: Type check shared
+        run: pnpm --filter @remocoder/shared exec tsc --noEmit
+
+      - name: Type check desktop
+        run: pnpm --filter @remocoder/desktop exec tsc --noEmit
+
+      - name: Type check mobile
+        run: pnpm --filter @remocoder/mobile exec tsc --noEmit
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install system dependencies for node-pty
+        run: sudo apt-get install -y python3 make g++
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Cache Turborepo
+        uses: actions/cache@v4
+        with:
+          path: .turbo
+          key: turbo-test-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-${{ github.sha }}
+          restore-keys: |
+            turbo-test-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-
+            turbo-test-${{ runner.os }}-
+
       - run: pnpm test
+
+  build:
+    name: Build Desktop
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install system dependencies for node-pty and Electron
+        run: sudo apt-get install -y python3 make g++ libgtk-3-dev libxss1 libnss3
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build desktop app
+        run: pnpm --filter @remocoder/desktop build
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: "1"

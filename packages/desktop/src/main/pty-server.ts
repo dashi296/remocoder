@@ -17,39 +17,44 @@ let AUTH_TOKEN = process.env.REMOTE_TOKEN ?? uuidv4()
  * パスコンポーネント自体に '-' が含まれる場合（例: my-project）も対応するため、
  * 各セグメントでファイルシステムの存在確認を行いながらグリーディに解決する。
  */
-function decodeProjectPath(encodedName: string): string {
-  // 先頭の '-' を除いて '-' で分割
+export function decodeProjectPath(encodedName: string): string {
   const parts = encodedName.slice(1).split('-')
-  let resolvedPath = ''
-  let i = 0
 
-  while (i < parts.length) {
-    let matched = false
-    // 短いセグメントから試して最初にマッチするパスを採用（グリーディ）
-    for (let len = 1; len <= parts.length - i; len++) {
-      const segment = parts.slice(i, i + len).join('-')
-      const candidate = resolvedPath + '/' + segment
-
-      if (i + len === parts.length) {
-        // 最後のセグメントはそのまま採用
-        resolvedPath = candidate
-        i = parts.length
-        matched = true
-        break
+  // Claude のエンコード: '/' → '-', '_' → '-' の両方を行う。
+  // そのため '-' は '/', '-', '_' のいずれかを表す可能性がある。
+  // バックトラッキングで「実際に存在するパス」を探し、
+  // かつセグメント内の '-' を '_' に置換したバリアントも試みる。
+  function existsWithVariants(dir: string, segment: string): string | null {
+    const positions = [...segment.matchAll(/-/g)].map((m) => m.index!)
+    for (let mask = 0; mask < 1 << positions.length; mask++) {
+      let variant = segment
+      for (let j = 0; j < positions.length; j++) {
+        if (mask & (1 << j)) {
+          variant = variant.slice(0, positions[j]) + '_' + variant.slice(positions[j] + 1)
+        }
       }
-
-      if (existsSync(candidate)) {
-        resolvedPath = candidate
-        i += len
-        matched = true
-        break
-      }
+      const candidate = dir + '/' + variant
+      if (existsSync(candidate)) return candidate
     }
-
-    if (!matched) break
+    return null
   }
 
-  return resolvedPath || ('/' + encodedName.slice(1).replace(/-/g, '/'))
+  function search(i: number, pathSoFar: string): string | null {
+    for (let len = 1; len <= parts.length - i; len++) {
+      const segment = parts.slice(i, i + len).join('-')
+      if (i + len === parts.length) {
+        return existsWithVariants(pathSoFar, segment)
+      }
+      const candidate = existsWithVariants(pathSoFar, segment)
+      if (candidate !== null) {
+        const result = search(i + len, candidate)
+        if (result !== null) return result
+      }
+    }
+    return null
+  }
+
+  return search(0, '') ?? ('/' + encodedName.slice(1).replace(/-/g, '/'))
 }
 
 /** ~/.claude/projects/ から最近使ったプロジェクト一覧を取得する */
@@ -59,12 +64,15 @@ export function getRecentProjects(limit = 20): ProjectInfo[] {
     const entries = readdirSync(claudeDir, { withFileTypes: true })
       .filter((d) => d.isDirectory() && d.name.startsWith('-'))
 
-    const projects: ProjectInfo[] = entries.map((d) => {
-      const projectPath = decodeProjectPath(d.name)
-      const name = projectPath.split('/').filter(Boolean).pop() ?? d.name
-      const mtime = statSync(join(claudeDir, d.name)).mtime
-      return { path: projectPath, name, lastUsedAt: mtime.toISOString() }
-    })
+    const projects: ProjectInfo[] = entries
+      .map((d) => {
+        const projectPath = decodeProjectPath(d.name)
+        if (!existsSync(projectPath)) return null
+        const name = projectPath.split('/').filter(Boolean).pop() ?? d.name
+        const mtime = statSync(join(claudeDir, d.name)).mtime
+        return { path: projectPath, name, lastUsedAt: mtime.toISOString() }
+      })
+      .filter((p): p is ProjectInfo => p !== null)
 
     return projects
       .sort((a, b) => new Date(b.lastUsedAt).getTime() - new Date(a.lastUsedAt).getTime())

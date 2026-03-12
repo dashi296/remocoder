@@ -1,6 +1,6 @@
 import { app, BrowserWindow, Tray, Menu, nativeImage, ipcMain } from 'electron'
 import { join } from 'path'
-import { startPtyServer } from './pty-server'
+import { startPtyServer, rotateToken } from './pty-server'
 import { getTailscaleIP } from './tailscale'
 import type { SessionInfo } from '@remocoder/shared'
 
@@ -69,24 +69,33 @@ function setupTray(token: string) {
   })
 }
 
-function setupIpc() {
+function setupIpc(getToken: () => string) {
   ipcMain.handle('get-tailscale-ip', () => tailscaleIp)
-  ipcMain.handle('get-token', () => authToken)
+  ipcMain.handle('get-token', () => getToken())
   ipcMain.handle('get-sessions', () => currentSessions)
+  ipcMain.handle('rotate-token', () => {
+    const newToken = rotateToken()
+    authToken = newToken
+    // トレイメニューのトークン表示を更新
+    setupTray(newToken)
+    // レンダラーにも通知
+    win?.webContents.send('token-rotated', newToken)
+    return newToken
+  })
 }
 
 app.whenReady().then(async () => {
-  const { token } = startPtyServer(undefined, (sessions) => {
+  const { getToken } = startPtyServer(undefined, (sessions) => {
     currentSessions = sessions
     win?.webContents.send('sessions-update', sessions)
   })
 
-  authToken = token
+  authToken = getToken()
   tailscaleIp = await getTailscaleIP()
 
   createWindow()
-  setupTray(token)
-  setupIpc()
+  setupTray(getToken())
+  setupIpc(getToken)
 })
 
 app.on('window-all-closed', () => {

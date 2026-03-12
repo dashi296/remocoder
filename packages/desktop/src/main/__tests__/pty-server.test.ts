@@ -82,16 +82,16 @@ describe('startPtyServer', () => {
   })
 
   it('uuidv4 をトークンとして返す', () => {
-    const { token } = startPtyServer()
-    expect(token).toBe('test-token')
+    const { getToken } = startPtyServer()
+    expect(getToken()).toBe('test-token')
   })
 
   it('REMOTE_TOKEN が設定されていればそれをトークンとして使う', async () => {
     process.env.REMOTE_TOKEN = 'env-token'
     vi.resetModules()
     const { startPtyServer: sp } = await import('../pty-server')
-    const { token } = sp()
-    expect(token).toBe('env-token')
+    const { getToken } = sp()
+    expect(getToken()).toBe('env-token')
   })
 
   describe('認証', () => {

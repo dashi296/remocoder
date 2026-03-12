@@ -46,6 +46,7 @@ export default function App() {
     api.getToken().then(setToken)
     api.getSessions().then(setSessions)
     api.onSessionsUpdate(setSessions)
+    api.onTokenRotated?.((newToken: string) => setToken(newToken))
   }, [])
 
   return (
@@ -74,7 +75,13 @@ export default function App() {
           wsPort={DEFAULT_WS_PORT}
           wsRunning={wsRunning}
         />
-        {token && <TokenDisplay token={token} />}
+        {token && (
+          <TokenDisplay
+            token={token}
+            tailscaleIP={tailscaleIP}
+            onRotate={api.rotateToken ? async () => { const t = await api.rotateToken(); setToken(t) } : undefined}
+          />
+        )}
         <SessionList sessions={sessions} />
       </main>
 

@@ -7,6 +7,7 @@ export default defineConfig({
   resolve: {
     alias: {
       '@remocoder/shared': resolve(__dirname, '../shared/src/index.ts'),
+      'qrcode': resolve(__dirname, 'src/renderer/__tests__/__mocks__/qrcode.ts'),
     },
   },
   test: {

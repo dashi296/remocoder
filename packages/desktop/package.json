@@ -6,31 +6,76 @@
   "main": "./out/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "dist": "electron-vite build && electron-builder",
+    "dist:mac": "electron-vite build && electron-builder --mac",
+    "dist:win": "electron-vite build && electron-builder --win",
+    "dist:linux": "electron-vite build && electron-builder --linux",
     "test": "vitest run",
     "test:watch": "vitest"
   },
+  "build": {
+    "appId": "com.remocoder.desktop",
+    "productName": "Remocoder",
+    "copyright": "Copyright © 2025 Remocoder",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "out/**",
+      "!out/**/*.map"
+    ],
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": ["universal"]
+        }
+      ],
+      "category": "public.app-category.developer-tools"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        }
+      ]
+    },
+    "linux": {
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": ["x64"]
+        }
+      ],
+      "category": "Development"
+    },
+    "npmRebuild": true
+  },
   "dependencies": {
-    "@react-native-async-storage/async-storage": "^3.0.1",
     "@remocoder/shared": "workspace:*",
-    "@types/uuid": "^11.0.0",
-    "@types/ws": "^8.18.1",
     "node-pty": "^1.1.0",
+    "qrcode": "^1.5.4",
     "react": "^18.3.1",
     "react-dom": "^18.3.0",
-    "react-native": "^0.84.1",
-    "react-native-webview": "^13.16.1",
     "uuid": "^13.0.0",
     "ws": "^8.19.0"
   },
   "devDependencies": {
+    "@electron/rebuild": "^3.6.0",
+    "@types/qrcode": "^1.5.5",
     "@testing-library/jest-dom": "^6.0.0",
     "@testing-library/react": "^16.0.0",
     "@testing-library/user-event": "^14.0.0",
     "@types/react": "^18.3.0",
     "@types/react-dom": "^18.3.0",
+    "@types/uuid": "^11.0.0",
+    "@types/ws": "^8.18.1",
     "@vitejs/plugin-react": "^4.0.0",
     "@vitest/coverage-v8": "^2.0.0",
     "electron": "^30.0.0",
+    "electron-builder": "^25.0.0",
     "electron-vite": "^2.0.0",
     "jsdom": "^24.0.0",
     "typescript": "^5.5.0",

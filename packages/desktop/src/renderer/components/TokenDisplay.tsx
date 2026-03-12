@@ -1,12 +1,39 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
+import QRCode from 'qrcode'
 
 interface TokenDisplayProps {
   token: string
+  tailscaleIP?: string | null
+  onRotate?: () => Promise<void>
 }
 
-export function TokenDisplay({ token }: TokenDisplayProps) {
+export function TokenDisplay({ token, tailscaleIP, onRotate }: TokenDisplayProps) {
   const [revealed, setRevealed] = useState(false)
   const [copied, setCopied] = useState(false)
+  const [showQr, setShowQr] = useState(false)
+  const [qrDataUrl, setQrDataUrl] = useState<string | null>(null)
+  const [rotating, setRotating] = useState(false)
+
+  const handleRotate = async () => {
+    if (!onRotate) return
+    setRotating(true)
+    setShowQr(false)
+    try {
+      await onRotate()
+    } finally {
+      setRotating(false)
+    }
+  }
+
+  useEffect(() => {
+    if (!showQr || !tailscaleIP) return
+    const url = `remocoder://connect?ip=${tailscaleIP}&token=${token}`
+    QRCode.toDataURL(url, {
+      width: 180,
+      margin: 2,
+      color: { dark: '#d4d4d4', light: '#0d0d0d' },
+    }).then(setQrDataUrl)
+  }, [showQr, tailscaleIP, token])
 
   const masked = token.replace(/./g, (_, i) =>
     i < 8 ? token[i] : i < token.length - 4 ? '•' : token[i]
@@ -52,12 +79,50 @@ export function TokenDisplay({ token }: TokenDisplayProps) {
           >
             {copied ? <CheckIcon /> : <CopyIcon />}
           </button>
+          {tailscaleIP && (
+            <button
+              style={{
+                ...styles.iconBtn,
+                ...(showQr ? styles.iconBtnActive : {}),
+              }}
+              onClick={() => setShowQr(v => !v)}
+              title="QRコードを表示"
+            >
+              <QrIcon />
+            </button>
+          )}
+          {onRotate && (
+            <button
+              style={{
+                ...styles.iconBtn,
+                ...(rotating ? styles.iconBtnSpinning : {}),
+              }}
+              onClick={handleRotate}
+              disabled={rotating}
+              title="トークンを再生成"
+            >
+              <RotateIcon />
+            </button>
+          )}
         </div>
       </div>
 
       {copied && (
         <div style={styles.copiedBanner}>
           <span style={styles.copiedText}>{'>'} COPIED TO CLIPBOARD</span>
+        </div>
+      )}
+
+      {showQr && tailscaleIP && (
+        <div style={styles.qrContainer}>
+          {qrDataUrl ? (
+            <>
+              <img src={qrDataUrl} alt="QR Code" style={styles.qrImage} />
+              <span style={styles.qrHint}>モバイルアプリでスキャン</span>
+            </>
+          ) : (
+            <span style={styles.qrHint}>生成中...</span>
+          )}
         </div>
       )}
     </section>
@@ -97,6 +162,27 @@ function CheckIcon() {
   return (
     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
       <polyline points="20 6 9 17 4 12"/>
+    </svg>
+  )
+}
+
+function RotateIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="M23 4v6h-6"/>
+      <path d="M1 20v-6h6"/>
+      <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/>
+    </svg>
+  )
+}
+
+function QrIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <rect x="3" y="3" width="7" height="7"/>
+      <rect x="14" y="3" width="7" height="7"/>
+      <rect x="3" y="14" width="7" height="7"/>
+      <path d="M14 14h.01M14 17h.01M17 14h.01M20 14h.01M17 17h3M20 20h.01M17 20h.01"/>
     </svg>
   )
 }
@@ -174,6 +260,36 @@ const styles: Record<string, React.CSSProperties> = {
     borderColor: 'var(--green)',
     color: 'var(--green)',
     background: 'var(--green-pulse)',
+  },
+  iconBtnActive: {
+    borderColor: 'var(--green)',
+    color: 'var(--green)',
+  },
+  iconBtnSpinning: {
+    opacity: 0.5,
+    cursor: 'not-allowed',
+  },
+  qrContainer: {
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 10,
+    padding: '12px',
+    background: 'var(--bg-elevated)',
+    border: '1px solid var(--border-bright)',
+    borderRadius: 'var(--radius)',
+    animation: 'fade-in 0.2s ease',
+  },
+  qrImage: {
+    width: 180,
+    height: 180,
+    borderRadius: 4,
+  },
+  qrHint: {
+    fontSize: 9,
+    color: 'var(--text-muted)',
+    letterSpacing: '0.08em',
   },
   copiedBanner: {
     marginTop: 6,

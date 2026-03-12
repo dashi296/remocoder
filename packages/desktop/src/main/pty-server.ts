@@ -4,7 +4,13 @@ import type { IncomingMessage } from 'http'
 import { WsMessage, SessionInfo, DEFAULT_WS_PORT } from '@remocoder/shared'
 import { v4 as uuidv4 } from 'uuid'
 
-const AUTH_TOKEN = process.env.REMOTE_TOKEN ?? uuidv4()
+let AUTH_TOKEN = process.env.REMOTE_TOKEN ?? uuidv4()
+
+export function rotateToken(): string {
+  AUTH_TOKEN = uuidv4()
+  console.log(`Auth token rotated: ${AUTH_TOKEN}`)
+  return AUTH_TOKEN
+}
 
 // サーバーからクライアントへのping間隔（ms）
 const SERVER_PING_INTERVAL = 30000
@@ -147,7 +153,7 @@ export function startPtyServer(
     })
   })
 
-  return { wss, token: AUTH_TOKEN }
+  return { wss, getToken: () => AUTH_TOKEN }
 }
 
 function spawnClaude(ws: WebSocket): pty.IPty {

@@ -13,6 +13,7 @@ export interface SessionInfo {
   id: string
   createdAt: string
   status: 'active' | 'idle'
+  clientIP?: string
 }
 
 export const DEFAULT_WS_PORT = 8080

@@ -1,13 +1,23 @@
 /** @type {import('jest').Config} */
-// NOTE: React Native / Expo のソースが追加されたら以下を有効化する
-// preset: 'jest-expo' （react-native, expo などのインストールが必要）
 module.exports = {
   testEnvironment: 'node',
   transform: {
-    '^.+\\.tsx?$': ['ts-jest', { tsconfig: { jsx: 'react' } }],
+    '^.+\\.tsx?$': [
+      'ts-jest',
+      {
+        tsconfig: {
+          jsx: 'react',
+          esModuleInterop: true,
+        },
+      },
+    ],
   },
   moduleNameMapper: {
     '^@remocoder/shared$': '<rootDir>/../shared/src/index.ts',
+    '^react-native$': '<rootDir>/src/__mocks__/react-native.ts',
+    '^react-native-webview$': '<rootDir>/src/__mocks__/react-native-webview.tsx',
+    '^@react-native-async-storage/async-storage$':
+      '<rootDir>/src/__mocks__/async-storage.ts',
   },
   testMatch: ['**/src/**/__tests__/**/*.{ts,tsx}', '**/src/**/*.test.{ts,tsx}'],
   collectCoverageFrom: ['src/**/*.{ts,tsx}'],

@@ -1,11 +1,22 @@
 {
-  "extends": "expo/tsconfig.base",
   "compilerOptions": {
+    "target": "ES2020",
+    "lib": ["ES2020", "DOM"],
+    "module": "ESNext",
+    "moduleResolution": "node",
+    "jsx": "react-native",
     "strict": true,
+    "allowSyntheticDefaultImports": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "types": ["react", "jest"],
     "baseUrl": ".",
     "paths": {
-      "@remocoder/shared": ["../shared/src/index.ts"]
+      "@remocoder/shared": ["../shared/src/index.ts"],
+      "react-native": ["../../node_modules/.pnpm/react-native@0.84.1_@babel+core@7.29.0_@types+react@18.3.28_react@18.3.1/node_modules/react-native"],
+      "react-native-webview": ["../../node_modules/.pnpm/react-native-webview@13.16.1_react-native@0.84.1_@babel+core@7.29.0_@types+react@18.3.28_react@18.3.1__react@18.3.1/node_modules/react-native-webview"],
+      "@react-native-async-storage/async-storage": ["../../node_modules/.pnpm/@react-native-async-storage+async-storage@3.0.1_react-native@0.84.1_@babel+core@7.29.0_@types_iwxkwkkmgku7rjbknpeg6nfvbm/node_modules/@react-native-async-storage/async-storage"]
     }
   },
-  "include": ["src", "app.json"]
+  "include": ["src"]
 }

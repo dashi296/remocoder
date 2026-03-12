@@ -1,0 +1,22 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "tasks": {
+    "test": {
+      "cache": true,
+      "inputs": [
+        "src/**",
+        "vitest.config.*",
+        "jest.config.*",
+        "tsconfig.json",
+        "package.json"
+      ],
+      "outputs": [
+        "coverage/**"
+      ]
+    },
+    "test:watch": {
+      "cache": false,
+      "persistent": true
+    }
+  }
+}

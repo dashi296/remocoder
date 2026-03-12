@@ -1,7 +1,16 @@
 import { app, BrowserWindow, Tray, Menu, nativeImage, ipcMain } from 'electron'
 import { join } from 'path'
 import { readFileSync, writeFileSync } from 'fs'
-import { startPtyServer, rotateToken, initToken } from './pty-server'
+import {
+  startPtyServer,
+  rotateToken,
+  initToken,
+  desktopCreateSession,
+  desktopGetScrollback,
+  desktopSendInput,
+  desktopResize,
+  getSessions,
+} from './pty-server'
 import { getTailscaleIP } from './tailscale'
 import type { SessionInfo } from '@remocoder/shared'
 import { v4 as uuidv4 } from 'uuid'
@@ -32,10 +41,14 @@ let currentSessions: SessionInfo[] = []
 
 const isDev = !!process.env['ELECTRON_RENDERER_URL']
 
+// 通常ウィンドウサイズ / ターミナル表示時のウィンドウサイズ
+const WINDOW_NORMAL = { width: 360, height: 560 }
+const WINDOW_TERMINAL = { width: 1000, height: 680 }
+
 function createWindow() {
   win = new BrowserWindow({
-    width: 360,
-    height: 560,
+    width: WINDOW_NORMAL.width,
+    height: WINDOW_NORMAL.height,
     resizable: false,
     webPreferences: {
       preload: join(__dirname, '../preload/index.mjs'),
@@ -97,29 +110,78 @@ function setupTray(token: string) {
 }
 
 function setupIpc(getToken: () => string) {
+  // ── 既存ハンドラ ──────────────────────────────────────────────────────────
   ipcMain.handle('get-tailscale-ip', () => tailscaleIp)
   ipcMain.handle('get-token', () => getToken())
   ipcMain.handle('get-sessions', () => currentSessions)
   ipcMain.handle('rotate-token', () => {
     const newToken = rotateToken()
     authToken = newToken
-    // 新しいトークンをファイルに保存
     const tokenPath = join(app.getPath('userData'), 'auth-token.json')
     writeFileSync(tokenPath, JSON.stringify({ token: newToken }), 'utf-8')
-    // トレイメニューのトークン表示を更新
     setupTray(newToken)
-    // レンダラーにも通知
     win?.webContents.send('token-rotated', newToken)
     return newToken
+  })
+
+  // ── デスクトップターミナル用ハンドラ ────────────────────────────────────────
+
+  /** 新規PTYセッションを作成し、セッションIDを返す */
+  ipcMain.handle('pty-create', () => {
+    return desktopCreateSession()
+  })
+
+  /** セッションのスクロールバックを返す */
+  ipcMain.handle('pty-get-scrollback', (_e, sessionId: string) => {
+    return desktopGetScrollback(sessionId)
+  })
+
+  /** PTYへ入力を送る */
+  ipcMain.on('pty-input', (_e, { sessionId, data }: { sessionId: string; data: string }) => {
+    desktopSendInput(sessionId, data)
+  })
+
+  /** PTYをリサイズする */
+  ipcMain.on(
+    'pty-resize',
+    (_e, { sessionId, cols, rows }: { sessionId: string; cols: number; rows: number }) => {
+      desktopResize(sessionId, cols, rows)
+    },
+  )
+
+  /** ターミナルウィンドウを開く（ウィンドウを拡大し、Rendererにセッションを通知） */
+  ipcMain.handle('open-terminal-window', (_e, sessionId: string) => {
+    win?.setResizable(true)
+    win?.setSize(WINDOW_TERMINAL.width, WINDOW_TERMINAL.height)
+    win?.center()
+    win?.setResizable(false)
+    win?.webContents.send('terminal-opened', sessionId)
+  })
+
+  /** ターミナルウィンドウを閉じる（ウィンドウを縮小） */
+  ipcMain.handle('close-terminal-window', () => {
+    win?.setResizable(true)
+    win?.setSize(WINDOW_NORMAL.width, WINDOW_NORMAL.height)
+    win?.center()
+    win?.setResizable(false)
+    win?.webContents.send('terminal-closed')
   })
 }
 
 app.whenReady().then(async () => {
   initToken(loadOrCreateToken())
 
-  const { getToken } = startPtyServer(undefined, (sessions) => {
-    currentSessions = sessions
-    win?.webContents.send('sessions-update', sessions)
+  const { getToken } = startPtyServer(undefined, {
+    onSessionsChange: (sessions) => {
+      currentSessions = sessions
+      win?.webContents.send('sessions-update', sessions)
+    },
+    onPtyOutput: (sessionId, data) => {
+      win?.webContents.send('pty-output', { sessionId, data })
+    },
+    onPtyExit: (sessionId, exitCode) => {
+      win?.webContents.send('pty-exit', { sessionId, exitCode })
+    },
   })
 
   authToken = getToken()

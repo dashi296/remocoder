@@ -9,12 +9,36 @@ export type WsMessage =
   | { type: 'auth_ok' }
   | { type: 'auth_error'; reason: string }
   | { type: 'shell_exit'; exitCode: number }
+  | { type: 'session_list'; sessions: SessionInfo[] }
+  | { type: 'session_create'; projectPath?: string }
+  | { type: 'session_attach'; sessionId: string }
+  | { type: 'session_attached'; sessionId: string; scrollback: string }
+  | { type: 'session_not_found'; sessionId: string }
+  /** 外部ターミナルから PTY セッションを登録する */
+  | { type: 'session_register'; cols: number; rows: number }
+  /** session_register への応答 */
+  | { type: 'session_registered'; sessionId: string }
+  /** 認証後に送信する最近使ったプロジェクト一覧 */
+  | { type: 'project_list'; projects: ProjectInfo[] }
+
+export interface ProjectInfo {
+  /** プロジェクトのフルパス */
+  path: string
+  /** プロジェクト名（パスの末尾コンポーネント） */
+  name: string
+  /** 最終使用日時 (ISO 8601) */
+  lastUsedAt: string
+}
 
 export interface SessionInfo {
   id: string
   createdAt: string
   status: 'active' | 'idle'
   clientIP?: string
+  /** モバイルWSクライアントが接続中かどうか */
+  hasClient?: boolean
+  /** 外部ターミナルから登録されたセッションかどうか */
+  isExternal?: boolean
 }
 
 export const DEFAULT_WS_PORT = 8080

@@ -5,7 +5,7 @@ import { existsSync } from 'fs'
 import { WsMessage, SessionInfo, DEFAULT_WS_PORT } from '@remocoder/shared'
 import { v4 as uuidv4 } from 'uuid'
 
-let AUTH_TOKEN = ''
+let AUTH_TOKEN = process.env.REMOTE_TOKEN ?? uuidv4()
 
 export function initToken(token: string) {
   AUTH_TOKEN = token

@@ -59,7 +59,7 @@ function sendMessage(ws: any, msg: object) {
 }
 
 describe('startPtyServer', () => {
-  let startPtyServer: (port?: number) => { wss: any; token: string }
+  let startPtyServer: (port?: number, onSessionsChange?: (sessions: any[]) => void) => { wss: any; getToken: () => string }
 
   beforeEach(async () => {
     vi.resetModules()

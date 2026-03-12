@@ -2,6 +2,7 @@
   "name": "remocoder",
   "private": true,
   "scripts": {
+    "dev": "pnpm --filter @remocoder/desktop dev",
     "test": "turbo test",
     "test:watch": "turbo test:watch"
   },

@@ -3,7 +3,9 @@
   "version": "0.0.1",
   "private": true,
   "type": "module",
+  "main": "./out/main/index.js",
   "scripts": {
+    "dev": "electron-vite dev",
     "test": "vitest run",
     "test:watch": "vitest"
   },
@@ -13,6 +15,8 @@
     "react-dom": "^18.3.0"
   },
   "devDependencies": {
+    "electron-vite": "^2.0.0",
+    "electron": "^30.0.0",
     "vitest": "^2.0.0",
     "@vitest/coverage-v8": "^2.0.0",
     "@vitejs/plugin-react": "^4.0.0",

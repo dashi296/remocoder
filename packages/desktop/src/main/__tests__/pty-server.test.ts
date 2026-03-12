@@ -345,7 +345,7 @@ describe('startPtyServer', () => {
       sendMessage(ws, { type: 'auth', token: 'test-token' })
       sendMessage(ws, { type: 'session_create' })
 
-      const beforeClose = onSessionsChange.mock.calls.at(-1)[0]
+      const beforeClose = onSessionsChange.mock.calls.at(-1)![0]
       expect(beforeClose.length).toBe(1)
 
       ws.emit('close')

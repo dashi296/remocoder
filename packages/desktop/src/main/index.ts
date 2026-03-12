@@ -1,32 +1,23 @@
-import { app, BrowserWindow, Tray, Menu, nativeImage } from 'electron'
-import { join } from 'path'
+import { app, Tray, Menu, nativeImage } from 'electron'
+import { startPtyServer } from './pty-server'
+import { getTailscaleIP } from './tailscale'
 
-function createWindow() {
-  const win = new BrowserWindow({
-    width: 400,
-    height: 600,
-    webPreferences: {
-      preload: join(__dirname, '../preload/index.js'),
-    },
-  })
+app.whenReady().then(async () => {
+  const { token } = startPtyServer()
+  const tailscaleIp = await getTailscaleIP()
 
-  if (process.env['ELECTRON_RENDERER_URL']) {
-    win.loadURL(process.env['ELECTRON_RENDERER_URL'])
-  } else {
-    win.loadFile(join(__dirname, '../renderer/index.html'))
-  }
-
-  return win
-}
-
-app.whenReady().then(() => {
-  createWindow()
-
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow()
-  })
+  const tray = new Tray(nativeImage.createEmpty())
+  tray.setToolTip('Remocoder')
+  tray.setContextMenu(
+    Menu.buildFromTemplate([
+      { label: `Tailscale IP: ${tailscaleIp ?? '未接続'}`, enabled: false },
+      { label: `Token: ${token}`, enabled: false },
+      { type: 'separator' },
+      { label: '終了', click: () => app.quit() },
+    ]),
+  )
 })
 
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit()
+  // トレイアプリのため終了しない
 })

@@ -9,6 +9,7 @@ import {
   FlatList,
   Alert,
 } from 'react-native'
+import { SafeAreaView } from 'react-native-safe-area-context'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { CameraView, useCameraPermissions } from 'expo-camera'
 
@@ -144,15 +145,15 @@ export function ConnectScreen({ onConnect }: Props) {
 
   if (loading) {
     return (
-      <View style={[styles.container, styles.center]}>
+      <SafeAreaView style={[styles.container, styles.center]}>
         <ActivityIndicator size="large" color="#4caf50" />
-      </View>
+      </SafeAreaView>
     )
   }
 
   if (screen === 'scan') {
     return (
-      <View style={styles.scannerContainer}>
+      <SafeAreaView style={styles.scannerContainer}>
         <CameraView
           style={styles.camera}
           facing="back"
@@ -165,13 +166,13 @@ export function ConnectScreen({ onConnect }: Props) {
             <Text style={styles.cancelButtonText}>キャンセル</Text>
           </TouchableOpacity>
         </View>
-      </View>
+      </SafeAreaView>
     )
   }
 
   if (screen === 'form') {
     return (
-      <View style={styles.container}>
+      <SafeAreaView style={styles.container}>
         <Text style={styles.title}>{editTarget ? 'プロファイルを編集' : '新しい接続'}</Text>
 
         <TouchableOpacity style={styles.qrButton} onPress={handleScanPress}>
@@ -225,12 +226,12 @@ export function ConnectScreen({ onConnect }: Props) {
             <Text style={styles.primaryButtonText}>保存</Text>
           </TouchableOpacity>
         </View>
-      </View>
+      </SafeAreaView>
     )
   }
 
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={styles.container}>
       <Text style={styles.title}>Remocoder</Text>
 
       {profiles.length === 0 ? (
@@ -270,7 +271,7 @@ export function ConnectScreen({ onConnect }: Props) {
       <TouchableOpacity style={styles.addButton} onPress={openNewForm}>
         <Text style={styles.addButtonText}>+ 接続先を追加</Text>
       </TouchableOpacity>
-    </View>
+    </SafeAreaView>
   )
 }
 

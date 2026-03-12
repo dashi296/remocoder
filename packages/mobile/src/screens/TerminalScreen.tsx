@@ -1,5 +1,6 @@
 import React, { useRef, useCallback, useState } from 'react'
 import { View, StyleSheet, TouchableOpacity, Text } from 'react-native'
+import { SafeAreaView } from 'react-native-safe-area-context'
 import { WebView, WebViewMessageEvent } from 'react-native-webview'
 import { DEFAULT_WS_PORT } from '@remocoder/shared'
 import { buildTerminalHtml } from '../assets/terminalHtml'
@@ -62,18 +63,7 @@ export function TerminalScreen({ ip, token, onDisconnect }: Props) {
   const showRetry = status === 'auth_error' || status === 'shell_exit'
 
   return (
-    <View style={styles.container}>
-      <WebView
-        key={webViewKey}
-        ref={webViewRef}
-        source={{ html }}
-        style={styles.webview}
-        scrollEnabled={false}
-        keyboardDisplayRequiresUserAction={false}
-        javaScriptEnabled
-        onMessage={handleMessage}
-        allowFileAccess={false}
-      />
+    <SafeAreaView style={styles.container}>
       {/* ステータスバー */}
       <View style={[styles.statusBar, { backgroundColor: statusCfg.bgColor }]}>
         <Text style={[styles.statusText, { color: statusCfg.color }]}>{statusCfg.label}</Text>
@@ -88,7 +78,18 @@ export function TerminalScreen({ ip, token, onDisconnect }: Props) {
           </TouchableOpacity>
         </View>
       </View>
-    </View>
+      <WebView
+        key={webViewKey}
+        ref={webViewRef}
+        source={{ html }}
+        style={styles.webview}
+        scrollEnabled={false}
+        keyboardDisplayRequiresUserAction={false}
+        javaScriptEnabled
+        onMessage={handleMessage}
+        allowFileAccess={false}
+      />
+    </SafeAreaView>
   )
 }
 
@@ -96,10 +97,6 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#1e1e1e' },
   webview: { flex: 1 },
   statusBar: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',

@@ -23,7 +23,7 @@ export default function App() {
       <TerminalScreen
         ip={connection.ip}
         token={connection.token}
-        onAuthError={handleDisconnect}
+        onDisconnect={handleDisconnect}
       />
     )
   }

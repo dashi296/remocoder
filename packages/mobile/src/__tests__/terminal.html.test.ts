@@ -38,4 +38,17 @@ describe('buildTerminalHtml', () => {
     expect(html).toContain('ReactNativeWebView')
     expect(html).toContain('postMessage')
   })
+
+  it('接続タイムアウト (CONNECT_TIMEOUT) の記述が含まれる', () => {
+    expect(html).toContain('CONNECT_TIMEOUT')
+    expect(html).toContain('10000')
+  })
+
+  it('shell_exit メッセージのハンドラが含まれる', () => {
+    expect(html).toContain("shell_exit")
+  })
+
+  it('noReconnect フラグの記述が含まれる', () => {
+    expect(html).toContain('noReconnect')
+  })
 })

@@ -156,6 +156,20 @@ describe('startPtyServer', () => {
       sendMessage(ws, { type: 'ping' })
       expect(ws.send).toHaveBeenCalledWith(JSON.stringify({ type: 'pong' }))
     })
+
+    it('pong メッセージを受信してもエラーにならない', () => {
+      const { ws } = connectAndAuth()
+      expect(() => sendMessage(ws, { type: 'pong' })).not.toThrow()
+    })
+
+    it('不正な JSON メッセージを受信してもエラーにならない', () => {
+      startPtyServer()
+      const ws = createMockWs()
+      wssState.instance!.emit('connection', ws)
+      sendMessage(ws, { type: 'auth', token: 'test-token' })
+      ws.send.mockClear()
+      expect(() => ws.emit('message', Buffer.from('not-valid-json'))).not.toThrow()
+    })
   })
 
   describe('PTY イベント', () => {
@@ -181,11 +195,11 @@ describe('startPtyServer', () => {
       expect(ws.send).not.toHaveBeenCalled()
     })
 
-    it('shell の onExit → 終了メッセージ送信 + ws.close() を呼ぶ', () => {
+    it('shell の onExit → shell_exit メッセージ送信 + ws.close() を呼ぶ', () => {
       const { ws } = connectAndAuth()
       ptyState.lastShell._onExitCb({ exitCode: 0 })
       expect(ws.send).toHaveBeenCalledWith(
-        JSON.stringify({ type: 'output', data: '\r\n[claudeが終了しました (exit code: 0)]' }),
+        JSON.stringify({ type: 'shell_exit', exitCode: 0 }),
       )
       expect(ws.close).toHaveBeenCalled()
     })

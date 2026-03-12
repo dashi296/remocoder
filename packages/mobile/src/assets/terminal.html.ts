@@ -31,37 +31,77 @@ export function buildTerminalHtml(wsUrl: string, token: string): string {
     let ws = null
     let reconnectDelay = 1000
     const MAX_RECONNECT_DELAY = 30000
+    // 接続試行タイムアウト（ms）: CONNECTINGのまま無応答の場合に切断して再試行
+    const CONNECT_TIMEOUT = 10000
+    let reconnectAttempt = 0
+    let connectTimeoutId = null
+    let reconnectTimerId = null
+    // 認証エラー・シェル終了後は自動再接続しない
+    let noReconnect = false
+
+    function postToNative(data) {
+      window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify(data))
+    }
 
     function connect() {
+      if (noReconnect) return
+
+      reconnectAttempt++
       ws = new WebSocket('${wsUrl}')
 
+      // 接続タイムアウト: CONNECTINGのまま応答がない場合
+      connectTimeoutId = setTimeout(() => {
+        if (ws && ws.readyState === WebSocket.CONNECTING) {
+          term.write('\\r\\n[接続タイムアウト。再接続中...]\\r\\n')
+          ws.close()
+        }
+      }, CONNECT_TIMEOUT)
+
       ws.onopen = () => {
+        clearTimeout(connectTimeoutId)
         reconnectDelay = 1000
+        reconnectAttempt = 0
         ws.send(JSON.stringify({ type: 'auth', token: '${token}' }))
+        postToNative({ type: 'connected' })
       }
 
       ws.onmessage = (e) => {
-        const msg = JSON.parse(e.data)
-        if (msg.type === 'output') term.write(msg.data)
-        if (msg.type === 'auth_ok') {
-          // 認証成功後にサイズを送信
+        let msg
+        try {
+          msg = JSON.parse(e.data)
+        } catch {
+          return
+        }
+
+        if (msg.type === 'output') {
+          term.write(msg.data)
+        } else if (msg.type === 'auth_ok') {
           ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }))
-        }
-        if (msg.type === 'auth_error') {
+          postToNative({ type: 'auth_ok' })
+        } else if (msg.type === 'auth_error') {
           term.write('\\r\\n[認証エラー: ' + msg.reason + ']\\r\\n')
+          noReconnect = true
           ws.close()
-          // 認証エラー時は再接続しない
-          window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'auth_error', reason: msg.reason }))
+          postToNative({ type: 'auth_error', reason: msg.reason })
+        } else if (msg.type === 'shell_exit') {
+          term.write('\\r\\n[セッションが終了しました (exit code: ' + msg.exitCode + ')]\\r\\n')
+          noReconnect = true
+          postToNative({ type: 'shell_exit', exitCode: msg.exitCode })
+        } else if (msg.type === 'ping') {
+          ws.send(JSON.stringify({ type: 'pong' }))
         }
-        if (msg.type === 'pong') {
-          // keepalive確認
-        }
+        // pong: keepalive確認、処理不要
       }
 
       ws.onclose = () => {
-        term.write('\\r\\n[接続が切断されました。再接続中... (' + (reconnectDelay / 1000) + 's)]\\r\\n')
-        window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'disconnected' }))
-        setTimeout(() => {
+        clearTimeout(connectTimeoutId)
+        if (noReconnect) return
+
+        const delaySec = reconnectDelay / 1000
+        term.write('\\r\\n[切断されました。' + delaySec + '秒後に再接続します... (試行: ' + reconnectAttempt + ')]\\r\\n')
+        postToNative({ type: 'disconnected', reconnectDelay })
+
+        reconnectTimerId = setTimeout(() => {
           reconnectDelay = Math.min(reconnectDelay * 2, MAX_RECONNECT_DELAY)
           connect()
         }, reconnectDelay)
@@ -87,6 +127,7 @@ export function buildTerminalHtml(wsUrl: string, token: string): string {
       }
     })
 
+    // クライアント側keepalive: サーバーからのpingに加え、クライアントからも定期送信
     setInterval(() => {
       if (ws && ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({ type: 'ping' }))

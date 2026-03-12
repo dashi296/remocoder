@@ -10,7 +10,8 @@
       "bundleIdentifier": "com.remocoder.app",
       "infoPlist": {
         "NSAppTransportSecurity": {
-          "NSAllowsLocalNetworking": true
+          "NSAllowsLocalNetworking": true,
+          "NSAllowsArbitraryLoadsInWebContent": true
         }
       }
     },

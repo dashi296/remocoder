@@ -34,7 +34,9 @@ export function TerminalScreen({ ip, token, onDisconnect }: Props) {
     (event: WebViewMessageEvent) => {
       try {
         const msg = JSON.parse(event.nativeEvent.data)
-        if (msg.type === 'auth_error') {
+        if (msg.type === 'debug') {
+          console.log('[WebView debug]', msg.msg)
+        } else if (msg.type === 'auth_error') {
           setStatus('auth_error')
         } else if (msg.type === 'auth_ok') {
           setStatus('connected')
@@ -81,13 +83,15 @@ export function TerminalScreen({ ip, token, onDisconnect }: Props) {
       <WebView
         key={webViewKey}
         ref={webViewRef}
-        source={{ html }}
+        source={{ html, baseUrl: 'http://localhost/' }}
         style={styles.webview}
         scrollEnabled={false}
         keyboardDisplayRequiresUserAction={false}
         javaScriptEnabled
         onMessage={handleMessage}
         allowFileAccess={false}
+        onError={(e) => console.error('WebView error:', e.nativeEvent)}
+        onHttpError={(e) => console.error('WebView HTTP error:', e.nativeEvent.statusCode)}
       />
     </SafeAreaView>
   )

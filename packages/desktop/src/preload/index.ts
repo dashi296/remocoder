@@ -12,4 +12,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onTokenRotated: (cb: (token: string) => void) => {
     ipcRenderer.on('token-rotated', (_event, token: string) => cb(token))
   },
+  onTailscaleIPUpdated: (cb: (ip: string | null) => void) => {
+    ipcRenderer.on('tailscale-ip-updated', (_event, ip: string | null) => cb(ip))
+  },
 })

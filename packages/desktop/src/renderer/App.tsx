@@ -47,6 +47,7 @@ export default function App() {
     api.getSessions().then(setSessions)
     api.onSessionsUpdate(setSessions)
     api.onTokenRotated?.((newToken: string) => setToken(newToken))
+    api.onTailscaleIPUpdated?.((newIp: string | null) => setTailscaleIP(newIp))
   }, [])
 
   return (

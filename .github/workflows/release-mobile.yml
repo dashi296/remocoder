@@ -1,0 +1,40 @@
+name: Release Mobile
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: EAS Build (iOS & Android)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Setup Expo and EAS
+        uses: expo/expo-github-action@v8
+        with:
+          expo-version: latest
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Build iOS and Android (production)
+        working-directory: packages/mobile
+        run: eas build --platform all --profile production --non-interactive
+
+      # Uncomment to auto-submit to App Store / Play Store after build:
+      # - name: Submit to stores
+      #   working-directory: packages/mobile
+      #   run: eas submit --platform all --non-interactive

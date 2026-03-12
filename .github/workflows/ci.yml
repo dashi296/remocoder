@@ -30,6 +30,9 @@ jobs:
       - name: Type check mobile
         run: pnpm --filter @remocoder/mobile exec tsc --noEmit
 
+      - name: Type check cli
+        run: pnpm --filter @remocoder/cli exec tsc --noEmit
+
   test:
     name: Test
     runs-on: ubuntu-latest

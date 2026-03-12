@@ -42,9 +42,9 @@ describe('App', () => {
     await waitFor(() => screen.getByText('MacBook'))
     fireEvent.press(screen.getByText('MacBook'))
 
-    // SessionPickerScreen が表示される（「セッションを選択」ヘッダー）
-    await waitFor(() => screen.getByText('セッションを選択'))
-    expect(screen.getByText('セッションを選択')).toBeTruthy()
+    // SessionPickerScreen が表示される（「プロジェクトを選択」ヘッダー）
+    await waitFor(() => screen.getByText('プロジェクトを選択'))
+    expect(screen.getByText('プロジェクトを選択')).toBeTruthy()
   })
 
   it('SessionPickerScreen の「戻る」でConnectScreenに戻る', async () => {

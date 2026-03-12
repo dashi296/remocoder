@@ -10,8 +10,8 @@ type ConnectionStatus = 'connecting' | 'connected' | 'reconnecting' | 'auth_erro
 interface Props {
   ip: string
   token: string
-  /** アタッチ先セッションID。null または未指定で新規セッション作成 */
-  sessionId?: string | null
+  /** セッションを起動するプロジェクトパス。null または未指定でプロジェクトなし */
+  projectPath?: string | null
   onDisconnect: () => void
 }
 
@@ -26,7 +26,7 @@ const STATUS_CONFIG: Record<
   shell_exit: { label: 'セッション終了', color: '#d4d4d4', bgColor: 'rgba(50,50,50,0.8)' },
 }
 
-export function TerminalScreen({ ip, token, sessionId, onDisconnect }: Props) {
+export function TerminalScreen({ ip, token, projectPath, onDisconnect }: Props) {
   const wsUrl = `ws://${ip}:${DEFAULT_WS_PORT}`
   const [status, setStatus] = useState<ConnectionStatus>('connecting')
   const [webViewKey, setWebViewKey] = useState(0)
@@ -66,7 +66,7 @@ export function TerminalScreen({ ip, token, sessionId, onDisconnect }: Props) {
     setWebViewKey((k) => k + 1)
   }, [])
 
-  const html = buildTerminalHtml(wsUrl, token, sessionId ?? null)
+  const html = buildTerminalHtml(wsUrl, token, projectPath ?? null)
   const statusCfg = STATUS_CONFIG[status]
   const showRetry = status === 'auth_error' || status === 'shell_exit'
 

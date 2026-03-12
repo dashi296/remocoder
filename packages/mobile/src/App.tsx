@@ -10,8 +10,8 @@ interface AppState {
   screen: Screen
   ip: string
   token: string
-  /** 接続先セッションID。null は新規セッション作成 */
-  sessionId?: string | null
+  /** 起動するプロジェクトのパス。null は新規セッション（プロジェクトなし） */
+  projectPath?: string | null
 }
 
 export default function App() {
@@ -25,8 +25,8 @@ export default function App() {
     setState({ screen: 'sessionPicker', ip, token })
   }
 
-  const handleSelectSession = (sessionId: string | null) => {
-    setState((prev) => ({ ...prev, screen: 'terminal', sessionId }))
+  const handleSelectProject = (projectPath: string | null) => {
+    setState((prev) => ({ ...prev, screen: 'terminal', projectPath }))
   }
 
   const handleBack = () => {
@@ -46,7 +46,7 @@ export default function App() {
         <SessionPickerScreen
           ip={state.ip}
           token={state.token}
-          onSelectSession={handleSelectSession}
+          onSelectProject={handleSelectProject}
           onBack={handleBack}
         />
       )}
@@ -54,7 +54,7 @@ export default function App() {
         <TerminalScreen
           ip={state.ip}
           token={state.token}
-          sessionId={state.sessionId}
+          projectPath={state.projectPath}
           onDisconnect={handleDisconnect}
         />
       )}

@@ -8,13 +8,13 @@ import {
   ActivityIndicator,
 } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
-import { DEFAULT_WS_PORT, SessionInfo, WsMessage } from '@remocoder/shared'
+import { DEFAULT_WS_PORT, ProjectInfo, WsMessage } from '@remocoder/shared'
 
 interface Props {
   ip: string
   token: string
-  /** セッション選択時に呼ばれる。null は新規セッション作成 */
-  onSelectSession: (sessionId: string | null) => void
+  /** プロジェクト選択時に呼ばれる。null は新規セッション（プロジェクトなし） */
+  onSelectProject: (projectPath: string | null) => void
   onBack: () => void
 }
 
@@ -22,12 +22,17 @@ type Status = 'connecting' | 'connected' | 'error'
 
 function formatDate(iso: string): string {
   const d = new Date(iso)
-  return d.toLocaleString()
+  return d.toLocaleString('ja-JP', {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
 }
 
-export function SessionPickerScreen({ ip, token, onSelectSession, onBack }: Props) {
+export function SessionPickerScreen({ ip, token, onSelectProject, onBack }: Props) {
   const [status, setStatus] = useState<Status>('connecting')
-  const [sessions, setSessions] = useState<SessionInfo[]>([])
+  const [projects, setProjects] = useState<ProjectInfo[]>([])
   const wsRef = useRef<WebSocket | null>(null)
   const selectedRef = useRef(false)
 
@@ -45,13 +50,12 @@ export function SessionPickerScreen({ ip, token, onSelectSession, onBack }: Prop
         const msg: WsMessage = JSON.parse(e.data)
         if (msg.type === 'auth_ok') {
           setStatus('connected')
-        } else if (msg.type === 'session_list') {
-          setSessions(msg.sessions)
+        } else if (msg.type === 'project_list') {
+          setProjects(msg.projects)
         } else if (msg.type === 'auth_error') {
           setStatus('error')
           ws.close()
         } else if (msg.type === 'ping') {
-          // サーバーのpongタイムアウトで切断されないよう応答する
           ws.send(JSON.stringify({ type: 'pong' }))
         }
       } catch {
@@ -71,10 +75,10 @@ export function SessionPickerScreen({ ip, token, onSelectSession, onBack }: Prop
     }
   }, [ip, token])
 
-  const handleSelect = (sessionId: string | null) => {
+  const handleSelect = (projectPath: string | null) => {
     selectedRef.current = true
     wsRef.current?.close()
-    onSelectSession(sessionId)
+    onSelectProject(projectPath)
   }
 
   return (
@@ -84,7 +88,7 @@ export function SessionPickerScreen({ ip, token, onSelectSession, onBack }: Prop
         <TouchableOpacity onPress={onBack} style={styles.backButton}>
           <Text style={styles.backButtonText}>← 戻る</Text>
         </TouchableOpacity>
-        <Text style={styles.title}>セッションを選択</Text>
+        <Text style={styles.title}>プロジェクトを選択</Text>
         <View style={styles.headerRight} />
       </View>
 
@@ -106,47 +110,27 @@ export function SessionPickerScreen({ ip, token, onSelectSession, onBack }: Prop
 
       {status === 'connected' && (
         <FlatList
-          data={sessions}
-          keyExtractor={(item) => item.id}
+          data={projects}
+          keyExtractor={(item) => item.path}
           contentContainerStyle={styles.listContent}
           ListHeaderComponent={
             <TouchableOpacity style={styles.newSessionButton} onPress={() => handleSelect(null)}>
               <Text style={styles.newSessionIcon}>＋</Text>
-              <Text style={styles.newSessionText}>新規セッションを作成</Text>
+              <Text style={styles.newSessionText}>新規セッション（プロジェクトなし）</Text>
             </TouchableOpacity>
           }
           ListEmptyComponent={
-            <Text style={styles.emptyText}>既存のセッションはありません</Text>
+            <Text style={styles.emptyText}>最近使ったプロジェクトはありません</Text>
           }
           renderItem={({ item }) => (
-            <TouchableOpacity style={styles.sessionRow} onPress={() => handleSelect(item.id)}>
-              <View style={styles.sessionRowLeft}>
-                <View
-                  style={[
-                    styles.dot,
-                    { backgroundColor: item.status === 'active' ? '#4ec9b0' : '#dcdcaa' },
-                  ]}
-                />
-                <View style={styles.sessionMeta}>
-                  <Text style={styles.sessionDate}>{formatDate(item.createdAt)}</Text>
-                  {item.clientIP != null && (
-                    <Text style={styles.sessionIP}>{item.clientIP}</Text>
-                  )}
-                </View>
-              </View>
-              <View style={styles.sessionRowRight}>
-                <Text
-                  style={[
-                    styles.badge,
-                    { color: item.status === 'active' ? '#4ec9b0' : '#dcdcaa' },
-                  ]}
-                >
-                  {item.status === 'active' ? 'ACTIVE' : 'IDLE'}
+            <TouchableOpacity style={styles.projectRow} onPress={() => handleSelect(item.path)}>
+              <View style={styles.projectLeft}>
+                <Text style={styles.projectName}>{item.name}</Text>
+                <Text style={styles.projectPath} numberOfLines={1} ellipsizeMode="middle">
+                  {item.path}
                 </Text>
-                {item.hasClient && (
-                  <Text style={styles.connectedBadge}>接続中</Text>
-                )}
               </View>
+              <Text style={styles.projectDate}>{formatDate(item.lastUsedAt)}</Text>
             </TouchableOpacity>
           )}
         />
@@ -243,7 +227,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: 8,
   },
-  sessionRow: {
+  projectRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -254,44 +238,25 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 12,
     marginBottom: 8,
+    gap: 8,
   },
-  sessionRowLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
+  projectLeft: {
     flex: 1,
+    gap: 3,
   },
-  dot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    flexShrink: 0,
-  },
-  sessionMeta: {
-    flex: 1,
-  },
-  sessionDate: {
+  projectName: {
     color: '#c9d1d9',
-    fontSize: 13,
-    fontWeight: '500',
+    fontSize: 14,
+    fontWeight: '600',
   },
-  sessionIP: {
+  projectPath: {
     color: '#8b949e',
     fontSize: 11,
-    marginTop: 2,
+    fontFamily: 'monospace',
   },
-  sessionRowRight: {
-    alignItems: 'flex-end',
-    gap: 4,
-  },
-  badge: {
-    fontSize: 10,
-    fontWeight: '700',
-    letterSpacing: 0.5,
-  },
-  connectedBadge: {
-    color: '#f85149',
-    fontSize: 9,
-    fontWeight: '600',
+  projectDate: {
+    color: '#8b949e',
+    fontSize: 11,
+    flexShrink: 0,
   },
 })

@@ -1,11 +1,10 @@
 /**
  * @param wsUrl WebSocket URL
  * @param token 認証トークン
- * @param sessionId アタッチ先セッションID。null の場合は新規セッション作成
+ * @param projectPath セッションを起動するプロジェクトパス。null の場合はプロジェクトなし
  */
-export function buildTerminalHtml(wsUrl: string, token: string, sessionId: string | null = null): string {
-  // JavaScriptに埋め込むセッションID（nullの場合は空文字列）
-  const sessionIdJs = sessionId ? JSON.stringify(sessionId) : 'null'
+export function buildTerminalHtml(wsUrl: string, token: string, projectPath: string | null = null): string {
+  const projectPathJs = projectPath ? JSON.stringify(projectPath) : 'null'
 
   return `
 <!DOCTYPE html>
@@ -36,8 +35,8 @@ export function buildTerminalHtml(wsUrl: string, token: string, sessionId: strin
     term.open(document.getElementById('terminal'))
     fitAddon.fit()
 
-    // アタッチ先セッションID（null = 新規作成）
-    const TARGET_SESSION_ID = ${sessionIdJs}
+    // セッションを起動するプロジェクトパス（null = プロジェクトなし）
+    const PROJECT_PATH = ${projectPathJs}
 
     let ws = null
     let reconnectDelay = 1000
@@ -89,12 +88,11 @@ export function buildTerminalHtml(wsUrl: string, token: string, sessionId: strin
         if (msg.type === 'output') {
           term.write(msg.data)
         } else if (msg.type === 'auth_ok') {
-          // auth_ok を受信後、セッション選択リクエストを送信
-          if (TARGET_SESSION_ID) {
-            ws.send(JSON.stringify({ type: 'session_attach', sessionId: TARGET_SESSION_ID }))
-          } else {
-            ws.send(JSON.stringify({ type: 'session_create' }))
-          }
+          // auth_ok を受信後、プロジェクトパス付きで新規セッションを作成
+          ws.send(JSON.stringify({
+            type: 'session_create',
+            ...(PROJECT_PATH ? { projectPath: PROJECT_PATH } : {}),
+          }))
         } else if (msg.type === 'session_attached') {
           // スクロールバック（過去の出力）を書き込み
           if (msg.scrollback) {

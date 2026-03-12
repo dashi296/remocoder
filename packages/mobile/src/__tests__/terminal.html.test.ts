@@ -56,26 +56,21 @@ describe('buildTerminalHtml', () => {
   })
 
   describe('セッション選択プロトコル', () => {
-    it('sessionId が null の場合 session_create を送信するロジックが含まれる', () => {
+    it('projectPath が null の場合 session_create を送信するロジックが含まれる', () => {
       const html = buildTerminalHtml(wsUrl, token, null)
       expect(html).toContain('session_create')
-      expect(html).toContain('TARGET_SESSION_ID')
+      expect(html).toContain('PROJECT_PATH')
     })
 
-    it('sessionId が指定された場合 session_attach を送信するロジックが含まれる', () => {
-      const html = buildTerminalHtml(wsUrl, token, 'my-session-id')
-      expect(html).toContain('session_attach')
-      expect(html).toContain('my-session-id')
+    it('projectPath が指定された場合 session_create に projectPath が含まれる', () => {
+      const html = buildTerminalHtml(wsUrl, token, '/Users/john/myproject')
+      expect(html).toContain('session_create')
+      expect(html).toContain('/Users/john/myproject')
     })
 
     it('session_attached メッセージのハンドラが含まれる', () => {
       const html = buildTerminalHtml(wsUrl, token)
       expect(html).toContain('session_attached')
-    })
-
-    it('session_not_found メッセージのハンドラが含まれる', () => {
-      const html = buildTerminalHtml(wsUrl, token)
-      expect(html).toContain('session_not_found')
     })
 
     it('scrollback の書き込みロジックが含まれる', () => {

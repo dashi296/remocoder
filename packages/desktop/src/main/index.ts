@@ -172,7 +172,7 @@ function setupIpc(getToken: () => string) {
 
   /** 手動で更新チェックをトリガー */
   ipcMain.handle('updater-check', () => {
-    checkForUpdates()
+    return checkForUpdates()
   })
 
   /** ダウンロード済みアップデートを適用して再起動 */

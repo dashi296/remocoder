@@ -1,9 +1,5 @@
 import React from 'react'
-
-interface UpdateInfo {
-  version: string
-  isMajor: boolean
-}
+import type { UpdateInfo } from '@remocoder/shared'
 
 interface StatusPanelProps {
   tailscaleIP: string | null

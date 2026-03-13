@@ -4,7 +4,7 @@ import { StatusPanel } from './components/StatusPanel'
 import { TokenDisplay } from './components/TokenDisplay'
 import { SessionList } from './components/SessionList'
 import { TerminalPanel } from './components/TerminalPanel'
-import { DEFAULT_WS_PORT, type SessionInfo } from '@remocoder/shared'
+import { DEFAULT_WS_PORT, type SessionInfo, type UpdateInfo } from '@remocoder/shared'
 
 // ── Mock data for development ─────────────────────────────
 const MOCK_MODE = !(window as any).electronAPI
@@ -41,18 +41,14 @@ const mockAPI = {
   onTerminalClosed: (_cb: () => void) => { /* mock no-op */ },
   checkForUpdate: async () => { /* mock no-op */ },
   installUpdate: async () => { /* mock no-op */ },
-  onUpdateAvailable: (_cb: (info: { version: string; isMajor: boolean }) => void) => () => { /* mock no-op */ },
-  onUpdateDownloaded: (_cb: (info: { version: string; isMajor: boolean }) => void) => () => { /* mock no-op */ },
+  onUpdateAvailable: (_cb: (info: UpdateInfo) => void) => () => { /* mock no-op */ },
+  onUpdateDownloaded: (_cb: (info: UpdateInfo) => void) => () => { /* mock no-op */ },
+  onUpdateError: (_cb: (error: { message: string }) => void) => () => { /* mock no-op */ },
 }
 
 const api = MOCK_MODE ? mockAPI : (window as any).electronAPI
 
 // ─────────────────────────────────────────────────────────
-
-interface UpdateInfo {
-  version: string
-  isMajor: boolean
-}
 
 export default function App() {
   const [tailscaleIP, setTailscaleIP] = useState<string | null>(null)
@@ -75,8 +71,11 @@ export default function App() {
     const cleanupClosed = api.onTerminalClosed?.(() => setActiveTerminalSessionId(null))
     const cleanupUpdateAvailable = api.onUpdateAvailable?.((info: UpdateInfo) => setUpdateAvailable(info))
     const cleanupUpdateDownloaded = api.onUpdateDownloaded?.((info: UpdateInfo) => {
-      setUpdateAvailable(info)
+      setUpdateAvailable((prev) => prev ?? info)
       setUpdateDownloaded(info)
+    })
+    const cleanupUpdateError = api.onUpdateError?.((error: { message: string }) => {
+      console.error('[updater] update error:', error.message)
     })
 
     return () => {
@@ -87,6 +86,7 @@ export default function App() {
       cleanupClosed?.()
       cleanupUpdateAvailable?.()
       cleanupUpdateDownloaded?.()
+      cleanupUpdateError?.()
     }
   }, [])
 

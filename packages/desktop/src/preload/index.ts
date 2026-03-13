@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { SessionInfo } from '@remocoder/shared'
+import type { SessionInfo, UpdateInfo } from '@remocoder/shared'
 
 contextBridge.exposeInMainWorld('electronAPI', {
   // ── 既存API ──────────────────────────────────────────────────────────────
@@ -90,16 +90,23 @@ contextBridge.exposeInMainWorld('electronAPI', {
   installUpdate: (): Promise<void> => ipcRenderer.invoke('updater-install'),
 
   /** 更新が利用可能になったときに呼ばれる。戻り値はリスナー解除関数 */
-  onUpdateAvailable: (cb: (info: { version: string; isMajor: boolean }) => void): (() => void) => {
-    const handler = (_event: Electron.IpcRendererEvent, info: { version: string; isMajor: boolean }) => cb(info)
+  onUpdateAvailable: (cb: (info: UpdateInfo) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, info: UpdateInfo) => cb(info)
     ipcRenderer.on('update-available', handler)
     return () => ipcRenderer.removeListener('update-available', handler)
   },
 
   /** 更新のダウンロードが完了したときに呼ばれる。戻り値はリスナー解除関数 */
-  onUpdateDownloaded: (cb: (info: { version: string; isMajor: boolean }) => void): (() => void) => {
-    const handler = (_event: Electron.IpcRendererEvent, info: { version: string; isMajor: boolean }) => cb(info)
+  onUpdateDownloaded: (cb: (info: UpdateInfo) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, info: UpdateInfo) => cb(info)
     ipcRenderer.on('update-downloaded', handler)
     return () => ipcRenderer.removeListener('update-downloaded', handler)
+  },
+
+  /** アップデートエラーが発生したときに呼ばれる。戻り値はリスナー解除関数 */
+  onUpdateError: (cb: (error: { message: string }) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, error: { message: string }) => cb(error)
+    ipcRenderer.on('update-error', handler)
+    return () => ipcRenderer.removeListener('update-error', handler)
   },
 })

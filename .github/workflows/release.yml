@@ -31,18 +31,23 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      - name: Build Electron app
+      - name: Build and publish Electron app
         working-directory: packages/desktop
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           DIST_ARGS: ${{ matrix.dist_args }}
-        run: pnpm dist $DIST_ARGS
+        run: pnpm dist $DIST_ARGS --publish always
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: desktop-${{ matrix.os }}
-          path: packages/desktop/dist/**/*.{dmg,exe,AppImage,yml,yaml}
+          path: |
+            packages/desktop/dist/**/*.dmg
+            packages/desktop/dist/**/*.exe
+            packages/desktop/dist/**/*.AppImage
+            packages/desktop/dist/**/*.yml
+            packages/desktop/dist/**/*.yaml
           if-no-files-found: ignore
 
   eas-submit:

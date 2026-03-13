@@ -10,8 +10,10 @@ interface AppState {
   screen: Screen
   ip: string
   token: string
-  /** 起動するプロジェクトのパス。null は新規セッション（プロジェクトなし） */
+  /** 新規セッションで起動するプロジェクトパス。null は新規セッション（プロジェクトなし） */
   projectPath?: string | null
+  /** アタッチする既存セッションID。指定時は projectPath より優先される */
+  sessionId?: string | null
 }
 
 export default function App() {
@@ -26,7 +28,11 @@ export default function App() {
   }
 
   const handleSelectProject = (projectPath: string | null) => {
-    setState((prev) => ({ ...prev, screen: 'terminal', projectPath }))
+    setState((prev) => ({ ...prev, screen: 'terminal', projectPath, sessionId: null }))
+  }
+
+  const handleAttachSession = (sessionId: string) => {
+    setState((prev) => ({ ...prev, screen: 'terminal', sessionId, projectPath: null }))
   }
 
   const handleBack = () => {
@@ -47,6 +53,7 @@ export default function App() {
           ip={state.ip}
           token={state.token}
           onSelectProject={handleSelectProject}
+          onAttachSession={handleAttachSession}
           onBack={handleBack}
         />
       )}
@@ -55,6 +62,7 @@ export default function App() {
           ip={state.ip}
           token={state.token}
           projectPath={state.projectPath}
+          sessionId={state.sessionId}
           onDisconnect={handleDisconnect}
         />
       )}

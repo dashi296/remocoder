@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { act } from 'react'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react-native'
 import App from '../App'
 import AsyncStorage from '../__mocks__/async-storage'
@@ -42,9 +42,9 @@ describe('App', () => {
     await waitFor(() => screen.getByText('MacBook'))
     fireEvent.press(screen.getByText('MacBook'))
 
-    // SessionPickerScreen が表示される（「プロジェクトを選択」ヘッダー）
-    await waitFor(() => screen.getByText('プロジェクトを選択'))
-    expect(screen.getByText('プロジェクトを選択')).toBeTruthy()
+    // SessionPickerScreen が表示される（「セッションを選択」ヘッダー）
+    await waitFor(() => screen.getByText('セッションを選択'))
+    expect(screen.getByText('セッションを選択')).toBeTruthy()
   })
 
   it('SessionPickerScreen の「戻る」でConnectScreenに戻る', async () => {
@@ -61,5 +61,70 @@ describe('App', () => {
 
     await waitFor(() => screen.getByText('MacBook'))
     expect(screen.getByText('MacBook')).toBeTruthy()
+  })
+
+  it('onSelectProject(path) → TerminalScreen が projectPath 付きでレンダーされる', async () => {
+    const profiles = [{ id: '1', name: 'MacBook', ip: '100.64.0.1', token: 'tok' }]
+    AsyncStorage.getItem.mockResolvedValue(JSON.stringify(profiles))
+    AsyncStorage.setItem.mockResolvedValue(undefined)
+
+    render(<App />)
+    await waitFor(() => screen.getByText('MacBook'))
+    fireEvent.press(screen.getByText('MacBook'))
+
+    await waitFor(() => screen.getByText('セッションを選択'))
+
+    // auth_ok → project_list で接続完了
+    act(() => { mockWs.onopen?.() })
+    act(() => { mockWs.onmessage?.({ data: JSON.stringify({ type: 'auth_ok' }) }) })
+    act(() => { mockWs.onmessage?.({ data: JSON.stringify({ type: 'session_list', sessions: [] }) }) })
+    act(() => {
+      mockWs.onmessage?.({
+        data: JSON.stringify({
+          type: 'project_list',
+          projects: [{ path: '/home/user/myapp', name: 'myapp', lastUsedAt: new Date().toISOString() }],
+        }),
+      })
+    })
+
+    await waitFor(() => screen.getByText('myapp'))
+    fireEvent.press(screen.getByText('myapp'))
+
+    // TerminalScreen に遷移し「接続中...」が表示される
+    await waitFor(() => screen.getByText('接続中...'))
+    expect(screen.getByText('接続中...')).toBeTruthy()
+  })
+
+  it('onAttachSession(sessionId) → TerminalScreen に sessionId が渡される', async () => {
+    const profiles = [{ id: '1', name: 'MacBook', ip: '100.64.0.1', token: 'tok' }]
+    AsyncStorage.getItem.mockResolvedValue(JSON.stringify(profiles))
+    AsyncStorage.setItem.mockResolvedValue(undefined)
+
+    render(<App />)
+    await waitFor(() => screen.getByText('MacBook'))
+    fireEvent.press(screen.getByText('MacBook'))
+
+    await waitFor(() => screen.getByText('セッションを選択'))
+
+    act(() => { mockWs.onopen?.() })
+    act(() => { mockWs.onmessage?.({ data: JSON.stringify({ type: 'auth_ok' }) }) })
+    act(() => {
+      mockWs.onmessage?.({
+        data: JSON.stringify({
+          type: 'session_list',
+          sessions: [
+            { id: 'existing-sid', status: 'active', createdAt: new Date().toISOString(), projectPath: '/home/user/existing' },
+          ],
+        }),
+      })
+    })
+    act(() => { mockWs.onmessage?.({ data: JSON.stringify({ type: 'project_list', projects: [] }) }) })
+
+    await waitFor(() => screen.getByText('existing'))
+    fireEvent.press(screen.getByText('existing'))
+
+    // TerminalScreen に遷移
+    await waitFor(() => screen.getByText('接続中...'))
+    expect(screen.getByText('接続中...')).toBeTruthy()
   })
 })

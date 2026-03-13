@@ -116,6 +116,8 @@ interface PtySession {
   wsClient: WebSocket | null
   clientIP?: string
   idleTimeoutId: ReturnType<typeof setTimeout> | null
+  /** セッションが起動したプロジェクトパス */
+  projectPath?: string
 }
 
 /** 永続PTYセッションマップ（WS切断後も保持） */
@@ -160,6 +162,7 @@ function getSessionInfos(): SessionInfo[] {
     clientIP: s.clientIP,
     hasClient: s.wsClient !== null && s.wsClient.readyState === WebSocket.OPEN,
     isExternal: s.pty === null,
+    projectPath: s.projectPath,
   }))
 }
 
@@ -192,6 +195,7 @@ function createPtySession(clientIP?: string, projectPath?: string): PtySession {
     wsClient: null,
     clientIP,
     idleTimeoutId: null,
+    projectPath,
   }
 
   ptyProc.onData((data) => {
@@ -528,6 +532,18 @@ export function startPtyServer(port = DEFAULT_WS_PORT, callbacks: PtyServerCallb
           clearTimeout(pongTimeoutId)
           pongTimeoutId = null
         }
+        return
+      }
+
+      // ── セッション一覧要求（picker・アタッチ済み両方から受け付ける） ────
+      if (msg.type === 'session_list_request') {
+        ws.send(
+          JSON.stringify({
+            type: 'session_list_response',
+            sessions: getSessionInfos(),
+            projects: getRecentProjects(),
+          } satisfies WsMessage),
+        )
         return
       }
 

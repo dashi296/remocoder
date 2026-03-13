@@ -20,6 +20,10 @@ export type WsMessage =
   | { type: 'session_registered'; sessionId: string }
   /** 認証後に送信する最近使ったプロジェクト一覧 */
   | { type: 'project_list'; projects: ProjectInfo[] }
+  /** アタッチ済みクライアントがセッション一覧を要求する */
+  | { type: 'session_list_request' }
+  /** session_list_request への応答（セッション一覧 + 最近のプロジェクト一覧） */
+  | { type: 'session_list_response'; sessions: SessionInfo[]; projects: ProjectInfo[] }
 
 export interface ProjectInfo {
   /** プロジェクトのフルパス */
@@ -39,6 +43,8 @@ export interface SessionInfo {
   hasClient?: boolean
   /** 外部ターミナルから登録されたセッションかどうか */
   isExternal?: boolean
+  /** セッションが起動したプロジェクトパス */
+  projectPath?: string
 }
 
 export const DEFAULT_WS_PORT = 8080

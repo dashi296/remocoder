@@ -8,13 +8,15 @@ import {
   ActivityIndicator,
 } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
-import { DEFAULT_WS_PORT, ProjectInfo, WsMessage } from '@remocoder/shared'
+import { DEFAULT_WS_PORT, ProjectInfo, SessionInfo, WsMessage } from '@remocoder/shared'
 
 interface Props {
   ip: string
   token: string
   /** プロジェクト選択時に呼ばれる。null は新規セッション（プロジェクトなし） */
   onSelectProject: (projectPath: string | null) => void
+  /** 実行中セッションを選択したときに呼ばれる */
+  onAttachSession: (sessionId: string) => void
   onBack: () => void
 }
 
@@ -30,9 +32,10 @@ function formatDate(iso: string): string {
   })
 }
 
-export function SessionPickerScreen({ ip, token, onSelectProject, onBack }: Props) {
+export function SessionPickerScreen({ ip, token, onSelectProject, onAttachSession, onBack }: Props) {
   const [status, setStatus] = useState<Status>('connecting')
   const [projects, setProjects] = useState<ProjectInfo[]>([])
+  const [sessions, setSessions] = useState<SessionInfo[]>([])
   const wsRef = useRef<WebSocket | null>(null)
   const selectedRef = useRef(false)
 
@@ -52,6 +55,8 @@ export function SessionPickerScreen({ ip, token, onSelectProject, onBack }: Prop
           setStatus('connected')
         } else if (msg.type === 'project_list') {
           setProjects(msg.projects)
+        } else if (msg.type === 'session_list') {
+          setSessions(msg.sessions)
         } else if (msg.type === 'auth_error') {
           setStatus('error')
           ws.close()
@@ -75,10 +80,35 @@ export function SessionPickerScreen({ ip, token, onSelectProject, onBack }: Prop
     }
   }, [ip, token])
 
-  const handleSelect = (projectPath: string | null) => {
+  const handleSelectProject = (projectPath: string | null) => {
     selectedRef.current = true
     wsRef.current?.close()
     onSelectProject(projectPath)
+  }
+
+  const handleAttachSession = (sessionId: string) => {
+    selectedRef.current = true
+    wsRef.current?.close()
+    onAttachSession(sessionId)
+  }
+
+  type ListItem =
+    | { kind: 'header'; label: string }
+    | { kind: 'newSession' }
+    | { kind: 'session'; session: SessionInfo }
+    | { kind: 'project'; project: ProjectInfo }
+
+  const listData: ListItem[] = []
+
+  if (sessions.length > 0) {
+    listData.push({ kind: 'header', label: '実行中のセッション' })
+    sessions.forEach((s) => listData.push({ kind: 'session', session: s }))
+  }
+
+  listData.push({ kind: 'header', label: '新規セッション' })
+  listData.push({ kind: 'newSession' })
+  if (projects.length > 0) {
+    projects.forEach((p) => listData.push({ kind: 'project', project: p }))
   }
 
   return (
@@ -88,7 +118,7 @@ export function SessionPickerScreen({ ip, token, onSelectProject, onBack }: Prop
         <TouchableOpacity onPress={onBack} style={styles.backButton}>
           <Text style={styles.backButtonText}>← 戻る</Text>
         </TouchableOpacity>
-        <Text style={styles.title}>プロジェクトを選択</Text>
+        <Text style={styles.title}>セッションを選択</Text>
         <View style={styles.headerRight} />
       </View>
 
@@ -110,29 +140,81 @@ export function SessionPickerScreen({ ip, token, onSelectProject, onBack }: Prop
 
       {status === 'connected' && (
         <FlatList
-          data={projects}
-          keyExtractor={(item) => item.path}
+          data={listData}
+          keyExtractor={(item, i) => {
+            if (item.kind === 'header') return `header-${item.label}`
+            if (item.kind === 'newSession') return 'newSession'
+            if (item.kind === 'session') return `session-${item.session.id}`
+            if (item.kind === 'project') return `project-${item.project.path}`
+            return String(i)
+          }}
           contentContainerStyle={styles.listContent}
-          ListHeaderComponent={
-            <TouchableOpacity style={styles.newSessionButton} onPress={() => handleSelect(null)}>
-              <Text style={styles.newSessionIcon}>＋</Text>
-              <Text style={styles.newSessionText}>新規セッション（プロジェクトなし）</Text>
-            </TouchableOpacity>
-          }
-          ListEmptyComponent={
-            <Text style={styles.emptyText}>最近使ったプロジェクトはありません</Text>
-          }
-          renderItem={({ item }) => (
-            <TouchableOpacity style={styles.projectRow} onPress={() => handleSelect(item.path)}>
-              <View style={styles.projectLeft}>
-                <Text style={styles.projectName}>{item.name}</Text>
-                <Text style={styles.projectPath} numberOfLines={1} ellipsizeMode="middle">
-                  {item.path}
-                </Text>
-              </View>
-              <Text style={styles.projectDate}>{formatDate(item.lastUsedAt)}</Text>
-            </TouchableOpacity>
-          )}
+          renderItem={({ item }) => {
+            if (item.kind === 'header') {
+              return <Text style={styles.sectionTitle}>{item.label}</Text>
+            }
+            if (item.kind === 'newSession') {
+              return (
+                <TouchableOpacity
+                  style={styles.newSessionButton}
+                  onPress={() => handleSelectProject(null)}
+                >
+                  <Text style={styles.newSessionIcon}>＋</Text>
+                  <Text style={styles.newSessionText}>プロジェクトなし</Text>
+                </TouchableOpacity>
+              )
+            }
+            if (item.kind === 'session') {
+              const { session } = item
+              const name = session.projectPath
+                ? session.projectPath.split('/').filter(Boolean).pop() ?? 'セッション'
+                : 'セッション'
+              return (
+                <TouchableOpacity
+                  style={styles.sessionRow}
+                  onPress={() => handleAttachSession(session.id)}
+                >
+                  <View
+                    style={[
+                      styles.statusDot,
+                      session.status === 'active' ? styles.dotActive : styles.dotIdle,
+                    ]}
+                  />
+                  <View style={styles.sessionInfo}>
+                    <Text style={styles.sessionName}>{name}</Text>
+                    {session.projectPath && (
+                      <Text style={styles.sessionPath} numberOfLines={1} ellipsizeMode="middle">
+                        {session.projectPath}
+                      </Text>
+                    )}
+                    <Text style={styles.sessionMeta}>
+                      {session.status === 'active' ? 'アクティブ' : 'アイドル'}
+                      {session.hasClient ? ' · 接続中' : ''}
+                    </Text>
+                  </View>
+                  <Text style={styles.attachArrow}>→</Text>
+                </TouchableOpacity>
+              )
+            }
+            if (item.kind === 'project') {
+              const { project } = item
+              return (
+                <TouchableOpacity
+                  style={styles.projectRow}
+                  onPress={() => handleSelectProject(project.path)}
+                >
+                  <View style={styles.projectLeft}>
+                    <Text style={styles.projectName}>{project.name}</Text>
+                    <Text style={styles.projectPath} numberOfLines={1} ellipsizeMode="middle">
+                      {project.path}
+                    </Text>
+                  </View>
+                  <Text style={styles.projectDate}>{formatDate(project.lastUsedAt)}</Text>
+                </TouchableOpacity>
+              )
+            }
+            return null
+          }}
         />
       )}
     </SafeAreaView>
@@ -197,7 +279,62 @@ const styles = StyleSheet.create({
   },
   listContent: {
     padding: 16,
-    gap: 8,
+    gap: 6,
+  },
+  sectionTitle: {
+    color: '#8b949e',
+    fontSize: 11,
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+    marginTop: 8,
+    marginBottom: 6,
+  },
+  sessionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#161b22',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+    borderRadius: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    gap: 10,
+  },
+  statusDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    flexShrink: 0,
+    marginTop: 2,
+  },
+  dotActive: {
+    backgroundColor: '#4ec9b0',
+  },
+  dotIdle: {
+    backgroundColor: '#dcdcaa',
+  },
+  sessionInfo: {
+    flex: 1,
+    gap: 2,
+  },
+  sessionName: {
+    color: '#c9d1d9',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  sessionPath: {
+    color: '#8b949e',
+    fontSize: 11,
+    fontFamily: 'monospace',
+  },
+  sessionMeta: {
+    color: '#8b949e',
+    fontSize: 11,
+  },
+  attachArrow: {
+    color: '#8b949e',
+    fontSize: 16,
   },
   newSessionButton: {
     flexDirection: 'row',
@@ -209,7 +346,6 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     paddingHorizontal: 16,
     paddingVertical: 14,
-    marginBottom: 16,
   },
   newSessionIcon: {
     color: '#4ec9b0',
@@ -221,12 +357,6 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '600',
   },
-  emptyText: {
-    color: '#8b949e',
-    fontSize: 13,
-    textAlign: 'center',
-    marginTop: 8,
-  },
   projectRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -237,7 +367,6 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     paddingHorizontal: 14,
     paddingVertical: 12,
-    marginBottom: 8,
     gap: 8,
   },
   projectLeft: {

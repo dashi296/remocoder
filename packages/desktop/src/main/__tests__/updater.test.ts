@@ -42,6 +42,13 @@ describe('setupAutoUpdater', () => {
     return call[1] as (...args: unknown[]) => void
   }
 
+  // win.on ハンドラーを取得するヘルパー
+  function capturedWinHandler(event: string): (...args: unknown[]) => void {
+    const call = mockWinOn.mock.calls.find((c) => c[0] === event)
+    if (!call) throw new Error(`win handler for '${event}' not registered`)
+    return call[1] as (...args: unknown[]) => void
+  }
+
   beforeAll(() => {
     vi.clearAllMocks()
     mockAutoUpdater.checkForUpdates.mockResolvedValue(null as any)
@@ -55,6 +62,10 @@ describe('setupAutoUpdater', () => {
     expect(registeredEvents).toContain('error')
   })
 
+  it('setupAutoUpdater 呼び出し時に checkForUpdates を実行する', () => {
+    expect(mockAutoUpdater.checkForUpdates).toHaveBeenCalled()
+  })
+
   it('二重初期化を防止する（2回目の呼び出しでイベントが再登録されない）', () => {
     const countBefore = mockAutoUpdater.on.mock.calls.length
     setupAutoUpdater(mockWin as any)
@@ -62,7 +73,11 @@ describe('setupAutoUpdater', () => {
   })
 
   describe('update-available ハンドラー', () => {
-    beforeEach(() => mockSend.mockClear())
+    beforeEach(() => {
+      mockSend.mockClear()
+      mockAutoUpdater.downloadUpdate.mockClear()
+      mockAutoUpdater.autoInstallOnAppQuit = false
+    })
 
     it('Minor バージョンで update-available を送信し自動ダウンロードを開始する', () => {
       const handler = capturedHandler('update-available')
@@ -76,9 +91,17 @@ describe('setupAutoUpdater', () => {
       expect(mockAutoUpdater.autoInstallOnAppQuit).toBe(true)
     })
 
+    it('Patch バージョンで isMajor: false を送信する', () => {
+      const handler = capturedHandler('update-available')
+      handler({ version: '1.2.4' })
+
+      expect(mockSend).toHaveBeenCalledWith('update-available', {
+        version: '1.2.4',
+        isMajor: false,
+      })
+    })
+
     it('Major バージョンで update-available を送信するが自動ダウンロードしない', () => {
-      mockAutoUpdater.downloadUpdate.mockClear()
-      mockAutoUpdater.autoInstallOnAppQuit = false
       const handler = capturedHandler('update-available')
       handler({ version: '2.0.0' })
 
@@ -88,6 +111,30 @@ describe('setupAutoUpdater', () => {
       })
       expect(mockAutoUpdater.downloadUpdate).not.toHaveBeenCalled()
       expect(mockAutoUpdater.autoInstallOnAppQuit).toBe(false)
+    })
+
+    it('Minor 更新後に Major 更新が来たとき autoInstallOnAppQuit が false になる', () => {
+      const handler = capturedHandler('update-available')
+      // まず Minor 更新
+      handler({ version: '1.3.0' })
+      expect(mockAutoUpdater.autoInstallOnAppQuit).toBe(true)
+      mockAutoUpdater.downloadUpdate.mockClear()
+
+      // 次に Major 更新
+      handler({ version: '2.0.0' })
+      expect(mockAutoUpdater.autoInstallOnAppQuit).toBe(false)
+      expect(mockAutoUpdater.downloadUpdate).not.toHaveBeenCalled()
+    })
+
+    it('Minor バージョンで downloadUpdate が reject したとき update-error を送信する', async () => {
+      mockAutoUpdater.downloadUpdate.mockRejectedValueOnce(new Error('download failed'))
+      const handler = capturedHandler('update-available')
+      handler({ version: '1.3.0' })
+
+      // downloadUpdate は非同期なので Promise の settle を待つ
+      await new Promise((resolve) => setTimeout(resolve, 0))
+
+      expect(mockSend).toHaveBeenCalledWith('update-error', { message: 'download failed' })
     })
   })
 
@@ -134,6 +181,19 @@ describe('setupAutoUpdater', () => {
   describe('win.closed ハンドラー', () => {
     it('closed イベントのハンドラーを登録する', () => {
       expect(mockWinOn).toHaveBeenCalledWith('closed', expect.any(Function))
+    })
+
+    it('closed イベント発火時に mainWindow を null 化し intervalId をクリアする', () => {
+      // 新しいウィンドウで setupAutoUpdater を再初期化できることを確認
+      const closedHandler = capturedWinHandler('closed')
+      closedHandler()
+
+      // 再初期化が可能になる（initialized = false）
+      const mockWin2 = { webContents: { send: vi.fn() }, on: vi.fn() }
+      const prevCallCount = mockAutoUpdater.on.mock.calls.length
+      setupAutoUpdater(mockWin2 as any)
+      // 新しいウィンドウでイベントハンドラーが再登録される
+      expect(mockAutoUpdater.on.mock.calls.length).toBeGreaterThan(prevCallCount)
     })
   })
 })

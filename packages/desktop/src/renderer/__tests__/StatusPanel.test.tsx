@@ -170,6 +170,20 @@ describe('StatusPanel', () => {
       expect(screen.getByText(/MAJOR/)).toBeInTheDocument()
     })
 
+    it('updateDownloaded のみ（updateAvailable なし）でも UPDATE READY と再起動ボタンを表示する', () => {
+      render(
+        <StatusPanel
+          {...makeDefaultProps()}
+          tailscaleIP="100.88.44.12"
+          wsPort={8080}
+          wsRunning={true}
+          updateDownloaded={{ version: '1.2.0', isMajor: false }}
+        />,
+      )
+      expect(screen.getByText(/UPDATE READY/)).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: '再起動して適用' })).toBeInTheDocument()
+    })
+
     it('更新なしのとき更新バナーを表示しない', () => {
       render(<StatusPanel {...makeDefaultProps()} tailscaleIP="100.88.44.12" wsPort={8080} wsRunning={true} />)
       expect(screen.queryByText(/UPDATE/)).not.toBeInTheDocument()

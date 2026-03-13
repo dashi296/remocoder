@@ -170,9 +170,12 @@ function setupIpc(getToken: () => string) {
 
   // ── 自動アップデート用ハンドラ ──────────────────────────────────────────────
 
-  /** 手動で更新チェックをトリガー */
+  /** 手動で更新チェックをトリガー（エラーは update-error として通知済みのため void を返す） */
   ipcMain.handle('updater-check', () => {
-    return checkForUpdates()
+    checkForUpdates().catch((err) => {
+      console.error('[updater] manual check failed:', err)
+      win?.webContents.send('update-error', { message: String(err) })
+    })
   })
 
   /** メジャーアップデートをユーザー操作でダウンロード開始 */

@@ -37,6 +37,9 @@ export function setupAutoUpdater(win: BrowserWindow): void {
     const updateInfo = toUpdateInfo(info)
     mainWindow?.webContents.send('update-available', updateInfo)
 
+    // Major の場合は autoInstallOnAppQuit を false に保つ（ユーザーの明示的な操作を待つ）
+    autoUpdater.autoInstallOnAppQuit = false
+
     if (!updateInfo.isMajor) {
       // Minor / Patch: バックグラウンド自動ダウンロードし終了時に自動適用
       autoUpdater.autoInstallOnAppQuit = true
@@ -69,6 +72,7 @@ export function setupAutoUpdater(win: BrowserWindow): void {
 
   win.on('closed', () => {
     mainWindow = null
+    initialized = false
     if (intervalId !== null) {
       clearInterval(intervalId)
       intervalId = null

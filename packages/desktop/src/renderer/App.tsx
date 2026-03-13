@@ -150,7 +150,13 @@ export default function App() {
           updateDownloaded={updateDownloaded}
           updateError={updateError}
           onDownloadUpdate={() => api.downloadUpdate?.()}
-          onInstallUpdate={() => api.installUpdate?.()}
+          onInstallUpdate={async () => {
+            try {
+              await api.installUpdate?.()
+            } catch (err) {
+              setUpdateError(err instanceof Error ? err.message : String(err))
+            }
+          }}
         />
         {token && (
           <TokenDisplay

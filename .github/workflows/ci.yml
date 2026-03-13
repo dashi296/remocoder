@@ -63,6 +63,7 @@ jobs:
     name: EAS Build (${{ matrix.platform }})
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    environment: production
     strategy:
       matrix:
         platform: [ios, android]

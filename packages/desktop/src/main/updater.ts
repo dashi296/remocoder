@@ -7,18 +7,16 @@ const { autoUpdater } = electronUpdater
 let mainWindow: BrowserWindow | null = null
 let intervalId: ReturnType<typeof setInterval> | null = null
 let initialized = false
-
-/** アプリ起動後に変わらないため、モジュールロード時に一度だけ計算する */
-const CURRENT_MAJOR = parseInt(app.getVersion().split('.')[0], 10)
+let downloading = false
 
 function parseMajor(version: string): number {
   return parseInt(version.split('.')[0], 10)
 }
 
-function toUpdateInfo(info: EuUpdateInfo): UpdateInfo {
+function toUpdateInfo(info: EuUpdateInfo, currentMajor: number): UpdateInfo {
   return {
     version: info.version,
-    isMajor: parseMajor(info.version) > CURRENT_MAJOR,
+    isMajor: parseMajor(info.version) > currentMajor,
   }
 }
 
@@ -29,12 +27,16 @@ export function setupAutoUpdater(win: BrowserWindow): void {
 
   mainWindow = win
 
+  // app.isReady() 後に呼ばれることが保証されているため、ここで計算する
+  const currentMajor = parseMajor(app.getVersion())
+  console.log(`[updater] current version: ${app.getVersion()}, major: ${currentMajor}`)
+
   // 自動ダウンロードは無効化し、バージョン種別に応じて手動制御する
   autoUpdater.autoDownload = false
   autoUpdater.autoInstallOnAppQuit = false
 
   autoUpdater.on('update-available', (info: EuUpdateInfo) => {
-    const updateInfo = toUpdateInfo(info)
+    const updateInfo = toUpdateInfo(info, currentMajor)
     mainWindow?.webContents.send('update-available', updateInfo)
 
     // Major の場合は autoInstallOnAppQuit を false に保つ（ユーザーの明示的な操作を待つ）
@@ -52,7 +54,7 @@ export function setupAutoUpdater(win: BrowserWindow): void {
   })
 
   autoUpdater.on('update-downloaded', (info: EuUpdateInfo) => {
-    mainWindow?.webContents.send('update-downloaded', toUpdateInfo(info))
+    mainWindow?.webContents.send('update-downloaded', toUpdateInfo(info, currentMajor))
   })
 
   autoUpdater.on('error', (err: Error) => {
@@ -73,6 +75,8 @@ export function setupAutoUpdater(win: BrowserWindow): void {
   win.on('closed', () => {
     mainWindow = null
     initialized = false
+    downloading = false
+    autoUpdater.removeAllListeners()
     if (intervalId !== null) {
       clearInterval(intervalId)
       intervalId = null
@@ -95,15 +99,25 @@ export function setupAutoUpdater(win: BrowserWindow): void {
 }
 
 export function checkForUpdates(): Promise<void> {
-  return autoUpdater.checkForUpdates().then(() => undefined)
+  return autoUpdater.checkForUpdates().then((result) => {
+    if (result === null) {
+      console.warn('[updater] checkForUpdates returned null — updater may not be configured')
+    }
+  })
 }
 
 export function downloadUpdate(): void {
+  if (downloading) return
+  downloading = true
   autoUpdater.autoInstallOnAppQuit = true
-  autoUpdater.downloadUpdate().catch((err: Error) => {
-    console.error('[updater] downloadUpdate failed:', err)
-    mainWindow?.webContents.send('update-error', { message: err.message })
-  })
+  autoUpdater.downloadUpdate()
+    .catch((err: Error) => {
+      console.error('[updater] downloadUpdate failed:', err)
+      mainWindow?.webContents.send('update-error', { message: err.message })
+    })
+    .finally(() => {
+      downloading = false
+    })
 }
 
 export function installUpdate(): void {

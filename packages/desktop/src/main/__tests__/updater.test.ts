@@ -12,6 +12,7 @@ const mockAutoUpdater = {
   autoDownload: true,
   autoInstallOnAppQuit: true,
   on: vi.fn(),
+  removeAllListeners: vi.fn(),
   checkForUpdates: vi.fn(() => Promise.resolve(null)),
   quitAndInstall: vi.fn(),
   downloadUpdate: vi.fn(() => Promise.resolve()),
@@ -183,10 +184,12 @@ describe('setupAutoUpdater', () => {
       expect(mockWinOn).toHaveBeenCalledWith('closed', expect.any(Function))
     })
 
-    it('closed イベント発火時に mainWindow を null 化し intervalId をクリアする', () => {
-      // 新しいウィンドウで setupAutoUpdater を再初期化できることを確認
+    it('closed イベント発火時に removeAllListeners を呼び再初期化を可能にする', () => {
       const closedHandler = capturedWinHandler('closed')
       closedHandler()
+
+      // リスナーがクリアされる
+      expect(mockAutoUpdater.removeAllListeners).toHaveBeenCalled()
 
       // 再初期化が可能になる（initialized = false）
       const mockWin2 = { webContents: { send: vi.fn() }, on: vi.fn() }

@@ -37,8 +37,8 @@ const mockAPI = {
   closeTerminalWindow: async () => { /* mock no-op */ },
   onPtyOutput: (_cb: (sessionId: string, data: string) => void) => () => { /* mock no-op */ },
   onPtyExit: (_cb: (sessionId: string, exitCode: number) => void) => () => { /* mock no-op */ },
-  onTerminalOpened: (_cb: (sessionId: string) => void) => { /* mock no-op */ },
-  onTerminalClosed: (_cb: () => void) => { /* mock no-op */ },
+  onTerminalOpened: (_cb: (sessionId: string) => void) => () => { /* mock no-op */ },
+  onTerminalClosed: (_cb: () => void) => () => { /* mock no-op */ },
   checkForUpdate: async () => { /* mock no-op */ },
   downloadUpdate: async () => { /* mock no-op */ },
   installUpdate: async () => { /* mock no-op */ },
@@ -149,7 +149,13 @@ export default function App() {
           updateAvailable={updateAvailable}
           updateDownloaded={updateDownloaded}
           updateError={updateError}
-          onDownloadUpdate={() => api.downloadUpdate?.()}
+          onDownloadUpdate={async () => {
+            try {
+              await api.downloadUpdate?.()
+            } catch (err) {
+              setUpdateError(err instanceof Error ? err.message : String(err))
+            }
+          }}
           onInstallUpdate={async () => {
             try {
               await api.installUpdate?.()

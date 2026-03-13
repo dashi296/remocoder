@@ -1,0 +1,44 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  eas-submit:
+    name: EAS Build & Submit (${{ matrix.platform }})
+    runs-on: ubuntu-latest
+    environment: production
+    strategy:
+      matrix:
+        platform: [ios, android]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Build and Submit on EAS (${{ matrix.platform }})
+        working-directory: packages/mobile
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          eas build \
+            --platform "$PLATFORM" \
+            --profile production \
+            --non-interactive \
+            --auto-submit \
+            --no-wait

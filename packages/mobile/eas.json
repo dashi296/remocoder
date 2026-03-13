@@ -3,6 +3,14 @@
     "version": ">= 10.0.0",
     "appVersionSource": "remote"
   },
+  "submit": {
+    "production": {
+      "ios": {},
+      "android": {
+        "track": "internal"
+      }
+    }
+  },
   "build": {
     "development": {
       "developmentClient": true,

@@ -17,7 +17,11 @@
     },
     "android": {
       "package": "com.remocoder.app",
-      "usesCleartextTraffic": true
+      "usesCleartextTraffic": true,
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO"
+      ]
     },
     "plugins": [
       [
@@ -26,6 +30,12 @@
           "cameraPermission": "QRコードスキャンのためにカメラへのアクセスが必要です"
         }
       ]
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "e1b15a0a-6c36-493c-bd2e-73554c233a10"
+      }
+    },
+    "owner": "dashi296"
   }
 }

@@ -59,6 +59,34 @@ jobs:
 
       - run: pnpm test
 
+  eas-build:
+    name: EAS Build (${{ matrix.platform }})
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    strategy:
+      matrix:
+        platform: [ios, android]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Build on EAS (${{ matrix.platform }})
+        working-directory: packages/mobile
+        run: eas build --platform ${{ matrix.platform }} --profile preview --non-interactive
+
   build:
     name: Build Desktop
     runs-on: ubuntu-latest

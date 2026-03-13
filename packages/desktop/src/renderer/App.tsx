@@ -57,6 +57,7 @@ export default function App() {
   const [activeTerminalSessionId, setActiveTerminalSessionId] = useState<string | null>(null)
   const [updateAvailable, setUpdateAvailable] = useState<UpdateInfo | null>(null)
   const [updateDownloaded, setUpdateDownloaded] = useState<UpdateInfo | null>(null)
+  const [updateError, setUpdateError] = useState<string | null>(null)
 
   useEffect(() => {
     api.getTailscaleIP().then(setTailscaleIP)
@@ -76,6 +77,7 @@ export default function App() {
     })
     const cleanupUpdateError = api.onUpdateError?.((error: { message: string }) => {
       console.error('[updater] update error:', error.message)
+      setUpdateError(error.message)
     })
 
     return () => {
@@ -142,6 +144,7 @@ export default function App() {
           wsRunning={true}
           updateAvailable={updateAvailable}
           updateDownloaded={updateDownloaded}
+          updateError={updateError}
           onInstallUpdate={() => api.installUpdate?.()}
         />
         {token && (

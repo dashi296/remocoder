@@ -6,6 +6,7 @@ import { StatusPanel } from '../components/StatusPanel'
 const makeDefaultProps = () => ({
   updateAvailable: null,
   updateDownloaded: null,
+  updateError: null,
   onInstallUpdate: vi.fn(),
 })
 

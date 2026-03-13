@@ -7,6 +7,7 @@ interface StatusPanelProps {
   wsRunning: boolean
   updateAvailable: UpdateInfo | null
   updateDownloaded: UpdateInfo | null
+  updateError: string | null
   onInstallUpdate: () => void
 }
 
@@ -24,6 +25,7 @@ export function StatusPanel({
   wsRunning,
   updateAvailable,
   updateDownloaded,
+  updateError,
   onInstallUpdate,
 }: StatusPanelProps) {
   const tailscaleConnected = tailscaleIP !== null
@@ -97,6 +99,24 @@ export function StatusPanel({
             ws://{tailscaleIP}:{wsPort}
           </span>
         </div>
+      )}
+
+      {/* Update error */}
+      {updateError && (
+        <>
+          <div style={styles.rowDivider} />
+          <div style={styles.updateErrorBanner}>
+            <span
+              style={{
+                ...dot,
+                backgroundColor: 'var(--red)',
+                boxShadow: '0 0 6px var(--red)',
+                flexShrink: 0,
+              }}
+            />
+            <span style={styles.updateErrorText}>UPDATE_ERR — {updateError}</span>
+          </div>
+        </>
       )}
 
       {/* Update notification */}
@@ -209,6 +229,19 @@ const styles: Record<string, React.CSSProperties> = {
     background: 'var(--border)',
     margin: '2px 0',
     opacity: 0.5,
+  },
+  updateErrorBanner: {
+    display: 'flex',
+    alignItems: 'flex-start',
+    gap: 8,
+    padding: '8px 0 2px',
+  },
+  updateErrorText: {
+    fontSize: 9,
+    color: 'var(--red)',
+    letterSpacing: '0.04em',
+    lineHeight: 1.5,
+    wordBreak: 'break-all' as const,
   },
   updateBanner: {
     display: 'flex',

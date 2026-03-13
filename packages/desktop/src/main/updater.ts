@@ -1,8 +1,8 @@
+import { app, type BrowserWindow } from 'electron'
 import electronUpdater, { type UpdateInfo as EuUpdateInfo } from 'electron-updater'
+import type { UpdateInfo } from '@remocoder/shared'
 
 const { autoUpdater } = electronUpdater
-import { app, type BrowserWindow } from 'electron'
-import type { UpdateInfo } from '@remocoder/shared'
 
 let mainWindow: BrowserWindow | null = null
 let intervalId: ReturnType<typeof setInterval> | null = null
@@ -27,17 +27,23 @@ export function setupAutoUpdater(win: BrowserWindow): void {
 
   mainWindow = win
 
-  autoUpdater.autoDownload = true
-  // Major バージョンは終了時の自動インストールを無効化し、ユーザーの明示的な操作を要求する
-  autoUpdater.autoInstallOnAppQuit = true
+  // 自動ダウンロードは無効化し、バージョン種別に応じて手動制御する
+  autoUpdater.autoDownload = false
+  autoUpdater.autoInstallOnAppQuit = false
 
   autoUpdater.on('update-available', (info: EuUpdateInfo) => {
     const updateInfo = toUpdateInfo(info)
-    // Major バージョンは互換性確認が必要なため終了時の自動インストールを抑制する
-    if (updateInfo.isMajor) {
-      autoUpdater.autoInstallOnAppQuit = false
-    }
     mainWindow?.webContents.send('update-available', updateInfo)
+
+    if (!updateInfo.isMajor) {
+      // Minor / Patch: バックグラウンド自動ダウンロードし終了時に自動適用
+      autoUpdater.autoInstallOnAppQuit = true
+      autoUpdater.downloadUpdate().catch((err: Error) => {
+        console.error('[updater] downloadUpdate failed:', err)
+        mainWindow?.webContents.send('update-error', { message: err.message })
+      })
+    }
+    // Major: ユーザーの明示的な操作を待つ（自動ダウンロードしない）
   })
 
   autoUpdater.on('update-downloaded', (info: EuUpdateInfo) => {
@@ -45,11 +51,13 @@ export function setupAutoUpdater(win: BrowserWindow): void {
   })
 
   autoUpdater.on('error', (err: Error) => {
-    // 開発環境では publish 設定がないためエラーが発生するが無視する
-    const isDevNoPublish =
-      err.message.includes('No published versions') ||
-      err.message.includes('net::ERR_FILE_NOT_FOUND')
-    if (!isDevNoPublish) {
+    // 開発環境（パッケージ化前）では publish 設定がないためエラーが発生するが無視する
+    const isDev = !app.isPackaged
+    const isExpectedDevError =
+      isDev &&
+      (err.message.includes('No published versions') ||
+        err.message.includes('net::ERR_FILE_NOT_FOUND'))
+    if (!isExpectedDevError) {
       console.error('[updater] error:', err)
       mainWindow?.webContents.send('update-error', { message: err.message })
     }
@@ -64,10 +72,16 @@ export function setupAutoUpdater(win: BrowserWindow): void {
   })
 
   // 起動時チェック
-  checkForUpdates()
+  checkForUpdates().catch((err) => {
+    console.error('[updater] startup check failed:', err)
+  })
 
   // 1時間ごとに定期チェック
-  intervalId = setInterval(checkForUpdates, 60 * 60 * 1000)
+  intervalId = setInterval(() => {
+    checkForUpdates().catch((err) => {
+      console.error('[updater] periodic check failed:', err)
+    })
+  }, 60 * 60 * 1000)
 }
 
 export function checkForUpdates(): Promise<void> {

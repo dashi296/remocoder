@@ -115,16 +115,16 @@ describe('startPtyServer', () => {
   })
 
   describe('認証', () => {
-    it('正しいトークンで auth_ok + session_list を送信する', () => {
+    it('正しいトークンで auth_ok + project_list + session_list を送信する', () => {
       startPtyServer()
       const ws = createMockWs()
       wssState.instance!.emit('connection', ws)
       sendMessage(ws, { type: 'auth', token: 'test-token' })
 
-      expect(ws.send).toHaveBeenCalledWith(JSON.stringify({ type: 'auth_ok' }))
-      expect(ws.send).toHaveBeenCalledWith(
-        JSON.stringify({ type: 'session_list', sessions: [] }),
-      )
+      const calls = ws.send.mock.calls.map((c: any) => JSON.parse(c[0]))
+      expect(calls.some((m: any) => m.type === 'auth_ok')).toBe(true)
+      expect(calls.some((m: any) => m.type === 'project_list')).toBe(true)
+      expect(calls.some((m: any) => m.type === 'session_list')).toBe(true)
     })
 
     it('auth_ok 後は PTY を即座にスポーンしない', () => {
@@ -223,6 +223,130 @@ describe('startPtyServer', () => {
       const calls = ws.send.mock.calls.map((c: any) => JSON.parse(c[0]))
       const notFound = calls.find((m: any) => m.type === 'session_not_found')
       expect(notFound).toBeDefined()
+    })
+
+    it('既存クライアントがいる場合、上書きアタッチで旧クライアントを強制切断する', () => {
+      startPtyServer()
+
+      // セッションを作成してアタッチ
+      const firstWs = createMockWs()
+      wssState.instance!.emit('connection', firstWs)
+      sendMessage(firstWs, { type: 'auth', token: 'test-token' })
+      sendMessage(firstWs, { type: 'session_create' })
+      const sessionId = JSON.parse(
+        firstWs.send.mock.calls.find((c: any) => JSON.parse(c[0]).type === 'session_attached')[0],
+      ).sessionId
+
+      // 別クライアントが同じセッションにアタッチ
+      const secondWs = createMockWs()
+      wssState.instance!.emit('connection', secondWs)
+      sendMessage(secondWs, { type: 'auth', token: 'test-token' })
+      sendMessage(secondWs, { type: 'session_attach', sessionId })
+
+      // 旧クライアントが強制切断される
+      expect(firstWs.close).toHaveBeenCalled()
+
+      // 新クライアントに session_attached が返る
+      const calls = secondWs.send.mock.calls.map((c: any) => JSON.parse(c[0]))
+      expect(calls.find((m: any) => m.type === 'session_attached')).toBeDefined()
+    })
+
+    it('session_attach 成功後に scrollback が含まれる session_attached を返す', () => {
+      startPtyServer()
+
+      // セッション作成 + PTY 出力を積む
+      const ws1 = createMockWs()
+      wssState.instance!.emit('connection', ws1)
+      sendMessage(ws1, { type: 'auth', token: 'test-token' })
+      sendMessage(ws1, { type: 'session_create' })
+      const sessionId = JSON.parse(
+        ws1.send.mock.calls.find((c: any) => JSON.parse(c[0]).type === 'session_attached')[0],
+      ).sessionId
+      ptyState.lastShell._onDataCb('past output')
+      ws1.emit('close')
+
+      // 新クライアントがアタッチ → scrollback が届く
+      const ws2 = createMockWs()
+      wssState.instance!.emit('connection', ws2)
+      sendMessage(ws2, { type: 'auth', token: 'test-token' })
+      sendMessage(ws2, { type: 'session_attach', sessionId })
+
+      const calls = ws2.send.mock.calls.map((c: any) => JSON.parse(c[0]))
+      const attached = calls.find((m: any) => m.type === 'session_attached')
+      expect(attached?.scrollback).toBe('past output')
+    })
+  })
+
+  describe('session_list_request', () => {
+    it('アタッチ済みクライアントが session_list_request を送ると session_list_response が返る', () => {
+      const { ws } = connectAuthAndCreate(startPtyServer)
+      sendMessage(ws, { type: 'session_list_request' })
+
+      const calls = ws.send.mock.calls.map((c: any) => JSON.parse(c[0]))
+      const response = calls.find((m: any) => m.type === 'session_list_response')
+      expect(response).toBeDefined()
+      expect(Array.isArray(response.sessions)).toBe(true)
+      expect(Array.isArray(response.projects)).toBe(true)
+    })
+
+    it('picker クライアント（未アタッチ）も session_list_request を送ると session_list_response が返る', () => {
+      const { ws } = connectAndAuth(startPtyServer)
+      sendMessage(ws, { type: 'session_list_request' })
+
+      const calls = ws.send.mock.calls.map((c: any) => JSON.parse(c[0]))
+      const response = calls.find((m: any) => m.type === 'session_list_response')
+      expect(response).toBeDefined()
+    })
+
+    it('session_list_response の sessions に現在のセッションが含まれる', () => {
+      startPtyServer()
+
+      // 各 session_create で別の ID を返すよう mockReturnValueOnce で設定
+      mockUuidv4.mockReturnValueOnce('session-id-1').mockReturnValueOnce('session-id-2')
+
+      const ws1 = createMockWs()
+      wssState.instance!.emit('connection', ws1)
+      sendMessage(ws1, { type: 'auth', token: 'test-token' })
+      sendMessage(ws1, { type: 'session_create' }) // uuidv4() → 'session-id-1'
+
+      const ws2 = createMockWs()
+      wssState.instance!.emit('connection', ws2)
+      sendMessage(ws2, { type: 'auth', token: 'test-token' })
+      sendMessage(ws2, { type: 'session_create' }) // uuidv4() → 'session-id-2'
+      ws2.send.mockClear()
+
+      sendMessage(ws2, { type: 'session_list_request' })
+      const calls = ws2.send.mock.calls.map((c: any) => JSON.parse(c[0]))
+      const response = calls.find((m: any) => m.type === 'session_list_response')
+      expect(response.sessions.length).toBe(2)
+    })
+  })
+
+  describe('session_create の projectPath 保持', () => {
+    it('session_create に projectPath を渡すと SessionInfo に反映される', () => {
+      const onSessionsChange = vi.fn()
+      startPtyServer(undefined, { onSessionsChange })
+      const ws = createMockWs()
+      wssState.instance!.emit('connection', ws)
+      sendMessage(ws, { type: 'auth', token: 'test-token' })
+      sendMessage(ws, { type: 'session_create', projectPath: '/home/user/myproject' })
+
+      const lastSessions: any[] = onSessionsChange.mock.calls.at(-1)![0]
+      expect(lastSessions[0].projectPath).toBe('/home/user/myproject')
+    })
+
+    it('session_list_response の sessions[].projectPath が含まれる', () => {
+      startPtyServer()
+      const ws = createMockWs()
+      wssState.instance!.emit('connection', ws)
+      sendMessage(ws, { type: 'auth', token: 'test-token' })
+      sendMessage(ws, { type: 'session_create', projectPath: '/home/user/proj' })
+      ws.send.mockClear()
+
+      sendMessage(ws, { type: 'session_list_request' })
+      const calls = ws.send.mock.calls.map((c: any) => JSON.parse(c[0]))
+      const response = calls.find((m: any) => m.type === 'session_list_response')
+      expect(response.sessions[0].projectPath).toBe('/home/user/proj')
     })
   })
 

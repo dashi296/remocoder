@@ -2,9 +2,16 @@
  * @param wsUrl WebSocket URL
  * @param token 認証トークン
  * @param projectPath セッションを起動するプロジェクトパス。null の場合はプロジェクトなし
+ * @param sessionId 既存セッションにアタッチする場合のセッションID。指定時は session_attach を送信
  */
-export function buildTerminalHtml(wsUrl: string, token: string, projectPath: string | null = null): string {
+export function buildTerminalHtml(
+  wsUrl: string,
+  token: string,
+  projectPath: string | null = null,
+  sessionId: string | null = null,
+): string {
   const projectPathJs = projectPath ? JSON.stringify(projectPath) : 'null'
+  const sessionIdJs = sessionId ? JSON.stringify(sessionId) : 'null'
 
   return `
 <!DOCTYPE html>
@@ -37,6 +44,8 @@ export function buildTerminalHtml(wsUrl: string, token: string, projectPath: str
 
     // セッションを起動するプロジェクトパス（null = プロジェクトなし）
     const PROJECT_PATH = ${projectPathJs}
+    // アタッチ先の既存セッションID（null = 新規作成）
+    const ATTACH_SESSION_ID = ${sessionIdJs}
 
     let ws = null
     let reconnectDelay = 1000
@@ -88,13 +97,18 @@ export function buildTerminalHtml(wsUrl: string, token: string, projectPath: str
         if (msg.type === 'output') {
           term.write(msg.data)
         } else if (msg.type === 'auth_ok') {
-          // auth_ok を受信後、プロジェクトパス付きで新規セッションを作成
-          ws.send(JSON.stringify({
-            type: 'session_create',
-            ...(PROJECT_PATH ? { projectPath: PROJECT_PATH } : {}),
-          }))
+          // auth_ok を受信後、既存セッションにアタッチするか新規作成する
+          if (ATTACH_SESSION_ID) {
+            ws.send(JSON.stringify({ type: 'session_attach', sessionId: ATTACH_SESSION_ID }))
+          } else {
+            ws.send(JSON.stringify({
+              type: 'session_create',
+              ...(PROJECT_PATH ? { projectPath: PROJECT_PATH } : {}),
+            }))
+          }
         } else if (msg.type === 'session_attached') {
-          // スクロールバック（過去の出力）を書き込み
+          // セッション切替時はターミナルをリセットしてスクロールバックを書き込む
+          term.reset()
           if (msg.scrollback) {
             term.write(msg.scrollback)
           }
@@ -115,6 +129,8 @@ export function buildTerminalHtml(wsUrl: string, token: string, projectPath: str
           term.write('\\r\\n[セッションが終了しました (exit code: ' + msg.exitCode + ')]\\r\\n')
           noReconnect = true
           postToNative({ type: 'shell_exit', exitCode: msg.exitCode })
+        } else if (msg.type === 'session_list_response') {
+          postToNative({ type: 'session_list_response', sessions: msg.sessions, projects: msg.projects })
         } else if (msg.type === 'ping') {
           ws.send(JSON.stringify({ type: 'pong' }))
         }
@@ -161,6 +177,33 @@ export function buildTerminalHtml(wsUrl: string, token: string, projectPath: str
         ws.send(JSON.stringify({ type: 'ping' }))
       }
     }, 30000)
+
+    // ─── React Native から呼び出すブリッジ関数 ────────────────────────────
+
+    /** セッション一覧をサーバーに要求する */
+    window.requestSessionList = function() {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'session_list_request' }))
+      }
+    }
+
+    /** 既存セッションに切り替える */
+    window.switchToSession = function(sessionId) {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'session_attach', sessionId: sessionId }))
+      }
+    }
+
+    /** 新規セッションを作成して切り替える */
+    window.createNewSession = function(newProjectPath) {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        noReconnect = false
+        ws.send(JSON.stringify({
+          type: 'session_create',
+          ...(newProjectPath ? { projectPath: newProjectPath } : {}),
+        }))
+      }
+    }
   </script>
 </body>
 </html>

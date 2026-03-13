@@ -4,9 +4,7 @@ import { StatusPanel } from './components/StatusPanel'
 import { TokenDisplay } from './components/TokenDisplay'
 import { SessionList } from './components/SessionList'
 import { TerminalPanel } from './components/TerminalPanel'
-import type { SessionInfo } from '@remocoder/shared'
-
-const DEFAULT_WS_PORT = 8080
+import { DEFAULT_WS_PORT, type SessionInfo } from '@remocoder/shared'
 
 // ── Mock data for development ─────────────────────────────
 const MOCK_MODE = !(window as any).electronAPI
@@ -51,20 +49,27 @@ export default function App() {
   const [tailscaleIP, setTailscaleIP] = useState<string | null>(null)
   const [token, setToken] = useState<string>('')
   const [sessions, setSessions] = useState<SessionInfo[]>([])
-  const [wsRunning] = useState(true)
   const [activeTerminalSessionId, setActiveTerminalSessionId] = useState<string | null>(null)
 
   useEffect(() => {
     api.getTailscaleIP().then(setTailscaleIP)
     api.getToken().then(setToken)
     api.getSessions().then(setSessions)
-    api.onSessionsUpdate(setSessions)
-    api.onTokenRotated?.((newToken: string) => setToken(newToken))
-    api.onTailscaleIPUpdated?.((newIp: string | null) => setTailscaleIP(newIp))
 
+    const cleanupSessions = api.onSessionsUpdate(setSessions)
+    const cleanupToken = api.onTokenRotated?.((newToken: string) => setToken(newToken))
+    const cleanupIp = api.onTailscaleIPUpdated?.((newIp: string | null) => setTailscaleIP(newIp))
     // ターミナルウィンドウの開閉通知（別のウィンドウから通知される場合を考慮）
-    api.onTerminalOpened?.((sessionId: string) => setActiveTerminalSessionId(sessionId))
-    api.onTerminalClosed?.(() => setActiveTerminalSessionId(null))
+    const cleanupOpened = api.onTerminalOpened?.((sessionId: string) => setActiveTerminalSessionId(sessionId))
+    const cleanupClosed = api.onTerminalClosed?.(() => setActiveTerminalSessionId(null))
+
+    return () => {
+      cleanupSessions?.()
+      cleanupToken?.()
+      cleanupIp?.()
+      cleanupOpened?.()
+      cleanupClosed?.()
+    }
   }, [])
 
   const handleOpenTerminal = async (sessionId: string) => {
@@ -116,7 +121,7 @@ export default function App() {
         <StatusPanel
           tailscaleIP={tailscaleIP}
           wsPort={DEFAULT_WS_PORT}
-          wsRunning={wsRunning}
+          wsRunning={true}
         />
         {token && (
           <TokenDisplay

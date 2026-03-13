@@ -12,6 +12,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { CameraView, useCameraPermissions } from 'expo-camera'
+import { formatDate } from '../utils'
 
 const PROFILES_KEY = 'connectionProfiles'
 
@@ -47,16 +48,22 @@ export function ConnectScreen({ onConnect }: Props) {
   const [permission, requestPermission] = useCameraPermissions()
 
   useEffect(() => {
-    AsyncStorage.getItem(PROFILES_KEY).then((raw) => {
-      if (raw) {
-        try {
-          setProfiles(JSON.parse(raw))
-        } catch {
-          // 破損データは無視
+    AsyncStorage.getItem(PROFILES_KEY)
+      .then((raw) => {
+        if (raw) {
+          try {
+            setProfiles(JSON.parse(raw))
+          } catch {
+            // 破損データは無視
+          }
         }
-      }
-      setLoading(false)
-    })
+      })
+      .catch(() => {
+        // ストレージ読み込みエラーは空リストで続行
+      })
+      .finally(() => {
+        setLoading(false)
+      })
   }, [])
 
   const saveProfiles = useCallback(async (next: ConnectionProfile[]) => {
@@ -75,21 +82,21 @@ export function ConnectScreen({ onConnect }: Props) {
     [profiles, saveProfiles, onConnect],
   )
 
-  const openNewForm = () => {
+  const openNewForm = useCallback(() => {
     setEditTarget(null)
     setName('')
     setIp('')
     setToken('')
     setScreen('form')
-  }
+  }, [])
 
-  const openEditForm = (profile: ConnectionProfile) => {
+  const openEditForm = useCallback((profile: ConnectionProfile) => {
     setEditTarget(profile)
     setName(profile.name)
     setIp(profile.ip)
     setToken(profile.token)
     setScreen('form')
-  }
+  }, [])
 
   const handleSave = async () => {
     const trimmedName = name.trim() || ip
@@ -251,7 +258,7 @@ export function ConnectScreen({ onConnect }: Props) {
                 <Text style={styles.profileIp}>{item.ip}</Text>
                 {item.lastConnectedAt && (
                   <Text style={styles.profileLastConnected}>
-                    最終接続: {new Date(item.lastConnectedAt).toLocaleString('ja-JP')}
+                    最終接続: {formatDate(item.lastConnectedAt)}
                   </Text>
                 )}
               </TouchableOpacity>

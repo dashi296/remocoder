@@ -57,8 +57,14 @@ export function decodeProjectPath(encodedName: string): string {
   return search(0, '') ?? ('/' + encodedName.slice(1).replace(/-/g, '/'))
 }
 
+/** getRecentProjects のキャッシュ（5秒TTL） */
+let projectsCache: { value: ProjectInfo[]; expiry: number } | null = null
+
 /** ~/.claude/projects/ から最近使ったプロジェクト一覧を取得する */
 export function getRecentProjects(limit = 20): ProjectInfo[] {
+  const now = Date.now()
+  if (projectsCache && now < projectsCache.expiry) return projectsCache.value
+
   const claudeDir = join(homedir(), '.claude', 'projects')
   try {
     const entries = readdirSync(claudeDir, { withFileTypes: true })
@@ -74,9 +80,12 @@ export function getRecentProjects(limit = 20): ProjectInfo[] {
       })
       .filter((p): p is ProjectInfo => p !== null)
 
-    return projects
+    const value = projects
       .sort((a, b) => new Date(b.lastUsedAt).getTime() - new Date(a.lastUsedAt).getTime())
       .slice(0, limit)
+
+    projectsCache = { value, expiry: now + 5000 }
+    return value
   } catch {
     return []
   }
@@ -100,6 +109,8 @@ const PONG_TIMEOUT = 10000
 const IDLE_TIMEOUT = 300000
 // スクロールバックの最大バイト数（500KB）
 const SCROLLBACK_MAX_BYTES = 500_000
+// アイドルタイマーを再スケジュールするまでの最小間隔（ms）
+const IDLE_TIMER_RESET_INTERVAL = 5000
 
 /** サーバー内部で管理するPTYセッション */
 interface PtySession {
@@ -110,24 +121,21 @@ interface PtySession {
   providerWs: WebSocket | null
   createdAt: string
   status: 'active' | 'idle'
-  /** PTY出力履歴（最大SCROLLBACK_MAX_BYTES） */
-  scrollback: string
+  /** PTY出力履歴チャンク（最大SCROLLBACK_MAX_BYTES） */
+  scrollbackChunks: string[]
+  scrollbackLength: number
   /** 接続中のモバイルWSクライアント（1台のみ） */
   wsClient: WebSocket | null
   clientIP?: string
   idleTimeoutId: ReturnType<typeof setTimeout> | null
+  /** アイドルタイマーを最後にリセットした時刻（デバウンス用） */
+  lastActiveAt: number
   /** セッションが起動したプロジェクトパス */
   projectPath?: string
 }
 
 /** 永続PTYセッションマップ（WS切断後も保持） */
 const ptySessions = new Map<string, PtySession>()
-
-/**
- * 認証済みでまだセッションを選択していないWSクライアント（セッション選択画面）。
- * セッション一覧が変化したときにリアルタイムで session_list をプッシュするために使用する。
- */
-const pickerClients = new Set<WebSocket>()
 
 export interface PtyServerCallbacks {
   onSessionsChange?: (sessions: SessionInfo[]) => void
@@ -142,16 +150,6 @@ let serverCallbacks: PtyServerCallbacks = {}
 function notifySessions() {
   const infos = getSessionInfos()
   serverCallbacks.onSessionsChange?.(infos)
-
-  // セッション選択中のモバイルクライアントへ最新一覧をプッシュ
-  if (pickerClients.size > 0) {
-    const msg = JSON.stringify({ type: 'session_list', sessions: infos } satisfies WsMessage)
-    for (const client of pickerClients) {
-      if (client.readyState === WebSocket.OPEN) {
-        client.send(msg)
-      }
-    }
-  }
 }
 
 function getSessionInfos(): SessionInfo[] {
@@ -166,19 +164,61 @@ function getSessionInfos(): SessionInfo[] {
   }))
 }
 
+/** スクロールバックにデータを追記し、上限を超えた場合は先頭チャンクから切り捨てる */
+function appendScrollback(session: PtySession, data: string): void {
+  session.scrollbackChunks.push(data)
+  session.scrollbackLength += data.length
+  while (session.scrollbackLength > SCROLLBACK_MAX_BYTES) {
+    const removed = session.scrollbackChunks.shift()!
+    session.scrollbackLength -= removed.length
+  }
+}
+
+/** スクロールバック全体を文字列として返す */
+function getScrollback(session: PtySession): string {
+  return session.scrollbackChunks.join('')
+}
+
+/** セッションのPTYまたはプロバイダーWSへ入力を送る */
+function sessionWrite(session: PtySession, data: string): void {
+  if (session.pty) {
+    session.pty.write(data)
+  } else if (session.providerWs?.readyState === WebSocket.OPEN) {
+    session.providerWs.send(JSON.stringify({ type: 'input', data } satisfies WsMessage))
+  }
+}
+
+/** セッションのPTYまたはプロバイダーWSをリサイズする */
+function sessionResize(session: PtySession, cols: number, rows: number): void {
+  if (session.pty) {
+    session.pty.resize(cols, rows)
+  } else if (session.providerWs?.readyState === WebSocket.OPEN) {
+    session.providerWs.send(JSON.stringify({ type: 'resize', cols, rows } satisfies WsMessage))
+  }
+}
+
+/**
+ * セッションをアクティブ状態にし、アイドルタイマーをリセットする。
+ * 高頻度呼び出しでのタイマー作り直しを抑制するため、
+ * 最終リセットから IDLE_TIMER_RESET_INTERVAL 以上経過した場合のみ再スケジュールする。
+ */
 function setSessionActive(session: PtySession) {
   if (session.status !== 'active') {
     session.status = 'active'
     notifySessions()
   }
-  if (session.idleTimeoutId) clearTimeout(session.idleTimeoutId)
-  session.idleTimeoutId = setTimeout(() => {
-    const s = ptySessions.get(session.id)
-    if (s) {
-      s.status = 'idle'
-      notifySessions()
-    }
-  }, IDLE_TIMEOUT)
+  const now = Date.now()
+  if (now - session.lastActiveAt > IDLE_TIMER_RESET_INTERVAL) {
+    if (session.idleTimeoutId) clearTimeout(session.idleTimeoutId)
+    session.idleTimeoutId = setTimeout(() => {
+      const s = ptySessions.get(session.id)
+      if (s) {
+        s.status = 'idle'
+        notifySessions()
+      }
+    }, IDLE_TIMEOUT)
+    session.lastActiveAt = now
+  }
 }
 
 function createPtySession(clientIP?: string, projectPath?: string): PtySession {
@@ -191,55 +231,37 @@ function createPtySession(clientIP?: string, projectPath?: string): PtySession {
     providerWs: null,
     createdAt: new Date().toISOString(),
     status: 'active',
-    scrollback: '',
+    scrollbackChunks: [],
+    scrollbackLength: 0,
     wsClient: null,
     clientIP,
     idleTimeoutId: null,
+    lastActiveAt: 0,
     projectPath,
   }
 
   ptyProc.onData((data) => {
-    // スクロールバックに追記（最大バイト数を超えたら先頭を切り捨て）
-    session.scrollback += data
-    if (session.scrollback.length > SCROLLBACK_MAX_BYTES) {
-      session.scrollback = session.scrollback.slice(
-        session.scrollback.length - SCROLLBACK_MAX_BYTES,
-      )
-    }
-    // モバイルWSクライアントへブロードキャスト
+    appendScrollback(session, data)
     if (session.wsClient?.readyState === WebSocket.OPEN) {
       session.wsClient.send(JSON.stringify({ type: 'output', data } satisfies WsMessage))
     }
-    // デスクトップRendererへIPC経由でブロードキャスト
     serverCallbacks.onPtyOutput?.(id, data)
   })
 
   ptyProc.onExit(({ exitCode }) => {
     if (session.idleTimeoutId) clearTimeout(session.idleTimeoutId)
-    // モバイルクライアントへ終了通知
     if (session.wsClient?.readyState === WebSocket.OPEN) {
       session.wsClient.send(JSON.stringify({ type: 'shell_exit', exitCode } satisfies WsMessage))
       session.wsClient.close()
     }
-    // デスクトップRendererへ終了通知
     serverCallbacks.onPtyExit?.(id, exitCode)
-    // セッション削除
     console.log(`[pty-server] Session ${id.slice(0, 8)} exited (code: ${exitCode}). Remaining: ${ptySessions.size - 1}`)
     ptySessions.delete(id)
     notifySessions()
   })
 
   ptySessions.set(id, session)
-
-  // アイドルタイマー開始
-  session.idleTimeoutId = setTimeout(() => {
-    const s = ptySessions.get(id)
-    if (s) {
-      s.status = 'idle'
-      notifySessions()
-    }
-  }, IDLE_TIMEOUT)
-
+  setSessionActive(session)
   notifySessions()
   console.log(`Created PTY session: ${id}`)
   return session
@@ -257,22 +279,15 @@ function createExternalSession(providerWs: WebSocket): PtySession {
     providerWs,
     createdAt: new Date().toISOString(),
     status: 'active',
-    scrollback: '',
+    scrollbackChunks: [],
+    scrollbackLength: 0,
     wsClient: null,
     idleTimeoutId: null,
+    lastActiveAt: 0,
   }
 
   ptySessions.set(id, session)
-
-  // アイドルタイマー開始
-  session.idleTimeoutId = setTimeout(() => {
-    const s = ptySessions.get(id)
-    if (s) {
-      s.status = 'idle'
-      notifySessions()
-    }
-  }, IDLE_TIMEOUT)
-
+  setSessionActive(session)
   notifySessions()
   console.log(`[pty-server] Created external session: ${id}`)
   return session
@@ -288,18 +303,15 @@ export function desktopCreateSession(): string {
 
 /** デスクトップからセッションのスクロールバックを取得する */
 export function desktopGetScrollback(sessionId: string): string | null {
-  return ptySessions.get(sessionId)?.scrollback ?? null
+  const session = ptySessions.get(sessionId)
+  return session ? getScrollback(session) : null
 }
 
 /** デスクトップからPTYへ入力を送る */
 export function desktopSendInput(sessionId: string, data: string): void {
   const session = ptySessions.get(sessionId)
   if (session) {
-    if (session.pty) {
-      session.pty.write(data)
-    } else if (session.providerWs?.readyState === WebSocket.OPEN) {
-      session.providerWs.send(JSON.stringify({ type: 'input', data } satisfies WsMessage))
-    }
+    sessionWrite(session, data)
     setSessionActive(session)
   }
 }
@@ -307,12 +319,7 @@ export function desktopSendInput(sessionId: string, data: string): void {
 /** デスクトップからPTYをリサイズする */
 export function desktopResize(sessionId: string, cols: number, rows: number): void {
   const session = ptySessions.get(sessionId)
-  if (!session) return
-  if (session.pty) {
-    session.pty.resize(cols, rows)
-  } else if (session.providerWs?.readyState === WebSocket.OPEN) {
-    session.providerWs.send(JSON.stringify({ type: 'resize', cols, rows } satisfies WsMessage))
-  }
+  if (session) sessionResize(session, cols, rows)
 }
 
 /** 現在のセッション一覧を返す */
@@ -392,20 +399,14 @@ export function startPtyServer(port = DEFAULT_WS_PORT, callbacks: PtyServerCallb
           authenticated = true
           clearTimeout(authTimeout)
           startPingInterval()
-          // picker クライアントとして登録（session_create/attach が来るまで保持）
-          pickerClients.add(ws)
-          const sessionInfos = getSessionInfos()
           const projects = getRecentProjects()
           console.log(`[pty-server] Auth OK from ${clientIP ?? 'unknown'}. Sessions: ${ptySessions.size}, Projects: ${projects.length}`)
-          // auth_ok → project_list の順で送信
           ws.send(JSON.stringify({ type: 'auth_ok' } satisfies WsMessage))
           ws.send(JSON.stringify({ type: 'project_list', projects } satisfies WsMessage))
-          // pickerClients はデスクトップ内部用（モバイルは project_list を使う）
-          // session_list は後方互換のため残すが、モバイルは使用しない
           ws.send(
             JSON.stringify({
               type: 'session_list',
-              sessions: sessionInfos,
+              sessions: getSessionInfos(),
             } satisfies WsMessage),
           )
         } else {
@@ -419,7 +420,6 @@ export function startPtyServer(port = DEFAULT_WS_PORT, callbacks: PtyServerCallb
 
       // ── 外部ターミナルがセッションをプロバイダー登録する ──────────────────
       if (msg.type === 'session_register') {
-        pickerClients.delete(ws)
         isProvider = true
         const session = createExternalSession(ws)
         providerSessionId = session.id
@@ -434,18 +434,10 @@ export function startPtyServer(port = DEFAULT_WS_PORT, callbacks: PtyServerCallb
         if (!provSession) return
 
         if (msg.type === 'output') {
-          // スクロールバックに追記
-          provSession.scrollback += msg.data
-          if (provSession.scrollback.length > SCROLLBACK_MAX_BYTES) {
-            provSession.scrollback = provSession.scrollback.slice(
-              provSession.scrollback.length - SCROLLBACK_MAX_BYTES,
-            )
-          }
-          // モバイルWSクライアントへ転送
+          appendScrollback(provSession, msg.data)
           if (provSession.wsClient?.readyState === WebSocket.OPEN) {
             provSession.wsClient.send(JSON.stringify({ type: 'output', data: msg.data } satisfies WsMessage))
           }
-          // デスクトップRendererへ通知
           serverCallbacks.onPtyOutput?.(providerSessionId, msg.data)
           setSessionActive(provSession)
         } else if (msg.type === 'shell_exit') {
@@ -459,16 +451,12 @@ export function startPtyServer(port = DEFAULT_WS_PORT, callbacks: PtyServerCallb
           ptySessions.delete(providerSessionId)
           notifySessions()
           providerSessionId = null
-        } else if (msg.type === 'resize') {
-          // プロバイダー側でのリサイズ通知（モバイルUIへの通知は不要）
         }
         return
       }
 
       // ── セッション選択フェーズ ─────────────────────────────────────────
       if (msg.type === 'session_create') {
-        // セッションに接続するので picker から外す
-        pickerClients.delete(ws)
         detachFromSession()
         const session = createPtySession(clientIP, msg.projectPath)
         attachedSessionId = session.id
@@ -486,8 +474,6 @@ export function startPtyServer(port = DEFAULT_WS_PORT, callbacks: PtyServerCallb
       }
 
       if (msg.type === 'session_attach') {
-        // セッションに接続するので picker から外す
-        pickerClients.delete(ws)
         const session = ptySessions.get(msg.sessionId)
         if (!session) {
           ws.send(
@@ -515,13 +501,13 @@ export function startPtyServer(port = DEFAULT_WS_PORT, callbacks: PtyServerCallb
           JSON.stringify({
             type: 'session_attached',
             sessionId: session.id,
-            scrollback: session.scrollback,
+            scrollback: getScrollback(session),
           } satisfies WsMessage),
         )
         return
       }
 
-      // ── ping/pong はセッション未選択中（picker）でも処理する ────────────
+      // ── ping/pong ────────────────────────────────────────────────────
       if (msg.type === 'ping') {
         ws.send(JSON.stringify({ type: 'pong' } satisfies WsMessage))
         return
@@ -553,25 +539,16 @@ export function startPtyServer(port = DEFAULT_WS_PORT, callbacks: PtyServerCallb
       if (!session) return
 
       if (msg.type === 'input') {
-        if (session.pty) {
-          session.pty.write(msg.data)
-        } else if (session.providerWs?.readyState === WebSocket.OPEN) {
-          session.providerWs.send(JSON.stringify({ type: 'input', data: msg.data } satisfies WsMessage))
-        }
+        sessionWrite(session, msg.data)
         setSessionActive(session)
       }
       if (msg.type === 'resize') {
-        if (session.pty) {
-          session.pty.resize(msg.cols, msg.rows)
-        } else if (session.providerWs?.readyState === WebSocket.OPEN) {
-          session.providerWs.send(JSON.stringify({ type: 'resize', cols: msg.cols, rows: msg.rows } satisfies WsMessage))
-        }
+        sessionResize(session, msg.cols, msg.rows)
       }
     })
 
     ws.on('close', () => {
       cleanup()
-      pickerClients.delete(ws)
 
       // 外部プロバイダーが切断された場合はセッションを終了する
       if (isProvider && providerSessionId) {

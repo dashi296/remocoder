@@ -7,14 +7,20 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getToken: (): Promise<string> => ipcRenderer.invoke('get-token'),
   getSessions: (): Promise<SessionInfo[]> => ipcRenderer.invoke('get-sessions'),
   rotateToken: (): Promise<string> => ipcRenderer.invoke('rotate-token'),
-  onSessionsUpdate: (cb: (sessions: SessionInfo[]) => void) => {
-    ipcRenderer.on('sessions-update', (_event, sessions: SessionInfo[]) => cb(sessions))
+  onSessionsUpdate: (cb: (sessions: SessionInfo[]) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, sessions: SessionInfo[]) => cb(sessions)
+    ipcRenderer.on('sessions-update', handler)
+    return () => ipcRenderer.removeListener('sessions-update', handler)
   },
-  onTokenRotated: (cb: (token: string) => void) => {
-    ipcRenderer.on('token-rotated', (_event, token: string) => cb(token))
+  onTokenRotated: (cb: (token: string) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, token: string) => cb(token)
+    ipcRenderer.on('token-rotated', handler)
+    return () => ipcRenderer.removeListener('token-rotated', handler)
   },
-  onTailscaleIPUpdated: (cb: (ip: string | null) => void) => {
-    ipcRenderer.on('tailscale-ip-updated', (_event, ip: string | null) => cb(ip))
+  onTailscaleIPUpdated: (cb: (ip: string | null) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, ip: string | null) => cb(ip)
+    ipcRenderer.on('tailscale-ip-updated', handler)
+    return () => ipcRenderer.removeListener('tailscale-ip-updated', handler)
   },
 
   // ── デスクトップターミナルAPI ──────────────────────────────────────────────
@@ -61,13 +67,17 @@ contextBridge.exposeInMainWorld('electronAPI', {
     return () => ipcRenderer.removeListener('pty-exit', handler)
   },
 
-  /** ターミナルウィンドウが開かれたことを通知 */
-  onTerminalOpened: (cb: (sessionId: string) => void) => {
-    ipcRenderer.on('terminal-opened', (_event, sessionId: string) => cb(sessionId))
+  /** ターミナルウィンドウが開かれたことを通知。戻り値はリスナー解除関数 */
+  onTerminalOpened: (cb: (sessionId: string) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, sessionId: string) => cb(sessionId)
+    ipcRenderer.on('terminal-opened', handler)
+    return () => ipcRenderer.removeListener('terminal-opened', handler)
   },
 
-  /** ターミナルウィンドウが閉じられたことを通知 */
-  onTerminalClosed: (cb: () => void) => {
-    ipcRenderer.on('terminal-closed', () => cb())
+  /** ターミナルウィンドウが閉じられたことを通知。戻り値はリスナー解除関数 */
+  onTerminalClosed: (cb: () => void): (() => void) => {
+    const handler = () => cb()
+    ipcRenderer.on('terminal-closed', handler)
+    return () => ipcRenderer.removeListener('terminal-closed', handler)
   },
 })

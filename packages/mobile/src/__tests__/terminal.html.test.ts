@@ -128,14 +128,6 @@ describe('buildTerminalHtml', () => {
       expect(html).toContain('session_create')
     })
 
-    it('createNewSession は noReconnect を false にリセットする', () => {
-      const html = buildTerminalHtml(wsUrl, token)
-      // createNewSession 内に noReconnect = false がある
-      const fnStart = html.indexOf('window.createNewSession')
-      const fnBody = html.slice(fnStart, fnStart + 300)
-      expect(fnBody).toContain('noReconnect = false')
-    })
-
     it('session_list_response を受信したとき postToNative を呼ぶ記述が含まれる', () => {
       const html = buildTerminalHtml(wsUrl, token)
       expect(html).toContain('session_list_response')

@@ -14,7 +14,7 @@
 
 import WebSocket from 'ws'
 import * as pty from 'node-pty'
-import { readFileSync, existsSync } from 'fs'
+import { readFileSync } from 'fs'
 import { join } from 'path'
 import { homedir, platform } from 'os'
 import { DEFAULT_WS_PORT } from '@remocoder/shared'
@@ -39,13 +39,11 @@ function resolveToken(): string {
 
   // Electron アプリが保存したトークンファイルから読み込む
   const tokenPath = getTokenFilePath()
-  if (existsSync(tokenPath)) {
-    try {
-      const { token } = JSON.parse(readFileSync(tokenPath, 'utf-8'))
-      if (typeof token === 'string' && token.length > 0) return token
-    } catch {
-      // 読み込み失敗時は下へ
-    }
+  try {
+    const { token } = JSON.parse(readFileSync(tokenPath, 'utf-8'))
+    if (typeof token === 'string' && token.length > 0) return token
+  } catch {
+    // 読み込み失敗時は下へ
   }
 
   console.error(`[remocoder-claude] トークンが見つかりません。`)
@@ -67,6 +65,20 @@ console.log(`[remocoder-claude] Remococderに接続中 (${WS_URL})...`)
 const ws = new WebSocket(WS_URL)
 let shell: pty.IPty | null = null
 
+function getTermSize(): { cols: number; rows: number } {
+  return { cols: process.stdout.columns || 80, rows: process.stdout.rows || 30 }
+}
+
+function safeSend(msg: WsMessage): void {
+  if (ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify(msg))
+  }
+}
+
+// プロセス終了シグナルの処理
+process.on('SIGINT', () => shell?.kill())
+process.on('SIGTERM', () => shell?.kill())
+
 ws.on('open', () => {
   ws.send(JSON.stringify({ type: 'auth', token } satisfies WsMessage))
 })
@@ -80,18 +92,20 @@ ws.on('message', (raw) => {
   }
 
   if (msg.type === 'auth_ok') {
-    const cols = process.stdout.columns || 80
-    const rows = process.stdout.rows || 30
-    ws.send(JSON.stringify({ type: 'session_register', cols, rows } satisfies WsMessage))
+    const { cols, rows } = getTermSize()
+    safeSend({ type: 'session_register', cols, rows })
   } else if (msg.type === 'session_registered') {
+    if (shell) return
+
     console.log(`[remocoder-claude] セッション登録完了 (ID: ${msg.sessionId.slice(0, 8)}...)`)
     console.log(`[remocoder-claude] モバイルアプリのセッション一覧に表示されます\n`)
 
     // claude を PTY で起動
+    const { cols, rows } = getTermSize()
     shell = pty.spawn('claude', claudeArgs, {
       name: 'xterm-color',
-      cols: process.stdout.columns || 80,
-      rows: process.stdout.rows || 30,
+      cols,
+      rows,
       env: { ...process.env },
       cwd: process.cwd(),
     })
@@ -99,16 +113,13 @@ ws.on('message', (raw) => {
     // PTY出力 → ローカル端末 + Remococderサーバーへ転送
     shell.onData((data) => {
       process.stdout.write(data)
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: 'output', data } satisfies WsMessage))
-      }
+      safeSend({ type: 'output', data })
     })
 
     shell.onExit(({ exitCode }) => {
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: 'shell_exit', exitCode } satisfies WsMessage))
-        ws.close()
-      }
+      shell = null
+      safeSend({ type: 'shell_exit', exitCode })
+      ws.close()
       process.exit(exitCode)
     })
 
@@ -123,17 +134,10 @@ ws.on('message', (raw) => {
 
     // ターミナルリサイズ → PTY + サーバーへ通知
     process.stdout.on('resize', () => {
-      const cols = process.stdout.columns || 80
-      const rows = process.stdout.rows || 30
+      const { cols, rows } = getTermSize()
       shell?.resize(cols, rows)
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: 'resize', cols, rows } satisfies WsMessage))
-      }
+      safeSend({ type: 'resize', cols, rows })
     })
-
-    // プロセス終了時の後処理
-    process.on('SIGINT', () => shell?.kill())
-    process.on('SIGTERM', () => shell?.kill())
   } else if (msg.type === 'auth_error') {
     console.error(`[remocoder-claude] 認証エラー: ${msg.reason}`)
     console.error(`  トークンが正しいか確認してください。`)
@@ -145,7 +149,7 @@ ws.on('message', (raw) => {
     // モバイルからのリサイズ → PTY へ
     shell?.resize(msg.cols, msg.rows)
   } else if (msg.type === 'ping') {
-    ws.send(JSON.stringify({ type: 'pong' } satisfies WsMessage))
+    safeSend({ type: 'pong' })
   }
 })
 
@@ -159,4 +163,5 @@ ws.on('close', () => {
   if (shell) {
     shell.kill()
   }
+  process.stdin.pause()
 })

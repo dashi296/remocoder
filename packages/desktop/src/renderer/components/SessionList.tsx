@@ -1,8 +1,6 @@
 import React from 'react'
 import type { SessionInfo } from '@remocoder/shared'
 
-export type { SessionInfo }
-
 interface SessionListProps {
   sessions: SessionInfo[]
   onOpenTerminal?: (sessionId: string) => void

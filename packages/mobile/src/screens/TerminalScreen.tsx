@@ -1,4 +1,4 @@
-import React, { useRef, useCallback, useState } from 'react'
+import React, { useRef, useCallback, useState, useMemo } from 'react'
 import {
   View,
   StyleSheet,
@@ -12,6 +12,7 @@ import { SafeAreaView } from 'react-native-safe-area-context'
 import { WebView, WebViewMessageEvent } from 'react-native-webview'
 import { DEFAULT_WS_PORT, SessionInfo, ProjectInfo } from '@remocoder/shared'
 import { buildTerminalHtml } from '../assets/terminalHtml'
+import { formatDate, getSessionDisplayName } from '../utils'
 
 type ConnectionStatus = 'connecting' | 'connected' | 'reconnecting' | 'auth_error' | 'shell_exit'
 
@@ -36,16 +37,6 @@ const STATUS_CONFIG: Record<
   shell_exit: { label: 'セッション終了', color: '#d4d4d4', bgColor: 'rgba(50,50,50,0.8)' },
 }
 
-function formatDate(iso: string): string {
-  const d = new Date(iso)
-  return d.toLocaleString('ja-JP', {
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
-}
-
 export function TerminalScreen({ ip, token, projectPath, sessionId, onDisconnect }: Props) {
   const wsUrl = `ws://${ip}:${DEFAULT_WS_PORT}`
   const [status, setStatus] = useState<ConnectionStatus>('connecting')
@@ -56,6 +47,11 @@ export function TerminalScreen({ ip, token, projectPath, sessionId, onDisconnect
   const [projectList, setProjectList] = useState<ProjectInfo[]>([])
   const [switcherLoading, setSwitcherLoading] = useState(false)
   const webViewRef = useRef<WebView>(null)
+
+  const closeSwitcher = useCallback(() => {
+    setSwitcherLoading(false)
+    setShowSwitcher(false)
+  }, [])
 
   const handleMessage = useCallback(
     (event: WebViewMessageEvent) => {
@@ -70,8 +66,7 @@ export function TerminalScreen({ ip, token, projectPath, sessionId, onDisconnect
         } else if (msg.type === 'session_attached') {
           setCurrentSessionId(msg.sessionId)
           setStatus('connected')
-          setShowSwitcher(false)
-          setSwitcherLoading(false)
+          closeSwitcher()
         } else if (msg.type === 'connected') {
           setStatus('connected')
         } else if (msg.type === 'disconnected') {
@@ -80,8 +75,7 @@ export function TerminalScreen({ ip, token, projectPath, sessionId, onDisconnect
           setStatus('shell_exit')
         } else if (msg.type === 'session_not_found') {
           setStatus('auth_error')
-          setSwitcherLoading(false)
-          setShowSwitcher(false)
+          closeSwitcher()
         } else if (msg.type === 'session_list_response') {
           setSessionList(msg.sessions)
           setProjectList(msg.projects)
@@ -92,7 +86,7 @@ export function TerminalScreen({ ip, token, projectPath, sessionId, onDisconnect
         // 無視
       }
     },
-    [],
+    [closeSwitcher],
   )
 
   const handleRetry = useCallback(() => {
@@ -120,7 +114,10 @@ export function TerminalScreen({ ip, token, projectPath, sessionId, onDisconnect
     )
   }, [])
 
-  const html = buildTerminalHtml(wsUrl, token, projectPath ?? null, sessionId ?? null)
+  const html = useMemo(
+    () => buildTerminalHtml(wsUrl, token, projectPath ?? null, sessionId ?? null),
+    [wsUrl, token, projectPath, sessionId],
+  )
   const statusCfg = STATUS_CONFIG[status]
   const showRetry = status === 'auth_error' || status === 'shell_exit'
 
@@ -168,10 +165,9 @@ export function TerminalScreen({ ip, token, projectPath, sessionId, onDisconnect
         onHttpError={(e) => console.error('WebView HTTP error:', e.nativeEvent.statusCode)}
       />
 
-      {/* セッション切替モーダル（条件付きレンダリングで DOM から完全に除去） */}
-      {showSwitcher && (
+      {/* セッション切替モーダル */}
       <Modal
-        visible
+        visible={showSwitcher}
         animationType="slide"
         transparent
         onRequestClose={() => setShowSwitcher(false)}
@@ -193,9 +189,7 @@ export function TerminalScreen({ ip, token, projectPath, sessionId, onDisconnect
                   <Text style={styles.sectionTitle}>実行中のセッション</Text>
                   {sessionList.map((session) => {
                     const isCurrent = session.id === currentSessionId
-                    const name = session.projectPath
-                      ? session.projectPath.split('/').filter(Boolean).pop() ?? 'セッション'
-                      : 'セッション'
+                    const name = getSessionDisplayName(session)
                     return (
                       <TouchableOpacity
                         key={session.id}
@@ -261,7 +255,6 @@ export function TerminalScreen({ ip, token, projectPath, sessionId, onDisconnect
           </View>
         </View>
       </Modal>
-      )}
     </SafeAreaView>
   )
 }

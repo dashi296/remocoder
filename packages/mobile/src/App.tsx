@@ -1,8 +1,12 @@
 import React, { useState } from 'react'
+import { ActivityIndicator, View, StyleSheet } from 'react-native'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
 import { ConnectScreen } from './screens/ConnectScreen'
+import { ForceUpdateScreen } from './screens/ForceUpdateScreen'
 import { SessionPickerScreen } from './screens/SessionPickerScreen'
 import { TerminalScreen } from './screens/TerminalScreen'
+import { useForceUpdate } from './hooks/useForceUpdate'
+import { useOTAUpdate } from './hooks/useOTAUpdate'
 
 type Screen = 'connect' | 'sessionPicker' | 'terminal'
 
@@ -23,6 +27,9 @@ export default function App() {
     token: '',
   })
 
+  const { needsUpdate, storeUrl, message, isChecking } = useForceUpdate()
+  useOTAUpdate()
+
   const handleConnect = (ip: string, token: string) => {
     setState({ screen: 'sessionPicker', ip, token })
   }
@@ -41,6 +48,24 @@ export default function App() {
 
   const handleDisconnect = () => {
     setState({ screen: 'connect', ip: '', token: '' })
+  }
+
+  if (isChecking) {
+    return (
+      <SafeAreaProvider>
+        <View style={styles.loading}>
+          <ActivityIndicator size="large" color="#0e7afb" />
+        </View>
+      </SafeAreaProvider>
+    )
+  }
+
+  if (needsUpdate) {
+    return (
+      <SafeAreaProvider>
+        <ForceUpdateScreen message={message} storeUrl={storeUrl} />
+      </SafeAreaProvider>
+    )
   }
 
   return (
@@ -69,3 +94,12 @@ export default function App() {
     </SafeAreaProvider>
   )
 }
+
+const styles = StyleSheet.create({
+  loading: {
+    flex: 1,
+    backgroundColor: '#1e1e1e',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+})

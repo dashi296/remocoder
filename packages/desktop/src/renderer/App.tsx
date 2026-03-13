@@ -27,7 +27,7 @@ const mockAPI = {
       hasClient: false,
     },
   ],
-  onSessionsUpdate: (_cb: (sessions: SessionInfo[]) => void) => { /* mock no-op */ },
+  onSessionsUpdate: (_cb: (sessions: SessionInfo[]) => void) => () => { /* mock no-op */ },
   rotateToken: async () => 'new-token',
   ptyCreate: async () => 'mock-session-id',
   ptyGetScrollback: async (_sessionId: string) => null as string | null,

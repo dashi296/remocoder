@@ -65,8 +65,18 @@ export function useForceUpdate(): ForceUpdateState {
         if (!cancelled) {
           setState({ needsUpdate, storeUrl, message: forceUpdateMessage, isChecking: false })
         }
-      } catch {
+      } catch (err) {
         // ネットワークエラー時はチェックをスキップして通常起動
+        // HTTP エラー（サーバー障害等）やネットワーク障害は想定内 → warn
+        // JSON パースエラー・スキーマ変更等はバグの可能性 → error
+        const isExpectedError =
+          err instanceof TypeError || // fetch 失敗（ネットワーク障害）
+          (err instanceof Error && /^HTTP \d+$/.test(err.message)) // HTTP 4xx/5xx
+        if (isExpectedError) {
+          console.warn('[useForceUpdate] ネットワーク不可のためチェックをスキップ:', err)
+        } else {
+          console.error('[useForceUpdate] 予期しないエラー（設定ミスまたはバグの可能性）:', err)
+        }
         if (!cancelled) {
           setState({ needsUpdate: false, storeUrl: '', message: '', isChecking: false })
         }

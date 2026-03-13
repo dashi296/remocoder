@@ -112,14 +112,22 @@ export default function App() {
   }
 
   const handleOpenTerminal = async (sessionId: string) => {
-    await api.openTerminalWindow(sessionId)
-    setActiveTerminalSessionId(sessionId)
+    try {
+      await api.openTerminalWindow(sessionId)
+      setActiveTerminalSessionId(sessionId)
+    } catch (err) {
+      setUpdateError(err instanceof Error ? err.message : String(err))
+    }
   }
 
   const handleNewSession = async () => {
-    const sessionId = await api.ptyCreate()
-    await api.openTerminalWindow(sessionId)
-    setActiveTerminalSessionId(sessionId)
+    try {
+      const sessionId = await api.ptyCreate()
+      await api.openTerminalWindow(sessionId)
+      setActiveTerminalSessionId(sessionId)
+    } catch (err) {
+      setUpdateError(err instanceof Error ? err.message : String(err))
+    }
   }
 
   const handleCloseTerminal = () => {

@@ -92,4 +92,22 @@ describe('useForceUpdate', () => {
     // jest の Platform.OS は 'ios'（__mocks__/react-native.ts で設定）
     expect(result.current.storeUrl).toBe('https://apps.apple.com/app/remocoder/id000000000')
   })
+
+  it('Android では storeUrls.android を返す', async () => {
+    const Platform = require('react-native').Platform
+    const originalOS = Platform.OS
+    Platform.OS = 'android'
+
+    try {
+      Constants.expoConfig = { version: '0.5.0' } as any
+      mockFetchResponse(makeConfig('1.0.0'))
+
+      const { result } = renderHook(() => useForceUpdate())
+      await waitFor(() => expect(result.current.isChecking).toBe(false))
+
+      expect(result.current.storeUrl).toBe('https://play.google.com/store/apps/details?id=com.remocoder.app')
+    } finally {
+      Platform.OS = originalOS
+    }
+  })
 })

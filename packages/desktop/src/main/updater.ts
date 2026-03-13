@@ -10,7 +10,12 @@ let initialized = false
 let downloading = false
 
 function parseMajor(version: string): number {
-  return parseInt(version.split('.')[0], 10)
+  const major = parseInt(version.replace(/^v/, '').split('.')[0], 10)
+  if (!isFinite(major)) {
+    console.warn(`[updater] parseMajor: "${version}" から major を解析できません。0 として扱います`)
+    return 0
+  }
+  return major
 }
 
 function toUpdateInfo(info: EuUpdateInfo, currentMajor: number): UpdateInfo {

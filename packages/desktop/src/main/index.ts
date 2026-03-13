@@ -224,8 +224,8 @@ app.whenReady().then(async () => {
           win?.webContents.send('tailscale-ip-updated', newIp)
         }
       })
-      .catch(() => {
-        // getTailscaleIP は内部でエラーを握り潰すが、将来の変更に備えてガード
+      .catch((err) => {
+        console.error('[main] Tailscale IP ポーリング中に予期しないエラー:', err)
       })
   }, 30000)
 })

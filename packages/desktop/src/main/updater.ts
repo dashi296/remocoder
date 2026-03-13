@@ -1,4 +1,6 @@
-import { autoUpdater, type UpdateInfo as EuUpdateInfo } from 'electron-updater'
+import electronUpdater, { type UpdateInfo as EuUpdateInfo } from 'electron-updater'
+
+const { autoUpdater } = electronUpdater
 import { app, type BrowserWindow } from 'electron'
 import type { UpdateInfo } from '@remocoder/shared'
 

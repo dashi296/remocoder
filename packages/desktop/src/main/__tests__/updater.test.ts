@@ -7,59 +7,51 @@ vi.mock('electron', () => ({
   },
 }))
 
+const mockAutoUpdater = {
+  autoDownload: true,
+  autoInstallOnAppQuit: true,
+  on: vi.fn(),
+  checkForUpdates: vi.fn(() => Promise.resolve(null)),
+  quitAndInstall: vi.fn(),
+}
+
 vi.mock('electron-updater', () => ({
-  autoUpdater: {
-    autoDownload: true,
-    autoInstallOnAppQuit: true,
-    on: vi.fn(),
-    checkForUpdates: vi.fn(() => Promise.resolve(null)),
-    quitAndInstall: vi.fn(),
-  },
+  default: { autoUpdater: mockAutoUpdater },
+  autoUpdater: mockAutoUpdater,
 }))
 
 // モック後に import（ホイスティング対策）
-const { app } = await import('electron')
 const { checkForUpdates, installUpdate } = await import('../updater')
 
 describe('updater', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    vi.mocked(app.getVersion).mockReturnValue('1.2.3')
+    mockAutoUpdater.checkForUpdates.mockResolvedValue(null as any)
+    mockAutoUpdater.quitAndInstall.mockReset()
   })
 
   describe('checkForUpdates', () => {
     it('autoUpdater.checkForUpdates を呼ぶ', async () => {
-      const { autoUpdater } = await import('electron-updater')
-      vi.mocked(autoUpdater.checkForUpdates).mockResolvedValue(null as any)
-
       await checkForUpdates()
-
-      expect(autoUpdater.checkForUpdates).toHaveBeenCalledTimes(1)
+      expect(mockAutoUpdater.checkForUpdates).toHaveBeenCalledTimes(1)
     })
 
     it('checkForUpdates が reject した場合にエラーを伝播する', async () => {
-      const { autoUpdater } = await import('electron-updater')
-      vi.mocked(autoUpdater.checkForUpdates).mockRejectedValue(new Error('network error'))
-
+      mockAutoUpdater.checkForUpdates.mockRejectedValue(new Error('network error'))
       await expect(checkForUpdates()).rejects.toThrow('network error')
     })
   })
 
   describe('installUpdate', () => {
-    it('autoUpdater.quitAndInstall を呼ぶ', async () => {
-      const { autoUpdater } = await import('electron-updater')
-
+    it('autoUpdater.quitAndInstall を呼ぶ', () => {
       installUpdate()
-
-      expect(autoUpdater.quitAndInstall).toHaveBeenCalledTimes(1)
+      expect(mockAutoUpdater.quitAndInstall).toHaveBeenCalledTimes(1)
     })
 
-    it('quitAndInstall が throw しても例外が外に漏れない', async () => {
-      const { autoUpdater } = await import('electron-updater')
-      vi.mocked(autoUpdater.quitAndInstall).mockImplementation(() => {
+    it('quitAndInstall が throw しても例外が外に漏れない', () => {
+      mockAutoUpdater.quitAndInstall.mockImplementation(() => {
         throw new Error('not yet downloaded')
       })
-
       expect(() => installUpdate()).not.toThrow()
     })
   })

@@ -12,7 +12,8 @@
         "NSAppTransportSecurity": {
           "NSAllowsLocalNetworking": true,
           "NSAllowsArbitraryLoadsInWebContent": true
-        }
+        },
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {

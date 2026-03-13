@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { render, screen } from '@testing-library/react'
-import { SessionList, SessionInfo } from '../components/SessionList'
+import type { SessionInfo } from '@remocoder/shared'
+import { SessionList } from '../components/SessionList'
 
 function makeSession(overrides: Partial<SessionInfo> = {}): SessionInfo {
   return {

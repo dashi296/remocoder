@@ -31,6 +31,7 @@ export function TerminalPanel({ sessionId, onClose }: Props) {
 
   useEffect(() => {
     if (!containerRef.current) return
+    let active = true
 
     // ターミナル初期化
     const term = new Terminal({
@@ -73,6 +74,7 @@ export function TerminalPanel({ sessionId, onClose }: Props) {
 
     // スクロールバック（過去の出力）を取得して表示
     window.electronAPI.ptyGetScrollback(sessionId).then((scrollback) => {
+      if (!active) return
       if (scrollback) {
         term.write(scrollback)
       }
@@ -82,6 +84,7 @@ export function TerminalPanel({ sessionId, onClose }: Props) {
     })
 
     return () => {
+      active = false
       onDataDispose.dispose()
       unsubOutput()
       unsubExit()

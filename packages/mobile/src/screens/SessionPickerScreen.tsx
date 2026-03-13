@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import {
   View,
   Text,
@@ -9,6 +9,7 @@ import {
 } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { DEFAULT_WS_PORT, ProjectInfo, SessionInfo, WsMessage } from '@remocoder/shared'
+import { formatDate, getSessionDisplayName } from '../utils'
 
 interface Props {
   ip: string
@@ -22,15 +23,11 @@ interface Props {
 
 type Status = 'connecting' | 'connected' | 'error'
 
-function formatDate(iso: string): string {
-  const d = new Date(iso)
-  return d.toLocaleString('ja-JP', {
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
-}
+type ListItem =
+  | { kind: 'header'; label: string }
+  | { kind: 'newSession' }
+  | { kind: 'session'; session: SessionInfo }
+  | { kind: 'project'; project: ProjectInfo }
 
 export function SessionPickerScreen({ ip, token, onSelectProject, onAttachSession, onBack }: Props) {
   const [status, setStatus] = useState<Status>('connecting')
@@ -38,8 +35,10 @@ export function SessionPickerScreen({ ip, token, onSelectProject, onAttachSessio
   const [sessions, setSessions] = useState<SessionInfo[]>([])
   const wsRef = useRef<WebSocket | null>(null)
   const selectedRef = useRef(false)
+  const isMountedRef = useRef(true)
 
   useEffect(() => {
+    isMountedRef.current = true
     const ws = new WebSocket(`ws://${ip}:${DEFAULT_WS_PORT}`)
     wsRef.current = ws
 
@@ -70,12 +69,13 @@ export function SessionPickerScreen({ ip, token, onSelectProject, onAttachSessio
 
     ws.onerror = () => setStatus('error')
     ws.onclose = () => {
-      if (!selectedRef.current) {
+      if (isMountedRef.current && !selectedRef.current) {
         setStatus((s) => (s === 'connected' ? 'error' : s))
       }
     }
 
     return () => {
+      isMountedRef.current = false
       ws.close()
     }
   }, [ip, token])
@@ -92,24 +92,17 @@ export function SessionPickerScreen({ ip, token, onSelectProject, onAttachSessio
     onAttachSession(sessionId)
   }
 
-  type ListItem =
-    | { kind: 'header'; label: string }
-    | { kind: 'newSession' }
-    | { kind: 'session'; session: SessionInfo }
-    | { kind: 'project'; project: ProjectInfo }
-
-  const listData: ListItem[] = []
-
-  if (sessions.length > 0) {
-    listData.push({ kind: 'header', label: '実行中のセッション' })
-    sessions.forEach((s) => listData.push({ kind: 'session', session: s }))
-  }
-
-  listData.push({ kind: 'header', label: '新規セッション' })
-  listData.push({ kind: 'newSession' })
-  if (projects.length > 0) {
-    projects.forEach((p) => listData.push({ kind: 'project', project: p }))
-  }
+  const listData = useMemo<ListItem[]>(() => {
+    const items: ListItem[] = []
+    if (sessions.length > 0) {
+      items.push({ kind: 'header', label: '実行中のセッション' })
+      sessions.forEach((s) => items.push({ kind: 'session', session: s }))
+    }
+    items.push({ kind: 'header', label: '新規セッション' })
+    items.push({ kind: 'newSession' })
+    projects.forEach((p) => items.push({ kind: 'project', project: p }))
+    return items
+  }, [sessions, projects])
 
   return (
     <SafeAreaView style={styles.container}>
@@ -166,9 +159,7 @@ export function SessionPickerScreen({ ip, token, onSelectProject, onAttachSessio
             }
             if (item.kind === 'session') {
               const { session } = item
-              const name = session.projectPath
-                ? session.projectPath.split('/').filter(Boolean).pop() ?? 'セッション'
-                : 'セッション'
+              const name = getSessionDisplayName(session)
               return (
                 <TouchableOpacity
                   style={styles.sessionRow}

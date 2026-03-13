@@ -17,7 +17,10 @@ const ActivityIndicator = (props: any) => React.createElement('ActivityIndicator
 const Image = (props: any) => React.createElement('Image', props)
 const Switch = (props: any) => React.createElement('Switch', props)
 const ScrollView = (props: any) => React.createElement('ScrollView', props)
-const Modal = (props: any) => React.createElement('Modal', props)
+// visible=false のときは children を描画しない（実機 Modal の挙動に合わせる）
+// ただし Modal 要素自体は残す（@testing-library/react-native の detectHostComponentNames に必要）
+const Modal = ({ visible, children, ...rest }: any) =>
+  React.createElement('Modal', rest, visible ? children : null)
 
 // Button renders title as a Text child so getByText('title') works,
 // and disables onPress when disabled=true so fireEvent.press has no effect.

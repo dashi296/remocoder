@@ -55,6 +55,7 @@ export function buildTerminalHtml(
     let reconnectAttempt = 0
     let connectTimeoutId = null
     let reconnectTimerId = null
+    let keepaliveIntervalId = null
     // 認証エラー・シェル終了後は自動再接続しない
     let noReconnect = false
 
@@ -62,31 +63,55 @@ export function buildTerminalHtml(
       window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify(data))
     }
 
+    /** WebSocket が OPEN のときのみ msg を JSON 送信する */
+    function sendWs(msg) {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify(msg))
+      }
+    }
+
+    /** session_create メッセージを構築する */
+    function buildSessionCreate(path) {
+      return { type: 'session_create', ...(path ? { projectPath: path } : {}) }
+    }
+
+    function stopKeepalive() {
+      if (keepaliveIntervalId !== null) {
+        clearInterval(keepaliveIntervalId)
+        keepaliveIntervalId = null
+      }
+    }
+
     function connect() {
       if (noReconnect) return
 
+      // 前の再接続タイマー・接続タイムアウトをキャンセル
+      clearTimeout(reconnectTimerId)
+      clearTimeout(connectTimeoutId)
+
       reconnectAttempt++
       postToNative({ type: 'debug', msg: 'connecting to: ${wsUrl}' })
-      ws = new WebSocket('${wsUrl}')
+      const currentWs = new WebSocket('${wsUrl}')
+      ws = currentWs
       postToNative({ type: 'debug', msg: 'ws created, readyState: ' + ws.readyState })
 
       // 接続タイムアウト: CONNECTINGのまま応答がない場合
       connectTimeoutId = setTimeout(() => {
-        if (ws && ws.readyState === WebSocket.CONNECTING) {
+        if (currentWs.readyState === WebSocket.CONNECTING) {
           term.write('\\r\\n[接続タイムアウト。再接続中...]\\r\\n')
-          ws.close()
+          currentWs.close()
         }
       }, CONNECT_TIMEOUT)
 
-      ws.onopen = () => {
+      currentWs.onopen = () => {
         clearTimeout(connectTimeoutId)
         reconnectDelay = 1000
         reconnectAttempt = 0
-        ws.send(JSON.stringify({ type: 'auth', token: '${token}' }))
+        currentWs.send(JSON.stringify({ type: 'auth', token: '${token}' }))
         postToNative({ type: 'connected' })
       }
 
-      ws.onmessage = (e) => {
+      currentWs.onmessage = (e) => {
         let msg
         try {
           msg = JSON.parse(e.data)
@@ -99,12 +124,9 @@ export function buildTerminalHtml(
         } else if (msg.type === 'auth_ok') {
           // auth_ok を受信後、既存セッションにアタッチするか新規作成する
           if (ATTACH_SESSION_ID) {
-            ws.send(JSON.stringify({ type: 'session_attach', sessionId: ATTACH_SESSION_ID }))
+            currentWs.send(JSON.stringify({ type: 'session_attach', sessionId: ATTACH_SESSION_ID }))
           } else {
-            ws.send(JSON.stringify({
-              type: 'session_create',
-              ...(PROJECT_PATH ? { projectPath: PROJECT_PATH } : {}),
-            }))
+            currentWs.send(JSON.stringify(buildSessionCreate(PROJECT_PATH)))
           }
         } else if (msg.type === 'session_attached') {
           // セッション切替時はターミナルをリセットしてスクロールバックを書き込む
@@ -113,31 +135,35 @@ export function buildTerminalHtml(
             term.write(msg.scrollback)
           }
           // リサイズ通知
-          ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }))
+          currentWs.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }))
           postToNative({ type: 'session_attached', sessionId: msg.sessionId })
         } else if (msg.type === 'session_not_found') {
           term.write('\\r\\n[セッションが見つかりません: ' + msg.sessionId + ']\\r\\n')
           noReconnect = true
-          ws.close()
+          stopKeepalive()
+          currentWs.close()
           postToNative({ type: 'session_not_found', sessionId: msg.sessionId })
         } else if (msg.type === 'auth_error') {
           term.write('\\r\\n[認証エラー: ' + msg.reason + ']\\r\\n')
           noReconnect = true
-          ws.close()
+          stopKeepalive()
+          currentWs.close()
           postToNative({ type: 'auth_error', reason: msg.reason })
         } else if (msg.type === 'shell_exit') {
           term.write('\\r\\n[セッションが終了しました (exit code: ' + msg.exitCode + ')]\\r\\n')
           noReconnect = true
+          stopKeepalive()
+          currentWs.close()
           postToNative({ type: 'shell_exit', exitCode: msg.exitCode })
         } else if (msg.type === 'session_list_response') {
           postToNative({ type: 'session_list_response', sessions: msg.sessions, projects: msg.projects })
         } else if (msg.type === 'ping') {
-          ws.send(JSON.stringify({ type: 'pong' }))
+          currentWs.send(JSON.stringify({ type: 'pong' }))
         }
         // pong: keepalive確認、処理不要
       }
 
-      ws.onclose = () => {
+      currentWs.onclose = () => {
         clearTimeout(connectTimeoutId)
         if (noReconnect) return
 
@@ -151,58 +177,40 @@ export function buildTerminalHtml(
         }, reconnectDelay)
       }
 
-      ws.onerror = () => {
+      currentWs.onerror = () => {
         // onclose が続いて呼ばれるので再接続はそちらで処理
       }
     }
 
     connect()
 
-    term.onData((data) => {
-      if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: 'input', data }))
-      }
-    })
+    term.onData((data) => { sendWs({ type: 'input', data }) })
 
     window.addEventListener('resize', () => {
       fitAddon.fit()
-      if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }))
-      }
+      sendWs({ type: 'resize', cols: term.cols, rows: term.rows })
     })
 
     // クライアント側keepalive
-    setInterval(() => {
-      if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: 'ping' }))
-      }
+    keepaliveIntervalId = setInterval(() => {
+      sendWs({ type: 'ping' })
     }, 30000)
 
     // ─── React Native から呼び出すブリッジ関数 ────────────────────────────
 
     /** セッション一覧をサーバーに要求する */
     window.requestSessionList = function() {
-      if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: 'session_list_request' }))
-      }
+      sendWs({ type: 'session_list_request' })
     }
 
     /** 既存セッションに切り替える */
     window.switchToSession = function(sessionId) {
-      if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: 'session_attach', sessionId: sessionId }))
-      }
+      sendWs({ type: 'session_attach', sessionId })
     }
 
     /** 新規セッションを作成して切り替える */
     window.createNewSession = function(newProjectPath) {
-      if (ws && ws.readyState === WebSocket.OPEN) {
-        noReconnect = false
-        ws.send(JSON.stringify({
-          type: 'session_create',
-          ...(newProjectPath ? { projectPath: newProjectPath } : {}),
-        }))
-      }
+      sendWs(buildSessionCreate(newProjectPath))
     }
   </script>
 </body>

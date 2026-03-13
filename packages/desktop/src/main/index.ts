@@ -9,22 +9,28 @@ import {
   desktopGetScrollback,
   desktopSendInput,
   desktopResize,
-  getSessions,
 } from './pty-server'
 import { getTailscaleIP } from './tailscale'
 import type { SessionInfo } from '@remocoder/shared'
 import { v4 as uuidv4 } from 'uuid'
 
+function getTokenPath(): string {
+  return join(app.getPath('userData'), 'auth-token.json')
+}
+
+function persistToken(token: string): void {
+  writeFileSync(getTokenPath(), JSON.stringify({ token }), 'utf-8')
+}
+
 function loadOrCreateToken(): string {
-  const tokenPath = join(app.getPath('userData'), 'auth-token.json')
   try {
-    const { token } = JSON.parse(readFileSync(tokenPath, 'utf-8'))
+    const { token } = JSON.parse(readFileSync(getTokenPath(), 'utf-8'))
     if (typeof token === 'string' && token.length > 0) return token
   } catch {
     // ファイルが存在しない or 読み込み失敗 → 新規生成
   }
   const token = uuidv4()
-  writeFileSync(tokenPath, JSON.stringify({ token }), 'utf-8')
+  persistToken(token)
   return token
 }
 
@@ -36,7 +42,6 @@ if (!app.requestSingleInstanceLock()) {
 let win: BrowserWindow | null = null
 let tray: Tray | null = null
 let tailscaleIp: string | null = null
-let authToken = ''
 let currentSessions: SessionInfo[] = []
 
 const isDev = !!process.env['ELECTRON_RENDERER_URL']
@@ -75,30 +80,33 @@ function createWindow() {
   })
 }
 
+function resizeWindow(size: { width: number; height: number }): void {
+  win?.setResizable(true)
+  win?.setSize(size.width, size.height)
+  win?.center()
+  win?.setResizable(false)
+}
+
 function setupTray(token: string) {
+  tray?.destroy()
   tray = new Tray(nativeImage.createEmpty())
   tray.setToolTip('Remocoder')
-
-  const updateMenu = () => {
-    tray?.setContextMenu(
-      Menu.buildFromTemplate([
-        { label: `Tailscale IP: ${tailscaleIp ?? '未接続'}`, enabled: false },
-        { label: `Token: ${token}`, enabled: false },
-        { type: 'separator' },
-        {
-          label: 'ウィンドウを表示',
-          click: () => {
-            win?.show()
-            win?.focus()
-          },
+  tray.setContextMenu(
+    Menu.buildFromTemplate([
+      { label: `Tailscale IP: ${tailscaleIp ?? '未接続'}`, enabled: false },
+      { label: `Token: ${token}`, enabled: false },
+      { type: 'separator' },
+      {
+        label: 'ウィンドウを表示',
+        click: () => {
+          win?.show()
+          win?.focus()
         },
-        { type: 'separator' },
-        { label: '終了', click: () => app.exit() },
-      ]),
-    )
-  }
-
-  updateMenu()
+      },
+      { type: 'separator' },
+      { label: '終了', click: () => app.exit() },
+    ]),
+  )
   tray.on('double-click', () => {
     if (win?.isVisible()) {
       win.hide()
@@ -116,9 +124,7 @@ function setupIpc(getToken: () => string) {
   ipcMain.handle('get-sessions', () => currentSessions)
   ipcMain.handle('rotate-token', () => {
     const newToken = rotateToken()
-    authToken = newToken
-    const tokenPath = join(app.getPath('userData'), 'auth-token.json')
-    writeFileSync(tokenPath, JSON.stringify({ token: newToken }), 'utf-8')
+    persistToken(newToken)
     setupTray(newToken)
     win?.webContents.send('token-rotated', newToken)
     return newToken
@@ -151,19 +157,13 @@ function setupIpc(getToken: () => string) {
 
   /** ターミナルウィンドウを開く（ウィンドウを拡大し、Rendererにセッションを通知） */
   ipcMain.handle('open-terminal-window', (_e, sessionId: string) => {
-    win?.setResizable(true)
-    win?.setSize(WINDOW_TERMINAL.width, WINDOW_TERMINAL.height)
-    win?.center()
-    win?.setResizable(false)
+    resizeWindow(WINDOW_TERMINAL)
     win?.webContents.send('terminal-opened', sessionId)
   })
 
   /** ターミナルウィンドウを閉じる（ウィンドウを縮小） */
   ipcMain.handle('close-terminal-window', () => {
-    win?.setResizable(true)
-    win?.setSize(WINDOW_NORMAL.width, WINDOW_NORMAL.height)
-    win?.center()
-    win?.setResizable(false)
+    resizeWindow(WINDOW_NORMAL)
     win?.webContents.send('terminal-closed')
   })
 }
@@ -184,7 +184,6 @@ app.whenReady().then(async () => {
     },
   })
 
-  authToken = getToken()
   tailscaleIp = await getTailscaleIP()
 
   createWindow()
@@ -192,12 +191,17 @@ app.whenReady().then(async () => {
   setupIpc(getToken)
 
   // Tailscale IP を定期的に更新（30秒ごと）
-  setInterval(async () => {
-    const newIp = await getTailscaleIP()
-    if (newIp !== tailscaleIp) {
-      tailscaleIp = newIp
-      win?.webContents.send('tailscale-ip-updated', newIp)
-    }
+  setInterval(() => {
+    getTailscaleIP()
+      .then((newIp) => {
+        if (newIp !== tailscaleIp) {
+          tailscaleIp = newIp
+          win?.webContents.send('tailscale-ip-updated', newIp)
+        }
+      })
+      .catch(() => {
+        // getTailscaleIP は内部でエラーを握り潰すが、将来の変更に備えてガード
+      })
   }, 30000)
 })
 

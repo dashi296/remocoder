@@ -11,7 +11,7 @@ import {
   desktopResize,
 } from './pty-server'
 import { getTailscaleIP } from './tailscale'
-import { setupAutoUpdater, checkForUpdates, installUpdate } from './updater'
+import { setupAutoUpdater, checkForUpdates, downloadUpdate, installUpdate } from './updater'
 import type { SessionInfo } from '@remocoder/shared'
 import { v4 as uuidv4 } from 'uuid'
 
@@ -173,6 +173,11 @@ function setupIpc(getToken: () => string) {
   /** 手動で更新チェックをトリガー */
   ipcMain.handle('updater-check', () => {
     return checkForUpdates()
+  })
+
+  /** メジャーアップデートをユーザー操作でダウンロード開始 */
+  ipcMain.handle('updater-download', () => {
+    downloadUpdate()
   })
 
   /** ダウンロード済みアップデートを適用して再起動 */

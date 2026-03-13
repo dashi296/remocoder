@@ -8,6 +8,7 @@ interface StatusPanelProps {
   updateAvailable: UpdateInfo | null
   updateDownloaded: UpdateInfo | null
   updateError: string | null
+  onDownloadUpdate: () => void
   onInstallUpdate: () => void
 }
 
@@ -26,9 +27,11 @@ export function StatusPanel({
   updateAvailable,
   updateDownloaded,
   updateError,
+  onDownloadUpdate,
   onInstallUpdate,
 }: StatusPanelProps) {
   const tailscaleConnected = tailscaleIP !== null
+  const updateInfo = updateDownloaded ?? updateAvailable
 
   return (
     <section style={styles.section}>
@@ -120,7 +123,7 @@ export function StatusPanel({
       )}
 
       {/* Update notification */}
-      {(updateDownloaded ?? updateAvailable) && (
+      {updateInfo && (
         <>
           <div style={styles.rowDivider} />
           <div style={styles.updateBanner}>
@@ -137,10 +140,10 @@ export function StatusPanel({
                 <span style={styles.updateLabel}>
                   UPDATE {updateDownloaded ? 'READY' : 'AVAILABLE'}
                   <span style={styles.updateVersion}>
-                    {' '}v{(updateDownloaded ?? updateAvailable)!.version}
+                    {' '}v{updateInfo.version}
                   </span>
                 </span>
-                {(updateDownloaded ?? updateAvailable)!.isMajor && (
+                {updateInfo.isMajor && (
                   <span style={styles.majorWarning}>
                     MAJOR — モバイルとの互換性を確認してください
                   </span>
@@ -150,6 +153,10 @@ export function StatusPanel({
             {updateDownloaded ? (
               <button style={styles.updateButton} onClick={onInstallUpdate}>
                 再起動して適用
+              </button>
+            ) : updateInfo.isMajor ? (
+              <button style={styles.updateButton} onClick={onDownloadUpdate}>
+                ダウンロードして適用
               </button>
             ) : (
               <span style={{ ...styles.updateLabel, color: 'var(--text-dim)' }}>DL中...</span>

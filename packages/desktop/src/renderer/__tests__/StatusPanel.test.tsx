@@ -7,6 +7,7 @@ const makeDefaultProps = () => ({
   updateAvailable: null,
   updateDownloaded: null,
   updateError: null,
+  onDownloadUpdate: vi.fn(),
   onInstallUpdate: vi.fn(),
 })
 
@@ -79,7 +80,7 @@ describe('StatusPanel', () => {
   })
 
   describe('アップデート通知', () => {
-    it('updateAvailable があるとき UPDATE AVAILABLE バナーと DL中... を表示する', () => {
+    it('Minor updateAvailable があるとき UPDATE AVAILABLE バナーと DL中... を表示する', () => {
       render(
         <StatusPanel
           {...makeDefaultProps()}
@@ -92,6 +93,36 @@ describe('StatusPanel', () => {
       expect(screen.getByText(/UPDATE AVAILABLE/)).toBeInTheDocument()
       expect(screen.getByText(/v1\.2\.0/)).toBeInTheDocument()
       expect(screen.getByText('DL中...')).toBeInTheDocument()
+    })
+
+    it('Major updateAvailable があるとき「ダウンロードして適用」ボタンを表示する', () => {
+      render(
+        <StatusPanel
+          {...makeDefaultProps()}
+          tailscaleIP="100.88.44.12"
+          wsPort={8080}
+          wsRunning={true}
+          updateAvailable={{ version: '2.0.0', isMajor: true }}
+        />,
+      )
+      expect(screen.getByText(/UPDATE AVAILABLE/)).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'ダウンロードして適用' })).toBeInTheDocument()
+    })
+
+    it('「ダウンロードして適用」ボタンをクリックすると onDownloadUpdate が呼ばれる', async () => {
+      const onDownloadUpdate = vi.fn()
+      render(
+        <StatusPanel
+          {...makeDefaultProps()}
+          onDownloadUpdate={onDownloadUpdate}
+          tailscaleIP="100.88.44.12"
+          wsPort={8080}
+          wsRunning={true}
+          updateAvailable={{ version: '2.0.0', isMajor: true }}
+        />,
+      )
+      await userEvent.click(screen.getByRole('button', { name: 'ダウンロードして適用' }))
+      expect(onDownloadUpdate).toHaveBeenCalledTimes(1)
     })
 
     it('updateDownloaded があるとき UPDATE READY と再起動ボタンを表示する', () => {
@@ -142,6 +173,20 @@ describe('StatusPanel', () => {
     it('更新なしのとき更新バナーを表示しない', () => {
       render(<StatusPanel {...makeDefaultProps()} tailscaleIP="100.88.44.12" wsPort={8080} wsRunning={true} />)
       expect(screen.queryByText(/UPDATE/)).not.toBeInTheDocument()
+    })
+
+    it('updateError があるとき UPDATE_ERR バナーを表示する', () => {
+      render(
+        <StatusPanel
+          {...makeDefaultProps()}
+          tailscaleIP="100.88.44.12"
+          wsPort={8080}
+          wsRunning={true}
+          updateError="network timeout"
+        />,
+      )
+      expect(screen.getByText(/UPDATE_ERR/)).toBeInTheDocument()
+      expect(screen.getByText(/network timeout/)).toBeInTheDocument()
     })
   })
 })

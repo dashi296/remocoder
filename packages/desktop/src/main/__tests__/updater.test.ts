@@ -23,7 +23,7 @@ vi.mock('electron-updater', () => ({
 }))
 
 // モック後に import（ホイスティング対策）
-const { checkForUpdates, installUpdate, setupAutoUpdater } = await import('../updater')
+const { checkForUpdates, downloadUpdate, installUpdate, setupAutoUpdater } = await import('../updater')
 
 // ── setupAutoUpdater のテスト ──────────────────────────────────────────────────
 
@@ -154,6 +154,22 @@ describe('checkForUpdates', () => {
   it('checkForUpdates が reject した場合にエラーを伝播する', async () => {
     mockAutoUpdater.checkForUpdates.mockRejectedValue(new Error('network error'))
     await expect(checkForUpdates()).rejects.toThrow('network error')
+  })
+})
+
+// ── downloadUpdate のテスト ────────────────────────────────────────────────────
+
+describe('downloadUpdate', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockAutoUpdater.downloadUpdate.mockResolvedValue(undefined)
+    mockAutoUpdater.autoInstallOnAppQuit = false
+  })
+
+  it('autoUpdater.downloadUpdate を呼び autoInstallOnAppQuit を true に設定する', () => {
+    downloadUpdate()
+    expect(mockAutoUpdater.autoInstallOnAppQuit).toBe(true)
+    expect(mockAutoUpdater.downloadUpdate).toHaveBeenCalledTimes(1)
   })
 })
 

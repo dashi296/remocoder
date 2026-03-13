@@ -40,6 +40,7 @@ const mockAPI = {
   onTerminalOpened: (_cb: (sessionId: string) => void) => { /* mock no-op */ },
   onTerminalClosed: (_cb: () => void) => { /* mock no-op */ },
   checkForUpdate: async () => { /* mock no-op */ },
+  downloadUpdate: async () => { /* mock no-op */ },
   installUpdate: async () => { /* mock no-op */ },
   onUpdateAvailable: (_cb: (info: UpdateInfo) => void) => () => { /* mock no-op */ },
   onUpdateDownloaded: (_cb: (info: UpdateInfo) => void) => () => { /* mock no-op */ },
@@ -70,7 +71,10 @@ export default function App() {
     // ターミナルウィンドウの開閉通知（別のウィンドウから通知される場合を考慮）
     const cleanupOpened = api.onTerminalOpened?.((sessionId: string) => setActiveTerminalSessionId(sessionId))
     const cleanupClosed = api.onTerminalClosed?.(() => setActiveTerminalSessionId(null))
-    const cleanupUpdateAvailable = api.onUpdateAvailable?.((info: UpdateInfo) => setUpdateAvailable(info))
+    const cleanupUpdateAvailable = api.onUpdateAvailable?.((info: UpdateInfo) => {
+      setUpdateAvailable(info)
+      setUpdateError(null)
+    })
     const cleanupUpdateDownloaded = api.onUpdateDownloaded?.((info: UpdateInfo) => {
       setUpdateAvailable((prev) => prev ?? info)
       setUpdateDownloaded(info)
@@ -145,6 +149,7 @@ export default function App() {
           updateAvailable={updateAvailable}
           updateDownloaded={updateDownloaded}
           updateError={updateError}
+          onDownloadUpdate={() => api.downloadUpdate?.()}
           onInstallUpdate={() => api.installUpdate?.()}
         />
         {token && (

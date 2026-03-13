@@ -8,15 +8,17 @@ let mainWindow: BrowserWindow | null = null
 let intervalId: ReturnType<typeof setInterval> | null = null
 let initialized = false
 
-function getCurrentMajorVersion(): number {
-  return parseInt(app.getVersion().split('.')[0], 10)
+/** アプリ起動後に変わらないため、モジュールロード時に一度だけ計算する */
+const CURRENT_MAJOR = parseInt(app.getVersion().split('.')[0], 10)
+
+function parseMajor(version: string): number {
+  return parseInt(version.split('.')[0], 10)
 }
 
 function toUpdateInfo(info: EuUpdateInfo): UpdateInfo {
-  const newMajor = parseInt(info.version.split('.')[0], 10)
   return {
     version: info.version,
-    isMajor: newMajor > getCurrentMajorVersion(),
+    isMajor: parseMajor(info.version) > CURRENT_MAJOR,
   }
 }
 
@@ -43,7 +45,7 @@ export function setupAutoUpdater(win: BrowserWindow): void {
         mainWindow?.webContents.send('update-error', { message: err.message })
       })
     }
-    // Major: ユーザーの明示的な操作を待つ（自動ダウンロードしない）
+    // Major: ユーザーの明示的な操作を待つ（downloadUpdate() で開始）
   })
 
   autoUpdater.on('update-downloaded', (info: EuUpdateInfo) => {
@@ -57,10 +59,12 @@ export function setupAutoUpdater(win: BrowserWindow): void {
       isDev &&
       (err.message.includes('No published versions') ||
         err.message.includes('net::ERR_FILE_NOT_FOUND'))
-    if (!isExpectedDevError) {
-      console.error('[updater] error:', err)
-      mainWindow?.webContents.send('update-error', { message: err.message })
+    if (isExpectedDevError) {
+      console.log('[updater] dev: ignoring expected error:', err.message)
+      return
     }
+    console.error('[updater] error:', err)
+    mainWindow?.webContents.send('update-error', { message: err.message })
   })
 
   win.on('closed', () => {
@@ -74,18 +78,28 @@ export function setupAutoUpdater(win: BrowserWindow): void {
   // 起動時チェック
   checkForUpdates().catch((err) => {
     console.error('[updater] startup check failed:', err)
+    mainWindow?.webContents.send('update-error', { message: String(err) })
   })
 
   // 1時間ごとに定期チェック
   intervalId = setInterval(() => {
     checkForUpdates().catch((err) => {
       console.error('[updater] periodic check failed:', err)
+      mainWindow?.webContents.send('update-error', { message: String(err) })
     })
   }, 60 * 60 * 1000)
 }
 
 export function checkForUpdates(): Promise<void> {
   return autoUpdater.checkForUpdates().then(() => undefined)
+}
+
+export function downloadUpdate(): void {
+  autoUpdater.autoInstallOnAppQuit = true
+  autoUpdater.downloadUpdate().catch((err: Error) => {
+    console.error('[updater] downloadUpdate failed:', err)
+    mainWindow?.webContents.send('update-error', { message: err.message })
+  })
 }
 
 export function installUpdate(): void {

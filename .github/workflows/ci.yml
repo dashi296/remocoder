@@ -86,7 +86,7 @@ jobs:
 
       - name: Build on EAS (${{ matrix.platform }})
         working-directory: packages/mobile
-        run: eas build --platform ${{ matrix.platform }} --profile preview --non-interactive
+        run: eas build --platform ${{ matrix.platform }} --profile preview --non-interactive --no-wait
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
 

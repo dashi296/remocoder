@@ -28,8 +28,9 @@ export function setupAutoUpdater(win: BrowserWindow): void {
   mainWindow = win
 
   // app.isReady() 後に呼ばれることが保証されているため、ここで計算する
-  const currentMajor = parseMajor(app.getVersion())
-  console.log(`[updater] current version: ${app.getVersion()}, major: ${currentMajor}`)
+  const currentVersion = app.getVersion()
+  const currentMajor = parseMajor(currentVersion)
+  console.log(`[updater] current version: ${currentVersion}, major: ${currentMajor}`)
 
   // 自動ダウンロードは無効化し、バージョン種別に応じて手動制御する
   autoUpdater.autoDownload = false
@@ -39,9 +40,6 @@ export function setupAutoUpdater(win: BrowserWindow): void {
     const updateInfo = toUpdateInfo(info, currentMajor)
     mainWindow?.webContents.send('update-available', updateInfo)
 
-    // Major の場合は autoInstallOnAppQuit を false に保つ（ユーザーの明示的な操作を待つ）
-    autoUpdater.autoInstallOnAppQuit = false
-
     if (!updateInfo.isMajor) {
       // Minor / Patch: バックグラウンド自動ダウンロードし終了時に自動適用
       autoUpdater.autoInstallOnAppQuit = true
@@ -49,8 +47,10 @@ export function setupAutoUpdater(win: BrowserWindow): void {
         console.error('[updater] downloadUpdate failed:', err)
         mainWindow?.webContents.send('update-error', { message: err.message })
       })
+    } else {
+      // Major: 前回 Minor 更新で true になっていた場合に備えてリセット
+      autoUpdater.autoInstallOnAppQuit = false
     }
-    // Major: ユーザーの明示的な操作を待つ（downloadUpdate() で開始）
   })
 
   autoUpdater.on('update-downloaded', (info: EuUpdateInfo) => {

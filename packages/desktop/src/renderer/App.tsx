@@ -76,7 +76,6 @@ export default function App() {
       setUpdateError(null)
     })
     const cleanupUpdateDownloaded = api.onUpdateDownloaded?.((info: UpdateInfo) => {
-      setUpdateAvailable((prev) => prev ?? info)
       setUpdateDownloaded(info)
     })
     const cleanupUpdateError = api.onUpdateError?.((error: { message: string }) => {
@@ -95,6 +94,22 @@ export default function App() {
       cleanupUpdateError?.()
     }
   }, [])
+
+  const handleDownloadUpdate = async () => {
+    try {
+      await api.downloadUpdate?.()
+    } catch (err) {
+      setUpdateError(err instanceof Error ? err.message : String(err))
+    }
+  }
+
+  const handleInstallUpdate = async () => {
+    try {
+      await api.installUpdate?.()
+    } catch (err) {
+      setUpdateError(err instanceof Error ? err.message : String(err))
+    }
+  }
 
   const handleOpenTerminal = async (sessionId: string) => {
     await api.openTerminalWindow(sessionId)
@@ -149,20 +164,8 @@ export default function App() {
           updateAvailable={updateAvailable}
           updateDownloaded={updateDownloaded}
           updateError={updateError}
-          onDownloadUpdate={async () => {
-            try {
-              await api.downloadUpdate?.()
-            } catch (err) {
-              setUpdateError(err instanceof Error ? err.message : String(err))
-            }
-          }}
-          onInstallUpdate={async () => {
-            try {
-              await api.installUpdate?.()
-            } catch (err) {
-              setUpdateError(err instanceof Error ? err.message : String(err))
-            }
-          }}
+          onDownloadUpdate={handleDownloadUpdate}
+          onInstallUpdate={handleInstallUpdate}
         />
         {token && (
           <TokenDisplay

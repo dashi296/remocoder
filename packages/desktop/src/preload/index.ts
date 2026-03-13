@@ -80,4 +80,26 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('terminal-closed', handler)
     return () => ipcRenderer.removeListener('terminal-closed', handler)
   },
+
+  // ── 自動アップデートAPI ──────────────────────────────────────────────────────
+
+  /** 手動で更新チェックをトリガー */
+  checkForUpdate: (): Promise<void> => ipcRenderer.invoke('updater-check'),
+
+  /** ダウンロード済みアップデートを適用して再起動 */
+  installUpdate: (): Promise<void> => ipcRenderer.invoke('updater-install'),
+
+  /** 更新が利用可能になったときに呼ばれる。戻り値はリスナー解除関数 */
+  onUpdateAvailable: (cb: (info: { version: string; isMajor: boolean }) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, info: { version: string; isMajor: boolean }) => cb(info)
+    ipcRenderer.on('update-available', handler)
+    return () => ipcRenderer.removeListener('update-available', handler)
+  },
+
+  /** 更新のダウンロードが完了したときに呼ばれる。戻り値はリスナー解除関数 */
+  onUpdateDownloaded: (cb: (info: { version: string; isMajor: boolean }) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, info: { version: string; isMajor: boolean }) => cb(info)
+    ipcRenderer.on('update-downloaded', handler)
+    return () => ipcRenderer.removeListener('update-downloaded', handler)
+  },
 })

@@ -1,72 +1,127 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { StatusPanel } from '../components/StatusPanel'
+
+const defaultProps = {
+  updateAvailable: null,
+  updateDownloaded: null,
+  onInstallUpdate: vi.fn(),
+}
 
 describe('StatusPanel', () => {
   describe('Tailscale 接続済みのとき', () => {
     it('IP アドレスを表示する', () => {
-      render(<StatusPanel tailscaleIP="100.88.44.12" wsPort={8080} wsRunning={true} />)
+      render(<StatusPanel {...defaultProps} tailscaleIP="100.88.44.12" wsPort={8080} wsRunning={true} />)
       expect(screen.getByText('100.88.44.12')).toBeInTheDocument()
     })
 
     it('DISCONNECTED を表示しない', () => {
-      render(<StatusPanel tailscaleIP="100.88.44.12" wsPort={8080} wsRunning={true} />)
+      render(<StatusPanel {...defaultProps} tailscaleIP="100.88.44.12" wsPort={8080} wsRunning={true} />)
       expect(screen.queryByText('DISCONNECTED')).not.toBeInTheDocument()
     })
   })
 
   describe('WS サーバーも起動中のとき', () => {
     it('接続文字列ヒントを表示する', () => {
-      render(<StatusPanel tailscaleIP="100.88.44.12" wsPort={8080} wsRunning={true} />)
+      render(<StatusPanel {...defaultProps} tailscaleIP="100.88.44.12" wsPort={8080} wsRunning={true} />)
       expect(screen.getByText(/ws:\/\/100\.88\.44\.12:8080/)).toBeInTheDocument()
     })
 
     it('LIVE バッジを表示する', () => {
-      render(<StatusPanel tailscaleIP="100.88.44.12" wsPort={8080} wsRunning={true} />)
+      render(<StatusPanel {...defaultProps} tailscaleIP="100.88.44.12" wsPort={8080} wsRunning={true} />)
       expect(screen.getByText('LIVE')).toBeInTheDocument()
     })
   })
 
   describe('Tailscale 未接続のとき', () => {
     it('DISCONNECTED を表示する', () => {
-      render(<StatusPanel tailscaleIP={null} wsPort={8080} wsRunning={true} />)
+      render(<StatusPanel {...defaultProps} tailscaleIP={null} wsPort={8080} wsRunning={true} />)
       expect(screen.getByText('DISCONNECTED')).toBeInTheDocument()
     })
 
     it('IP アドレスを表示しない', () => {
-      render(<StatusPanel tailscaleIP={null} wsPort={8080} wsRunning={true} />)
+      render(<StatusPanel {...defaultProps} tailscaleIP={null} wsPort={8080} wsRunning={true} />)
       expect(screen.queryByText('100.88.44.12')).not.toBeInTheDocument()
     })
 
     it('接続文字列ヒントを表示しない（WS が動いていても）', () => {
-      render(<StatusPanel tailscaleIP={null} wsPort={8080} wsRunning={true} />)
+      render(<StatusPanel {...defaultProps} tailscaleIP={null} wsPort={8080} wsRunning={true} />)
       expect(screen.queryByText(/ws:\/\//)).not.toBeInTheDocument()
     })
   })
 
   describe('WS サーバーが停止しているとき', () => {
     it('STOPPED を表示する', () => {
-      render(<StatusPanel tailscaleIP="100.88.44.12" wsPort={8080} wsRunning={false} />)
+      render(<StatusPanel {...defaultProps} tailscaleIP="100.88.44.12" wsPort={8080} wsRunning={false} />)
       expect(screen.getByText('STOPPED')).toBeInTheDocument()
     })
 
     it('LIVE バッジを表示しない', () => {
-      render(<StatusPanel tailscaleIP="100.88.44.12" wsPort={8080} wsRunning={false} />)
+      render(<StatusPanel {...defaultProps} tailscaleIP="100.88.44.12" wsPort={8080} wsRunning={false} />)
       expect(screen.queryByText('LIVE')).not.toBeInTheDocument()
     })
 
     it('接続文字列ヒントを表示しない', () => {
-      render(<StatusPanel tailscaleIP="100.88.44.12" wsPort={8080} wsRunning={false} />)
+      render(<StatusPanel {...defaultProps} tailscaleIP="100.88.44.12" wsPort={8080} wsRunning={false} />)
       expect(screen.queryByText(/ws:\/\//)).not.toBeInTheDocument()
     })
   })
 
   describe('ポート番号', () => {
     it('指定したポート番号を表示する', () => {
-      render(<StatusPanel tailscaleIP="100.88.44.12" wsPort={9090} wsRunning={true} />)
+      render(<StatusPanel {...defaultProps} tailscaleIP="100.88.44.12" wsPort={9090} wsRunning={true} />)
       // ポートは WS行・接続ヒント両方に現れるため getAllByText で確認
       const matches = screen.getAllByText(/:9090/)
       expect(matches.length).toBeGreaterThanOrEqual(1)
+    })
+  })
+
+  describe('アップデート通知', () => {
+    it('updateAvailable があるとき UPDATE AVAILABLE バナーを表示する', () => {
+      render(
+        <StatusPanel
+          {...defaultProps}
+          tailscaleIP="100.88.44.12"
+          wsPort={8080}
+          wsRunning={true}
+          updateAvailable={{ version: '1.2.0', isMajor: false }}
+        />,
+      )
+      expect(screen.getByText(/UPDATE AVAILABLE/)).toBeInTheDocument()
+      expect(screen.getByText(/v1\.2\.0/)).toBeInTheDocument()
+    })
+
+    it('updateDownloaded があるとき UPDATE READY と再起動ボタンを表示する', () => {
+      render(
+        <StatusPanel
+          {...defaultProps}
+          tailscaleIP="100.88.44.12"
+          wsPort={8080}
+          wsRunning={true}
+          updateAvailable={{ version: '1.2.0', isMajor: false }}
+          updateDownloaded={{ version: '1.2.0', isMajor: false }}
+        />,
+      )
+      expect(screen.getByText(/UPDATE READY/)).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: '再起動して適用' })).toBeInTheDocument()
+    })
+
+    it('isMajor のとき互換性警告を表示する', () => {
+      render(
+        <StatusPanel
+          {...defaultProps}
+          tailscaleIP="100.88.44.12"
+          wsPort={8080}
+          wsRunning={true}
+          updateAvailable={{ version: '2.0.0', isMajor: true }}
+        />,
+      )
+      expect(screen.getByText(/MAJOR/)).toBeInTheDocument()
+    })
+
+    it('更新なしのとき更新バナーを表示しない', () => {
+      render(<StatusPanel {...defaultProps} tailscaleIP="100.88.44.12" wsPort={8080} wsRunning={true} />)
+      expect(screen.queryByText(/UPDATE/)).not.toBeInTheDocument()
     })
   })
 })

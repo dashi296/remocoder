@@ -1,9 +1,17 @@
 import React from 'react'
 
+interface UpdateInfo {
+  version: string
+  isMajor: boolean
+}
+
 interface StatusPanelProps {
   tailscaleIP: string | null
   wsPort: number
   wsRunning: boolean
+  updateAvailable: UpdateInfo | null
+  updateDownloaded: UpdateInfo | null
+  onInstallUpdate: () => void
 }
 
 const dot: React.CSSProperties = {
@@ -14,7 +22,14 @@ const dot: React.CSSProperties = {
   flexShrink: 0,
 }
 
-export function StatusPanel({ tailscaleIP, wsPort, wsRunning }: StatusPanelProps) {
+export function StatusPanel({
+  tailscaleIP,
+  wsPort,
+  wsRunning,
+  updateAvailable,
+  updateDownloaded,
+  onInstallUpdate,
+}: StatusPanelProps) {
   const tailscaleConnected = tailscaleIP !== null
 
   return (
@@ -86,6 +101,45 @@ export function StatusPanel({ tailscaleIP, wsPort, wsRunning }: StatusPanelProps
             ws://{tailscaleIP}:{wsPort}
           </span>
         </div>
+      )}
+
+      {/* Update notification */}
+      {(updateDownloaded ?? updateAvailable) && (
+        <>
+          <div style={styles.rowDivider} />
+          <div style={styles.updateBanner}>
+            <div style={styles.updateBannerLeft}>
+              <span
+                style={{
+                  ...dot,
+                  backgroundColor: 'var(--amber)',
+                  boxShadow: '0 0 6px var(--amber)',
+                  animation: 'pulse-amber 1.2s ease-in-out infinite',
+                }}
+              />
+              <div style={styles.updateTextGroup}>
+                <span style={styles.updateLabel}>
+                  UPDATE {updateDownloaded ? 'READY' : 'AVAILABLE'}
+                  <span style={styles.updateVersion}>
+                    {' '}v{(updateDownloaded ?? updateAvailable)!.version}
+                  </span>
+                </span>
+                {(updateDownloaded ?? updateAvailable)!.isMajor && (
+                  <span style={styles.majorWarning}>
+                    MAJOR — モバイルとの互換性を確認してください
+                  </span>
+                )}
+              </div>
+            </div>
+            {updateDownloaded ? (
+              <button style={styles.updateButton} onClick={onInstallUpdate}>
+                再起動して適用
+              </button>
+            ) : (
+              <span style={{ ...styles.updateLabel, color: 'var(--text-dim)' }}>DL中...</span>
+            )}
+          </div>
+        </>
       )}
     </section>
   )
@@ -159,6 +213,54 @@ const styles: Record<string, React.CSSProperties> = {
     background: 'var(--border)',
     margin: '2px 0',
     opacity: 0.5,
+  },
+  updateBanner: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: '8px 0 2px',
+    gap: 8,
+  },
+  updateBannerLeft: {
+    display: 'flex',
+    alignItems: 'flex-start',
+    gap: 8,
+    flex: 1,
+    minWidth: 0,
+  },
+  updateTextGroup: {
+    display: 'flex',
+    flexDirection: 'column' as const,
+    gap: 2,
+    minWidth: 0,
+  },
+  updateLabel: {
+    fontSize: 10,
+    fontWeight: 600,
+    letterSpacing: '0.08em',
+    color: 'var(--amber)',
+  },
+  updateVersion: {
+    color: 'var(--text-muted)',
+    fontWeight: 400,
+  },
+  majorWarning: {
+    fontSize: 9,
+    color: 'var(--red)',
+    letterSpacing: '0.04em',
+  },
+  updateButton: {
+    fontSize: 9,
+    fontWeight: 700,
+    letterSpacing: '0.1em',
+    color: 'var(--bg-base)',
+    background: 'var(--amber)',
+    border: 'none',
+    borderRadius: 'var(--radius)',
+    padding: '4px 8px',
+    cursor: 'pointer',
+    whiteSpace: 'nowrap' as const,
+    flexShrink: 0,
   },
   connectionHint: {
     display: 'flex',

@@ -39,17 +39,28 @@ const mockAPI = {
   onPtyExit: (_cb: (sessionId: string, exitCode: number) => void) => () => { /* mock no-op */ },
   onTerminalOpened: (_cb: (sessionId: string) => void) => { /* mock no-op */ },
   onTerminalClosed: (_cb: () => void) => { /* mock no-op */ },
+  checkForUpdate: async () => { /* mock no-op */ },
+  installUpdate: async () => { /* mock no-op */ },
+  onUpdateAvailable: (_cb: (info: { version: string; isMajor: boolean }) => void) => () => { /* mock no-op */ },
+  onUpdateDownloaded: (_cb: (info: { version: string; isMajor: boolean }) => void) => () => { /* mock no-op */ },
 }
 
 const api = MOCK_MODE ? mockAPI : (window as any).electronAPI
 
 // ─────────────────────────────────────────────────────────
 
+interface UpdateInfo {
+  version: string
+  isMajor: boolean
+}
+
 export default function App() {
   const [tailscaleIP, setTailscaleIP] = useState<string | null>(null)
   const [token, setToken] = useState<string>('')
   const [sessions, setSessions] = useState<SessionInfo[]>([])
   const [activeTerminalSessionId, setActiveTerminalSessionId] = useState<string | null>(null)
+  const [updateAvailable, setUpdateAvailable] = useState<UpdateInfo | null>(null)
+  const [updateDownloaded, setUpdateDownloaded] = useState<UpdateInfo | null>(null)
 
   useEffect(() => {
     api.getTailscaleIP().then(setTailscaleIP)
@@ -62,6 +73,11 @@ export default function App() {
     // ターミナルウィンドウの開閉通知（別のウィンドウから通知される場合を考慮）
     const cleanupOpened = api.onTerminalOpened?.((sessionId: string) => setActiveTerminalSessionId(sessionId))
     const cleanupClosed = api.onTerminalClosed?.(() => setActiveTerminalSessionId(null))
+    const cleanupUpdateAvailable = api.onUpdateAvailable?.((info: UpdateInfo) => setUpdateAvailable(info))
+    const cleanupUpdateDownloaded = api.onUpdateDownloaded?.((info: UpdateInfo) => {
+      setUpdateAvailable(info)
+      setUpdateDownloaded(info)
+    })
 
     return () => {
       cleanupSessions?.()
@@ -69,6 +85,8 @@ export default function App() {
       cleanupIp?.()
       cleanupOpened?.()
       cleanupClosed?.()
+      cleanupUpdateAvailable?.()
+      cleanupUpdateDownloaded?.()
     }
   }, [])
 
@@ -122,6 +140,9 @@ export default function App() {
           tailscaleIP={tailscaleIP}
           wsPort={DEFAULT_WS_PORT}
           wsRunning={true}
+          updateAvailable={updateAvailable}
+          updateDownloaded={updateDownloaded}
+          onInstallUpdate={() => api.installUpdate?.()}
         />
         {token && (
           <TokenDisplay

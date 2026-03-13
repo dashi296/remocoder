@@ -11,6 +11,7 @@ import {
   desktopResize,
 } from './pty-server'
 import { getTailscaleIP } from './tailscale'
+import { setupAutoUpdater, checkForUpdates, installUpdate } from './updater'
 import type { SessionInfo } from '@remocoder/shared'
 import { v4 as uuidv4 } from 'uuid'
 
@@ -166,6 +167,18 @@ function setupIpc(getToken: () => string) {
     resizeWindow(WINDOW_NORMAL)
     win?.webContents.send('terminal-closed')
   })
+
+  // ── 自動アップデート用ハンドラ ──────────────────────────────────────────────
+
+  /** 手動で更新チェックをトリガー */
+  ipcMain.handle('updater-check', () => {
+    checkForUpdates()
+  })
+
+  /** ダウンロード済みアップデートを適用して再起動 */
+  ipcMain.handle('updater-install', () => {
+    installUpdate()
+  })
 }
 
 app.whenReady().then(async () => {
@@ -189,6 +202,10 @@ app.whenReady().then(async () => {
   createWindow()
   setupTray(getToken())
   setupIpc(getToken)
+
+  if (win) {
+    setupAutoUpdater(win)
+  }
 
   // Tailscale IP を定期的に更新（30秒ごと）
   setInterval(() => {

@@ -1,7 +1,7 @@
 import React from 'react'
-import type { UpdateInfo } from '@remocoder/shared'
+import type { UpdateInfo, PowerSettings } from '@remocoder/shared'
 
-interface StatusPanelProps {
+interface Props {
   tailscaleIP: string | null
   wsPort: number
   wsRunning: boolean
@@ -10,6 +10,18 @@ interface StatusPanelProps {
   updateError: string | null
   onDownloadUpdate: () => void
   onInstallUpdate: () => void
+  powerSettings: PowerSettings
+  isOnAC: boolean
+  isBlockerActive: boolean
+  onSetPowerSetting: (key: keyof PowerSettings, enabled: boolean) => void
+}
+
+interface SleepRowProps {
+  label: string
+  enabled: boolean
+  active: boolean
+  activeColor: string
+  onToggle: () => void
 }
 
 const dot: React.CSSProperties = {
@@ -18,6 +30,36 @@ const dot: React.CSSProperties = {
   height: 7,
   borderRadius: '50%',
   flexShrink: 0,
+}
+
+function SleepRow({ label, enabled, active, activeColor, onToggle }: SleepRowProps): React.ReactElement {
+  return (
+    <div style={styles.row}>
+      <div style={styles.rowLeft}>
+        <span
+          style={{
+            ...dot,
+            backgroundColor: active ? activeColor : 'var(--text-dim)',
+            boxShadow: active ? `0 0 6px ${activeColor}` : 'none',
+          }}
+        />
+        <span style={styles.label}>{label}</span>
+      </div>
+      <div style={styles.rowRight}>
+        <button
+          style={{
+            ...styles.toggleButton,
+            color: enabled ? 'var(--bg-base)' : 'var(--text-muted)',
+            background: enabled ? activeColor : 'transparent',
+            border: enabled ? `1px solid ${activeColor}` : '1px solid var(--border-bright)',
+          }}
+          onClick={onToggle}
+        >
+          {enabled ? 'ON' : 'OFF'}
+        </button>
+      </div>
+    </div>
+  )
 }
 
 export function StatusPanel({
@@ -29,7 +71,11 @@ export function StatusPanel({
   updateError,
   onDownloadUpdate,
   onInstallUpdate,
-}: StatusPanelProps) {
+  powerSettings,
+  isOnAC,
+  isBlockerActive,
+  onSetPowerSetting,
+}: Props): React.ReactElement {
   const tailscaleConnected = tailscaleIP !== null
   const updateInfo = updateDownloaded ?? updateAvailable
 
@@ -103,6 +149,46 @@ export function StatusPanel({
           </span>
         </div>
       )}
+
+      {/* Power management */}
+      <div style={styles.rowDivider} />
+
+      {/* POWER_SOURCE row */}
+      <div style={styles.row}>
+        <div style={styles.rowLeft}>
+          <span
+            style={{
+              ...dot,
+              backgroundColor: isOnAC ? 'var(--green)' : 'var(--amber)',
+              boxShadow: isOnAC ? '0 0 6px var(--green)' : '0 0 6px var(--amber)',
+            }}
+          />
+          <span style={styles.label}>POWER_SOURCE</span>
+        </div>
+        <div style={styles.rowRight}>
+          <span style={{ ...styles.value, color: isOnAC ? 'var(--green)' : 'var(--amber)' }}>
+            {isOnAC ? 'AC' : 'BATTERY'}
+          </span>
+        </div>
+      </div>
+
+      {/* SLEEP/AC row */}
+      <SleepRow
+        label="SLEEP / AC"
+        enabled={powerSettings.preventSleepOnAC}
+        active={isBlockerActive && isOnAC}
+        activeColor="var(--green)"
+        onToggle={() => onSetPowerSetting('preventSleepOnAC', !powerSettings.preventSleepOnAC)}
+      />
+
+      {/* SLEEP/BAT row */}
+      <SleepRow
+        label="SLEEP / BAT"
+        enabled={powerSettings.preventSleepOnBattery}
+        active={isBlockerActive && !isOnAC}
+        activeColor="var(--amber)"
+        onToggle={() => onSetPowerSetting('preventSleepOnBattery', !powerSettings.preventSleepOnBattery)}
+      />
 
       {/* Update error */}
       {updateError && (
@@ -297,6 +383,14 @@ const styles: Record<string, React.CSSProperties> = {
     cursor: 'pointer',
     whiteSpace: 'nowrap' as const,
     flexShrink: 0,
+  },
+  toggleButton: {
+    fontSize: 8,
+    fontWeight: 700,
+    letterSpacing: '0.12em',
+    borderRadius: 2,
+    padding: '2px 6px',
+    cursor: 'pointer',
   },
   connectionHint: {
     display: 'flex',

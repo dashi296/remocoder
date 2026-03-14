@@ -99,6 +99,7 @@ jobs:
   notify-slack:
     name: Notify Slack
     runs-on: ubuntu-latest
+    environment: preview
     needs: [build-android, build-ios]
     if: always() && (needs.build-android.result == 'success' || needs.build-ios.result == 'success')
     steps:

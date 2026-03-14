@@ -12,6 +12,7 @@ import {
   getMultiplexerSessions,
 } from './pty-server'
 import { getTailscaleIP } from './tailscale'
+import { setupAutoUpdater, checkForUpdates, downloadUpdate, installUpdate } from './updater'
 import type { SessionInfo, SessionSource } from '@remocoder/shared'
 import { v4 as uuidv4 } from 'uuid'
 
@@ -172,6 +173,26 @@ function setupIpc(getToken: () => string) {
     resizeWindow(WINDOW_NORMAL)
     win?.webContents.send('terminal-closed')
   })
+
+  // ── 自動アップデート用ハンドラ ──────────────────────────────────────────────
+
+  /** 手動で更新チェックをトリガー（エラーは update-error として通知済みのため void を返す） */
+  ipcMain.handle('updater-check', () => {
+    checkForUpdates().catch((err) => {
+      console.error('[updater] manual check failed:', err)
+      win?.webContents.send('update-error', { message: String(err) })
+    })
+  })
+
+  /** メジャーアップデートをユーザー操作でダウンロード開始 */
+  ipcMain.handle('updater-download', () => {
+    downloadUpdate()
+  })
+
+  /** ダウンロード済みアップデートを適用して再起動 */
+  ipcMain.handle('updater-install', () => {
+    installUpdate()
+  })
 }
 
 app.whenReady().then(async () => {
@@ -196,6 +217,10 @@ app.whenReady().then(async () => {
   setupTray(getToken())
   setupIpc(getToken)
 
+  if (win) {
+    setupAutoUpdater(win)
+  }
+
   // Tailscale IP を定期的に更新（30秒ごと）
   setInterval(() => {
     getTailscaleIP()
@@ -205,8 +230,8 @@ app.whenReady().then(async () => {
           win?.webContents.send('tailscale-ip-updated', newIp)
         }
       })
-      .catch(() => {
-        // getTailscaleIP は内部でエラーを握り潰すが、将来の変更に備えてガード
+      .catch((err) => {
+        console.error('[main] Tailscale IP ポーリング中に予期しないエラー:', err)
       })
   }, 30000)
 })

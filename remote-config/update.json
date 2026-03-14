@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "mobile": {
+    "minimumNativeVersion": "0.0.1",
+    "latestVersion": "0.0.1",
+    "forceUpdateMessage": "重要なアップデートが含まれています。最新バージョンをインストールしてください。",
+    "storeUrls": {
+      "ios": "https://apps.apple.com/app/remocoder/id000000000",
+      "android": "https://play.google.com/store/apps/details?id=com.remocoder.app"
+    }
+  },
+  "desktop": {
+    "minimumVersion": "0.0.1",
+    "latestVersion": "0.0.1"
+  },
+  "compatibility": {
+    "minimumDesktopVersionForMobile": "0.0.1",
+    "minimumMobileVersionForDesktop": "0.0.1"
+  }
+}

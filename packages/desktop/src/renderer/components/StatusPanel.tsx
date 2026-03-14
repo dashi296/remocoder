@@ -1,9 +1,15 @@
 import React from 'react'
+import type { UpdateInfo } from '@remocoder/shared'
 
 interface StatusPanelProps {
   tailscaleIP: string | null
   wsPort: number
   wsRunning: boolean
+  updateAvailable: UpdateInfo | null
+  updateDownloaded: UpdateInfo | null
+  updateError: string | null
+  onDownloadUpdate: () => void
+  onInstallUpdate: () => void
 }
 
 const dot: React.CSSProperties = {
@@ -14,8 +20,18 @@ const dot: React.CSSProperties = {
   flexShrink: 0,
 }
 
-export function StatusPanel({ tailscaleIP, wsPort, wsRunning }: StatusPanelProps) {
+export function StatusPanel({
+  tailscaleIP,
+  wsPort,
+  wsRunning,
+  updateAvailable,
+  updateDownloaded,
+  updateError,
+  onDownloadUpdate,
+  onInstallUpdate,
+}: StatusPanelProps) {
   const tailscaleConnected = tailscaleIP !== null
+  const updateInfo = updateDownloaded ?? updateAvailable
 
   return (
     <section style={styles.section}>
@@ -86,6 +102,67 @@ export function StatusPanel({ tailscaleIP, wsPort, wsRunning }: StatusPanelProps
             ws://{tailscaleIP}:{wsPort}
           </span>
         </div>
+      )}
+
+      {/* Update error */}
+      {updateError && (
+        <>
+          <div style={styles.rowDivider} />
+          <div style={styles.updateErrorBanner}>
+            <span
+              style={{
+                ...dot,
+                backgroundColor: 'var(--red)',
+                boxShadow: '0 0 6px var(--red)',
+                flexShrink: 0,
+              }}
+            />
+            <span style={styles.updateErrorText}>UPDATE_ERR — {updateError}</span>
+          </div>
+        </>
+      )}
+
+      {/* Update notification */}
+      {updateInfo && (
+        <>
+          <div style={styles.rowDivider} />
+          <div style={styles.updateBanner}>
+            <div style={styles.updateBannerLeft}>
+              <span
+                style={{
+                  ...dot,
+                  backgroundColor: 'var(--amber)',
+                  boxShadow: '0 0 6px var(--amber)',
+                  animation: 'pulse-amber 1.2s ease-in-out infinite',
+                }}
+              />
+              <div style={styles.updateTextGroup}>
+                <span style={styles.updateLabel}>
+                  UPDATE {updateDownloaded ? 'READY' : 'AVAILABLE'}
+                  <span style={styles.updateVersion}>
+                    {' '}v{updateInfo.version}
+                  </span>
+                </span>
+                {updateInfo.isMajor && (
+                  <span style={styles.majorWarning}>
+                    MAJOR — モバイルとの互換性を確認してください
+                  </span>
+                )}
+              </div>
+            </div>
+            {updateDownloaded ? (
+              <button style={styles.updateButton} onClick={onInstallUpdate}>
+                再起動して適用
+              </button>
+            ) : updateInfo.isMajor ? (
+              <button style={styles.updateButton} onClick={onDownloadUpdate}>
+                ダウンロードして適用
+              </button>
+            ) : (
+              <span style={{ ...styles.updateLabel, color: 'var(--text-dim)' }}>DL中...</span>
+            )}
+          </div>
+        </>
       )}
     </section>
   )
@@ -159,6 +236,67 @@ const styles: Record<string, React.CSSProperties> = {
     background: 'var(--border)',
     margin: '2px 0',
     opacity: 0.5,
+  },
+  updateErrorBanner: {
+    display: 'flex',
+    alignItems: 'flex-start',
+    gap: 8,
+    padding: '8px 0 2px',
+  },
+  updateErrorText: {
+    fontSize: 9,
+    color: 'var(--red)',
+    letterSpacing: '0.04em',
+    lineHeight: 1.5,
+    wordBreak: 'break-all' as const,
+  },
+  updateBanner: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: '8px 0 2px',
+    gap: 8,
+  },
+  updateBannerLeft: {
+    display: 'flex',
+    alignItems: 'flex-start',
+    gap: 8,
+    flex: 1,
+    minWidth: 0,
+  },
+  updateTextGroup: {
+    display: 'flex',
+    flexDirection: 'column' as const,
+    gap: 2,
+    minWidth: 0,
+  },
+  updateLabel: {
+    fontSize: 10,
+    fontWeight: 600,
+    letterSpacing: '0.08em',
+    color: 'var(--amber)',
+  },
+  updateVersion: {
+    color: 'var(--text-muted)',
+    fontWeight: 400,
+  },
+  majorWarning: {
+    fontSize: 9,
+    color: 'var(--red)',
+    letterSpacing: '0.04em',
+  },
+  updateButton: {
+    fontSize: 9,
+    fontWeight: 700,
+    letterSpacing: '0.1em',
+    color: 'var(--bg-base)',
+    background: 'var(--amber)',
+    border: 'none',
+    borderRadius: 'var(--radius)',
+    padding: '4px 8px',
+    cursor: 'pointer',
+    whiteSpace: 'nowrap' as const,
+    flexShrink: 0,
   },
   connectionHint: {
     display: 'flex',

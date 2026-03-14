@@ -4,7 +4,7 @@ import { StatusPanel } from './components/StatusPanel'
 import { TokenDisplay } from './components/TokenDisplay'
 import { SessionList } from './components/SessionList'
 import { TerminalPanel } from './components/TerminalPanel'
-import { DEFAULT_WS_PORT, type SessionInfo, type MultiplexerSessionInfo, type SessionSource } from '@remocoder/shared'
+import { DEFAULT_WS_PORT, type SessionInfo, type MultiplexerSessionInfo, type SessionSource, type UpdateInfo } from '@remocoder/shared'
 
 // ── Mock data for development ─────────────────────────────
 const MOCK_MODE = !(window as any).electronAPI
@@ -27,7 +27,7 @@ const mockAPI = {
       hasClient: false,
     },
   ],
-  onSessionsUpdate: (_cb: (sessions: SessionInfo[]) => void) => { /* mock no-op */ },
+  onSessionsUpdate: (_cb: (sessions: SessionInfo[]) => void) => () => { /* mock no-op */ },
   rotateToken: async () => 'new-token',
   ptyCreate: async (_source?: SessionSource) => 'mock-session-id',
   ptyGetScrollback: async (_sessionId: string) => null as string | null,
@@ -37,12 +37,18 @@ const mockAPI = {
   closeTerminalWindow: async () => { /* mock no-op */ },
   onPtyOutput: (_cb: (sessionId: string, data: string) => void) => () => { /* mock no-op */ },
   onPtyExit: (_cb: (sessionId: string, exitCode: number) => void) => () => { /* mock no-op */ },
-  onTerminalOpened: (_cb: (sessionId: string) => void) => { /* mock no-op */ },
-  onTerminalClosed: (_cb: () => void) => { /* mock no-op */ },
+  onTerminalOpened: (_cb: (sessionId: string) => void) => () => { /* mock no-op */ },
+  onTerminalClosed: (_cb: () => void) => () => { /* mock no-op */ },
   getMultiplexerSessions: async (): Promise<MultiplexerSessionInfo[]> => [
     { tool: 'tmux', sessionName: 'main', detail: '3 windows' },
     { tool: 'tmux', sessionName: 'work', detail: '1 windows' },
   ],
+  checkForUpdate: async () => { /* mock no-op */ },
+  downloadUpdate: async () => { /* mock no-op */ },
+  installUpdate: async () => { /* mock no-op */ },
+  onUpdateAvailable: (_cb: (info: UpdateInfo) => void) => () => { /* mock no-op */ },
+  onUpdateDownloaded: (_cb: (info: UpdateInfo) => void) => () => { /* mock no-op */ },
+  onUpdateError: (_cb: (error: { message: string }) => void) => () => { /* mock no-op */ },
 }
 
 const api = MOCK_MODE ? mockAPI : (window as any).electronAPI
@@ -55,6 +61,9 @@ export default function App() {
   const [sessions, setSessions] = useState<SessionInfo[]>([])
   const [activeTerminalSessionId, setActiveTerminalSessionId] = useState<string | null>(null)
   const [multiplexerSessions, setMultiplexerSessions] = useState<MultiplexerSessionInfo[]>([])
+  const [updateAvailable, setUpdateAvailable] = useState<UpdateInfo | null>(null)
+  const [updateDownloaded, setUpdateDownloaded] = useState<UpdateInfo | null>(null)
+  const [updateError, setUpdateError] = useState<string | null>(null)
 
   function loadMultiplexerSessions() {
     api.getMultiplexerSessions?.().then(setMultiplexerSessions).catch(() => {})
@@ -72,6 +81,17 @@ export default function App() {
     // ターミナルウィンドウの開閉通知（別のウィンドウから通知される場合を考慮）
     const cleanupOpened = api.onTerminalOpened?.((sessionId: string) => setActiveTerminalSessionId(sessionId))
     const cleanupClosed = api.onTerminalClosed?.(() => setActiveTerminalSessionId(null))
+    const cleanupUpdateAvailable = api.onUpdateAvailable?.((info: UpdateInfo) => {
+      setUpdateAvailable(info)
+      setUpdateError(null)
+    })
+    const cleanupUpdateDownloaded = api.onUpdateDownloaded?.((info: UpdateInfo) => {
+      setUpdateDownloaded(info)
+    })
+    const cleanupUpdateError = api.onUpdateError?.((error: { message: string }) => {
+      console.error('[updater] update error:', error.message)
+      setUpdateError(error.message)
+    })
 
     return () => {
       cleanupSessions?.()
@@ -79,12 +99,19 @@ export default function App() {
       cleanupIp?.()
       cleanupOpened?.()
       cleanupClosed?.()
+      cleanupUpdateAvailable?.()
+      cleanupUpdateDownloaded?.()
+      cleanupUpdateError?.()
     }
   }, [])
 
   async function openSession(sessionId: string) {
-    await api.openTerminalWindow(sessionId)
-    setActiveTerminalSessionId(sessionId)
+    try {
+      await api.openTerminalWindow(sessionId)
+      setActiveTerminalSessionId(sessionId)
+    } catch (err) {
+      setUpdateError(err instanceof Error ? err.message : String(err))
+    }
   }
 
   async function handleNewSession() {
@@ -93,6 +120,22 @@ export default function App() {
 
   async function handleAttachMultiplexer(tool: MultiplexerSessionInfo['tool'], sessionName: string) {
     await openSession(await api.ptyCreate({ kind: tool, sessionName } as SessionSource))
+  }
+
+  const handleDownloadUpdate = async () => {
+    try {
+      await api.downloadUpdate?.()
+    } catch (err) {
+      setUpdateError(err instanceof Error ? err.message : String(err))
+    }
+  }
+
+  const handleInstallUpdate = async () => {
+    try {
+      await api.installUpdate?.()
+    } catch (err) {
+      setUpdateError(err instanceof Error ? err.message : String(err))
+    }
   }
 
   const handleCloseTerminal = () => {
@@ -134,6 +177,11 @@ export default function App() {
           tailscaleIP={tailscaleIP}
           wsPort={DEFAULT_WS_PORT}
           wsRunning={true}
+          updateAvailable={updateAvailable}
+          updateDownloaded={updateDownloaded}
+          updateError={updateError}
+          onDownloadUpdate={handleDownloadUpdate}
+          onInstallUpdate={handleInstallUpdate}
         />
         {token && (
           <TokenDisplay

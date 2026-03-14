@@ -1,5 +1,12 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { SessionInfo, SessionSource, MultiplexerSessionInfo } from '@remocoder/shared'
+import type { SessionInfo, SessionSource, MultiplexerSessionInfo, UpdateInfo } from '@remocoder/shared'
+
+/** IPC イベントを購読し、解除関数を返す共通ヘルパー */
+function makeListener<T>(channel: string, cb: (payload: T) => void): () => void {
+  const handler = (_event: Electron.IpcRendererEvent, payload: T) => cb(payload)
+  ipcRenderer.on(channel, handler)
+  return () => ipcRenderer.removeListener(channel, handler)
+}
 
 contextBridge.exposeInMainWorld('electronAPI', {
   // ── 既存API ──────────────────────────────────────────────────────────────
@@ -7,21 +14,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getToken: (): Promise<string> => ipcRenderer.invoke('get-token'),
   getSessions: (): Promise<SessionInfo[]> => ipcRenderer.invoke('get-sessions'),
   rotateToken: (): Promise<string> => ipcRenderer.invoke('rotate-token'),
-  onSessionsUpdate: (cb: (sessions: SessionInfo[]) => void): (() => void) => {
-    const handler = (_event: Electron.IpcRendererEvent, sessions: SessionInfo[]) => cb(sessions)
-    ipcRenderer.on('sessions-update', handler)
-    return () => ipcRenderer.removeListener('sessions-update', handler)
-  },
-  onTokenRotated: (cb: (token: string) => void): (() => void) => {
-    const handler = (_event: Electron.IpcRendererEvent, token: string) => cb(token)
-    ipcRenderer.on('token-rotated', handler)
-    return () => ipcRenderer.removeListener('token-rotated', handler)
-  },
-  onTailscaleIPUpdated: (cb: (ip: string | null) => void): (() => void) => {
-    const handler = (_event: Electron.IpcRendererEvent, ip: string | null) => cb(ip)
-    ipcRenderer.on('tailscale-ip-updated', handler)
-    return () => ipcRenderer.removeListener('tailscale-ip-updated', handler)
-  },
+  onSessionsUpdate: (cb: (sessions: SessionInfo[]) => void): (() => void) =>
+    makeListener('sessions-update', cb),
+  onTokenRotated: (cb: (token: string) => void): (() => void) =>
+    makeListener('token-rotated', cb),
+  onTailscaleIPUpdated: (cb: (ip: string | null) => void): (() => void) =>
+    makeListener('tailscale-ip-updated', cb),
 
   // ── デスクトップターミナルAPI ──────────────────────────────────────────────
 
@@ -72,11 +70,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
 
   /** ターミナルウィンドウが開かれたことを通知。戻り値はリスナー解除関数 */
-  onTerminalOpened: (cb: (sessionId: string) => void): (() => void) => {
-    const handler = (_event: Electron.IpcRendererEvent, sessionId: string) => cb(sessionId)
-    ipcRenderer.on('terminal-opened', handler)
-    return () => ipcRenderer.removeListener('terminal-opened', handler)
-  },
+  onTerminalOpened: (cb: (sessionId: string) => void): (() => void) =>
+    makeListener('terminal-opened', cb),
 
   /** ターミナルウィンドウが閉じられたことを通知。戻り値はリスナー解除関数 */
   onTerminalClosed: (cb: () => void): (() => void) => {
@@ -84,4 +79,27 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('terminal-closed', handler)
     return () => ipcRenderer.removeListener('terminal-closed', handler)
   },
+
+  // ── 自動アップデートAPI ──────────────────────────────────────────────────────
+
+  /** 手動で更新チェックをトリガー */
+  checkForUpdate: (): Promise<void> => ipcRenderer.invoke('updater-check'),
+
+  /** メジャーアップデートのダウンロードを開始する */
+  downloadUpdate: (): Promise<void> => ipcRenderer.invoke('updater-download'),
+
+  /** ダウンロード済みアップデートを適用して再起動 */
+  installUpdate: (): Promise<void> => ipcRenderer.invoke('updater-install'),
+
+  /** 更新が利用可能になったときに呼ばれる。戻り値はリスナー解除関数 */
+  onUpdateAvailable: (cb: (info: UpdateInfo) => void): (() => void) =>
+    makeListener('update-available', cb),
+
+  /** 更新のダウンロードが完了したときに呼ばれる。戻り値はリスナー解除関数 */
+  onUpdateDownloaded: (cb: (info: UpdateInfo) => void): (() => void) =>
+    makeListener('update-downloaded', cb),
+
+  /** アップデートエラーが発生したときに呼ばれる。戻り値はリスナー解除関数 */
+  onUpdateError: (cb: (error: { message: string }) => void): (() => void) =>
+    makeListener('update-error', cb),
 })

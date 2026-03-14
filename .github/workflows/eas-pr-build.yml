@@ -39,12 +39,11 @@ jobs:
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
 
-      - name: Upload to GitHub Release draft
+      - name: Upload to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: pr-${{ github.event.number }}
           name: "PR #${{ github.event.number }} Build"
-          draft: true
           prerelease: true
           body: |
             ## PR #${{ github.event.number }}
@@ -81,12 +80,11 @@ jobs:
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
 
-      - name: Upload to GitHub Release draft
+      - name: Upload to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: pr-${{ github.event.number }}
           name: "PR #${{ github.event.number }} Build"
-          draft: true
           prerelease: true
           body: |
             ## PR #${{ github.event.number }}
@@ -103,54 +101,60 @@ jobs:
     needs: [build-android, build-ios]
     if: always() && (needs.build-android.result == 'success' || needs.build-ios.result == 'success')
     steps:
+      - name: Build Slack payload
+        id: payload
+        run: |
+          python3 << 'PYEOF'
+          import json, urllib.parse, os
+
+          repo = os.environ['REPO']
+          pr = os.environ['PR']
+          sha = os.environ['SHA']
+          pr_url = os.environ['PR_URL']
+          android_result = os.environ['ANDROID_RESULT']
+          ios_result = os.environ['IOS_RESULT']
+
+          def qr_url(url):
+              encoded = urllib.parse.quote(url, safe='')
+              return f"https://api.qrserver.com/v1/create-qr-code/?size=200x200&data={encoded}"
+
+          android_status = ":white_check_mark: 成功" if android_result == "success" else ":x: 失敗"
+          ios_status = ":white_check_mark: 成功" if ios_result == "success" else ":x: 失敗"
+
+          blocks = [
+              {"type": "header", "text": {"type": "plain_text", "text": f"PR #{pr} ビルド完了 :rocket:"}},
+              {"type": "section", "text": {"type": "mrkdwn", "text": f"*コミット:* `{sha}`\n*PR:* <{pr_url}|#{pr}>"}},
+              {"type": "section", "fields": [
+                  {"type": "mrkdwn", "text": f"*Android :android:*\n{android_status}"},
+                  {"type": "mrkdwn", "text": f"*iOS :apple:*\n{ios_status}"},
+              ]},
+          ]
+
+          if android_result == "success":
+              android_url = f"https://github.com/{repo}/releases/download/pr-{pr}/remocoder-pr{pr}-android.apk"
+              blocks.append({"type": "image", "title": {"type": "plain_text", "text": "Android APK QR"}, "image_url": qr_url(android_url), "alt_text": "Android APK QR Code"})
+
+          if ios_result == "success":
+              ios_url = f"https://github.com/{repo}/releases/download/pr-{pr}/remocoder-pr{pr}-ios.ipa"
+              blocks.append({"type": "image", "title": {"type": "plain_text", "text": "iOS IPA QR"}, "image_url": qr_url(ios_url), "alt_text": "iOS IPA QR Code"})
+
+          blocks.append({"type": "actions", "elements": [{"type": "button", "text": {"type": "plain_text", "text": ":arrow_down: 成果物をダウンロード"}, "url": f"https://github.com/{repo}/releases/tag/pr-{pr}", "style": "primary"}]})
+
+          payload = json.dumps({"blocks": blocks}, ensure_ascii=False)
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+              f.write(f"payload={payload}\n")
+          PYEOF
+        env:
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.number }}
+          SHA: ${{ github.sha }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          ANDROID_RESULT: ${{ needs.build-android.result }}
+          IOS_RESULT: ${{ needs.build-ios.result }}
+
       - name: Post to Slack
         uses: slackapi/slack-github-action@v2
         with:
           webhook: ${{ secrets.SLACK_WEBHOOK_URL }}
           webhook-type: incoming-webhook
-          payload: |
-            {
-              "blocks": [
-                {
-                  "type": "header",
-                  "text": {
-                    "type": "plain_text",
-                    "text": "PR #${{ github.event.number }} ビルド完了 :rocket:"
-                  }
-                },
-                {
-                  "type": "section",
-                  "text": {
-                    "type": "mrkdwn",
-                    "text": "*コミット:* `${{ github.sha }}`\n*PR:* <${{ github.event.pull_request.html_url }}|#${{ github.event.number }}>"
-                  }
-                },
-                {
-                  "type": "section",
-                  "fields": [
-                    {
-                      "type": "mrkdwn",
-                      "text": "*Android :android:*\n${{ needs.build-android.result == 'success' && ':white_check_mark: 成功' || ':x: 失敗' }}"
-                    },
-                    {
-                      "type": "mrkdwn",
-                      "text": "*iOS :apple:*\n${{ needs.build-ios.result == 'success' && ':white_check_mark: 成功' || ':x: 失敗' }}"
-                    }
-                  ]
-                },
-                {
-                  "type": "actions",
-                  "elements": [
-                    {
-                      "type": "button",
-                      "text": {
-                        "type": "plain_text",
-                        "text": ":arrow_down: 成果物をダウンロード"
-                      },
-                      "url": "https://github.com/${{ github.repository }}/releases/tag/pr-${{ github.event.number }}",
-                      "style": "primary"
-                    }
-                  ]
-                }
-              ]
-            }
+          payload: ${{ steps.payload.outputs.payload }}

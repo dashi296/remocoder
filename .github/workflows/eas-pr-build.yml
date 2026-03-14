@@ -12,6 +12,7 @@ jobs:
   build-android:
     name: Build Android (EAS Local)
     runs-on: ubuntu-latest
+    environment: preview
     steps:
       - uses: actions/checkout@v4
 
@@ -56,6 +57,7 @@ jobs:
   build-ios:
     name: Build iOS (EAS Local)
     runs-on: macos-latest
+    environment: preview
     steps:
       - uses: actions/checkout@v4
 

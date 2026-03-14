@@ -47,6 +47,10 @@ const Alert = {
   }),
 }
 
+const Linking = {
+  openURL: jest.fn().mockResolvedValue(undefined),
+}
+
 const StyleSheet = {
   create: (styles: any) => styles,
   flatten: (style: any) => style,
@@ -72,6 +76,7 @@ export {
   Button,
   FlatList,
   Alert,
+  Linking,
   StyleSheet,
   Platform,
 }

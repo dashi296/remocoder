@@ -19,6 +19,8 @@ module.exports = {
     '^@react-native-async-storage/async-storage$':
       '<rootDir>/src/__mocks__/async-storage.ts',
     '^expo-camera$': '<rootDir>/src/__mocks__/expo-camera.tsx',
+    '^expo-constants$': '<rootDir>/src/__mocks__/expo-constants.ts',
+    '^expo-updates$': '<rootDir>/src/__mocks__/expo-updates.ts',
     '^react-native-safe-area-context$': '<rootDir>/src/__mocks__/react-native-safe-area-context.tsx',
   },
   testMatch: ['**/src/**/__tests__/**/*.{ts,tsx}', '**/src/**/*.test.{ts,tsx}'],

@@ -76,6 +76,11 @@ export default function App() {
     api.getMultiplexerSessions?.().then(setMultiplexerSessions).catch(() => {})
   }
 
+  function applyPowerStatus(s: { isOnAC: boolean; isBlockerActive: boolean }) {
+    setIsOnAC(s.isOnAC)
+    setIsBlockerActive(s.isBlockerActive)
+  }
+
   useEffect(() => {
     api.getTailscaleIP().then(setTailscaleIP)
     api.getToken().then(setToken)
@@ -101,14 +106,8 @@ export default function App() {
     })
 
     api.getPowerSettings?.().then(setPowerSettings).catch(() => {})
-    api.getPowerStatus?.().then((s: { isOnAC: boolean; isBlockerActive: boolean }) => {
-      setIsOnAC(s.isOnAC)
-      setIsBlockerActive(s.isBlockerActive)
-    }).catch(() => {})
-    const cleanupPower = api.onPowerStatusChanged?.((s: { isOnAC: boolean; isBlockerActive: boolean }) => {
-      setIsOnAC(s.isOnAC)
-      setIsBlockerActive(s.isBlockerActive)
-    })
+    api.getPowerStatus?.().then(applyPowerStatus).catch(() => {})
+    const cleanupPower = api.onPowerStatusChanged?.(applyPowerStatus)
 
     return () => {
       cleanupSessions?.()
@@ -140,7 +139,7 @@ export default function App() {
     await openSession(await api.ptyCreate({ kind: tool, sessionName } as SessionSource))
   }
 
-  const handleDownloadUpdate = async () => {
+  async function handleDownloadUpdate(): Promise<void> {
     try {
       await api.downloadUpdate?.()
     } catch (err) {
@@ -148,7 +147,7 @@ export default function App() {
     }
   }
 
-  const handleInstallUpdate = async () => {
+  async function handleInstallUpdate(): Promise<void> {
     try {
       await api.installUpdate?.()
     } catch (err) {
@@ -156,11 +155,11 @@ export default function App() {
     }
   }
 
-  const handleCloseTerminal = () => {
+  function handleCloseTerminal(): void {
     setActiveTerminalSessionId(null)
   }
 
-  const handleSetPowerSetting = async (key: keyof PowerSettings, enabled: boolean) => {
+  async function handleSetPowerSetting(key: keyof PowerSettings, enabled: boolean): Promise<void> {
     await api.setPowerSetting?.(key, enabled)
     setPowerSettings((prev) => ({ ...prev, [key]: enabled }))
   }

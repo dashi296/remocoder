@@ -1,7 +1,7 @@
 import React from 'react'
 import type { UpdateInfo, PowerSettings } from '@remocoder/shared'
 
-interface StatusPanelProps {
+interface Props {
   tailscaleIP: string | null
   wsPort: number
   wsRunning: boolean
@@ -16,12 +16,50 @@ interface StatusPanelProps {
   onSetPowerSetting: (key: keyof PowerSettings, enabled: boolean) => void
 }
 
+interface SleepRowProps {
+  label: string
+  enabled: boolean
+  active: boolean
+  activeColor: string
+  onToggle: () => void
+}
+
 const dot: React.CSSProperties = {
   display: 'inline-block',
   width: 7,
   height: 7,
   borderRadius: '50%',
   flexShrink: 0,
+}
+
+function SleepRow({ label, enabled, active, activeColor, onToggle }: SleepRowProps): React.ReactElement {
+  return (
+    <div style={styles.row}>
+      <div style={styles.rowLeft}>
+        <span
+          style={{
+            ...dot,
+            backgroundColor: active ? activeColor : 'var(--text-dim)',
+            boxShadow: active ? `0 0 6px ${activeColor}` : 'none',
+          }}
+        />
+        <span style={styles.label}>{label}</span>
+      </div>
+      <div style={styles.rowRight}>
+        <button
+          style={{
+            ...styles.toggleButton,
+            color: enabled ? 'var(--bg-base)' : 'var(--text-muted)',
+            background: enabled ? activeColor : 'transparent',
+            border: enabled ? `1px solid ${activeColor}` : '1px solid var(--border-bright)',
+          }}
+          onClick={onToggle}
+        >
+          {enabled ? 'ON' : 'OFF'}
+        </button>
+      </div>
+    </div>
+  )
 }
 
 export function StatusPanel({
@@ -37,7 +75,7 @@ export function StatusPanel({
   isOnAC,
   isBlockerActive,
   onSetPowerSetting,
-}: StatusPanelProps) {
+}: Props): React.ReactElement {
   const tailscaleConnected = tailscaleIP !== null
   const updateInfo = updateDownloaded ?? updateAvailable
 
@@ -135,62 +173,22 @@ export function StatusPanel({
       </div>
 
       {/* SLEEP/AC row */}
-      <div style={styles.row}>
-        <div style={styles.rowLeft}>
-          <span
-            style={{
-              ...dot,
-              backgroundColor: isBlockerActive && isOnAC ? 'var(--green)' : 'var(--text-dim)',
-              boxShadow: isBlockerActive && isOnAC ? '0 0 6px var(--green)' : 'none',
-            }}
-          />
-          <span style={styles.label}>SLEEP / AC</span>
-        </div>
-        <div style={styles.rowRight}>
-          <button
-            style={{
-              ...styles.toggleButton,
-              color: powerSettings.preventSleepOnAC ? 'var(--bg-base)' : 'var(--text-muted)',
-              background: powerSettings.preventSleepOnAC ? 'var(--green)' : 'transparent',
-              border: powerSettings.preventSleepOnAC
-                ? '1px solid var(--green)'
-                : '1px solid var(--border-bright)',
-            }}
-            onClick={() => onSetPowerSetting('preventSleepOnAC', !powerSettings.preventSleepOnAC)}
-          >
-            {powerSettings.preventSleepOnAC ? 'ON' : 'OFF'}
-          </button>
-        </div>
-      </div>
+      <SleepRow
+        label="SLEEP / AC"
+        enabled={powerSettings.preventSleepOnAC}
+        active={isBlockerActive && isOnAC}
+        activeColor="var(--green)"
+        onToggle={() => onSetPowerSetting('preventSleepOnAC', !powerSettings.preventSleepOnAC)}
+      />
 
       {/* SLEEP/BAT row */}
-      <div style={styles.row}>
-        <div style={styles.rowLeft}>
-          <span
-            style={{
-              ...dot,
-              backgroundColor: isBlockerActive && !isOnAC ? 'var(--amber)' : 'var(--text-dim)',
-              boxShadow: isBlockerActive && !isOnAC ? '0 0 6px var(--amber)' : 'none',
-            }}
-          />
-          <span style={styles.label}>SLEEP / BAT</span>
-        </div>
-        <div style={styles.rowRight}>
-          <button
-            style={{
-              ...styles.toggleButton,
-              color: powerSettings.preventSleepOnBattery ? 'var(--bg-base)' : 'var(--text-muted)',
-              background: powerSettings.preventSleepOnBattery ? 'var(--amber)' : 'transparent',
-              border: powerSettings.preventSleepOnBattery
-                ? '1px solid var(--amber)'
-                : '1px solid var(--border-bright)',
-            }}
-            onClick={() => onSetPowerSetting('preventSleepOnBattery', !powerSettings.preventSleepOnBattery)}
-          >
-            {powerSettings.preventSleepOnBattery ? 'ON' : 'OFF'}
-          </button>
-        </div>
-      </div>
+      <SleepRow
+        label="SLEEP / BAT"
+        enabled={powerSettings.preventSleepOnBattery}
+        active={isBlockerActive && !isOnAC}
+        activeColor="var(--amber)"
+        onToggle={() => onSetPowerSetting('preventSleepOnBattery', !powerSettings.preventSleepOnBattery)}
+      />
 
       {/* Update error */}
       {updateError && (

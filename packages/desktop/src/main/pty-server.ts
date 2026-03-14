@@ -657,6 +657,7 @@ function assertSafeSessionName(name: string, tool: string): void {
   }
 }
 
+
 function spawnSource(source: SessionSource): pty.IPty {
   const baseOpts = { name: 'xterm-color', cols: 80, rows: 30, env: { ...process.env } }
   switch (source.kind) {

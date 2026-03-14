@@ -20,6 +20,7 @@ jobs:
           - os: ubuntu-latest
             dist_args: --linux
     steps:
+      - uses: actions/checkout@v4
       - uses: ./.github/actions/setup
 
       - name: Build and publish Electron app
@@ -49,6 +50,7 @@ jobs:
       matrix:
         platform: [ios, android]
     steps:
+      - uses: actions/checkout@v4
       - uses: ./.github/actions/setup
 
       - uses: expo/expo-github-action@v8

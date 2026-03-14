@@ -7,6 +7,7 @@ import { SessionPickerScreen } from './screens/SessionPickerScreen'
 import { TerminalScreen } from './screens/TerminalScreen'
 import { useForceUpdate } from './hooks/useForceUpdate'
 import { useOTAUpdate } from './hooks/useOTAUpdate'
+import { SessionSource } from '@remocoder/shared'
 
 type Screen = 'connect' | 'sessionPicker' | 'terminal'
 
@@ -18,6 +19,8 @@ interface AppState {
   projectPath?: string | null
   /** アタッチする既存セッションID。指定時は projectPath より優先される */
   sessionId?: string | null
+  /** セッション起動元。指定時は projectPath より優先して session_create の source に使用 */
+  source?: SessionSource | null
 }
 
 export default function App() {
@@ -39,7 +42,11 @@ export default function App() {
   }
 
   const handleAttachSession = (sessionId: string) => {
-    setState((prev) => ({ ...prev, screen: 'terminal', sessionId, projectPath: null }))
+    setState((prev) => ({ ...prev, screen: 'terminal', sessionId, projectPath: null, source: null }))
+  }
+
+  const handleAttachMultiplexer = (source: SessionSource) => {
+    setState((prev) => ({ ...prev, screen: 'terminal', source, sessionId: null, projectPath: null }))
   }
 
   const handleBack = () => {
@@ -79,6 +86,7 @@ export default function App() {
           token={state.token}
           onSelectProject={handleSelectProject}
           onAttachSession={handleAttachSession}
+          onAttachMultiplexer={handleAttachMultiplexer}
           onBack={handleBack}
         />
       )}
@@ -88,6 +96,7 @@ export default function App() {
           token={state.token}
           projectPath={state.projectPath}
           sessionId={state.sessionId}
+          source={state.source}
           onDisconnect={handleDisconnect}
         />
       )}

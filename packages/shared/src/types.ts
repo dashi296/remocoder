@@ -25,7 +25,7 @@ export type WsMessage =
   | { type: 'auth_ok' }
   | { type: 'auth_error'; reason: string }
   | { type: 'shell_exit'; exitCode: number }
-  | { type: 'session_list'; sessions: SessionInfo[] }
+  | { type: 'session_list'; sessions: SessionInfo[]; multiplexerSessions?: MultiplexerSessionInfo[] }
   /** projectPath は後方互換のために保持。source が優先される */
   | { type: 'session_create'; projectPath?: string; source?: SessionSource }
   | { type: 'session_attach'; sessionId: string }
@@ -40,7 +40,7 @@ export type WsMessage =
   /** アタッチ済みクライアントがセッション一覧を要求する */
   | { type: 'session_list_request' }
   /** session_list_request への応答（セッション一覧 + 最近のプロジェクト一覧） */
-  | { type: 'session_list_response'; sessions: SessionInfo[]; projects: ProjectInfo[] }
+  | { type: 'session_list_response'; sessions: SessionInfo[]; projects: ProjectInfo[]; multiplexerSessions?: MultiplexerSessionInfo[] }
 
 export interface ProjectInfo {
   /** プロジェクトのフルパス */

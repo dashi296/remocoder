@@ -426,8 +426,21 @@ export function startPtyServer(port = DEFAULT_WS_PORT, callbacks: PtyServerCallb
             JSON.stringify({
               type: 'session_list',
               sessions: getSessionInfos(),
+              multiplexerSessions: [],
             } satisfies WsMessage),
           )
+          // マルチプレクサセッションは非同期で取得して追加送信する
+          getMultiplexerSessions().then((multiplexerSessions) => {
+            if (multiplexerSessions.length > 0 && ws.readyState === WebSocket.OPEN) {
+              ws.send(
+                JSON.stringify({
+                  type: 'session_list',
+                  sessions: getSessionInfos(),
+                  multiplexerSessions,
+                } satisfies WsMessage),
+              )
+            }
+          })
         } else {
           ws.send(
             JSON.stringify({ type: 'auth_error', reason: 'invalid token' } satisfies WsMessage),
@@ -555,13 +568,29 @@ export function startPtyServer(port = DEFAULT_WS_PORT, callbacks: PtyServerCallb
 
       // ── セッション一覧要求（picker・アタッチ済み両方から受け付ける） ────
       if (msg.type === 'session_list_request') {
+        const sessions = getSessionInfos()
+        const projects = getRecentProjects()
         ws.send(
           JSON.stringify({
             type: 'session_list_response',
-            sessions: getSessionInfos(),
-            projects: getRecentProjects(),
+            sessions,
+            projects,
+            multiplexerSessions: [],
           } satisfies WsMessage),
         )
+        // マルチプレクサセッションは非同期で取得して追加送信する
+        getMultiplexerSessions().then((multiplexerSessions) => {
+          if (multiplexerSessions.length > 0 && ws.readyState === WebSocket.OPEN) {
+            ws.send(
+              JSON.stringify({
+                type: 'session_list_response',
+                sessions: getSessionInfos(),
+                projects: getRecentProjects(),
+                multiplexerSessions,
+              } satisfies WsMessage),
+            )
+          }
+        })
         return
       }
 

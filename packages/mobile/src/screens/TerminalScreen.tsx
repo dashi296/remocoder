@@ -10,7 +10,7 @@ import {
 } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { WebView, WebViewMessageEvent } from 'react-native-webview'
-import { DEFAULT_WS_PORT, SessionInfo, ProjectInfo } from '@remocoder/shared'
+import { DEFAULT_WS_PORT, SessionInfo, ProjectInfo, SessionSource } from '@remocoder/shared'
 import { buildTerminalHtml } from '../assets/terminalHtml'
 import { formatDate, getSessionDisplayName } from '../utils'
 
@@ -23,6 +23,8 @@ interface Props {
   projectPath?: string | null
   /** アタッチする既存セッションID。指定時は projectPath より優先される */
   sessionId?: string | null
+  /** セッション起動元。指定時は projectPath より優先して session_create の source に使用 */
+  source?: SessionSource | null
   onDisconnect: () => void
 }
 
@@ -37,7 +39,7 @@ const STATUS_CONFIG: Record<
   shell_exit: { label: 'セッション終了', color: '#d4d4d4', bgColor: 'rgba(50,50,50,0.8)' },
 }
 
-export function TerminalScreen({ ip, token, projectPath, sessionId, onDisconnect }: Props) {
+export function TerminalScreen({ ip, token, projectPath, sessionId, source, onDisconnect }: Props) {
   const wsUrl = `ws://${ip}:${DEFAULT_WS_PORT}`
   const [status, setStatus] = useState<ConnectionStatus>('connecting')
   const [webViewKey, setWebViewKey] = useState(0)
@@ -115,8 +117,8 @@ export function TerminalScreen({ ip, token, projectPath, sessionId, onDisconnect
   }, [])
 
   const html = useMemo(
-    () => buildTerminalHtml(wsUrl, token, projectPath ?? null, sessionId ?? null),
-    [wsUrl, token, projectPath, sessionId],
+    () => buildTerminalHtml(wsUrl, token, projectPath ?? null, sessionId ?? null, source ?? null),
+    [wsUrl, token, projectPath, sessionId, source],
   )
   const statusCfg = STATUS_CONFIG[status]
   const showRetry = status === 'auth_error' || status === 'shell_exit'

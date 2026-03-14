@@ -1,0 +1,153 @@
+name: EAS PR Build
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: write
+  pull-requests: read
+
+jobs:
+  build-android:
+    name: Build Android (EAS Local)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install system dependencies for node-pty
+        run: sudo apt-get install -y python3 make g++
+
+      - run: pnpm install --frozen-lockfile
+
+      - uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Build Android APK (EAS Local)
+        working-directory: packages/mobile
+        run: eas build --platform android --profile preview --local --non-interactive --output ../../remocoder-pr${{ github.event.number }}-android.apk
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Upload to GitHub Release draft
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: pr-${{ github.event.number }}
+          name: "PR #${{ github.event.number }} Build"
+          draft: true
+          prerelease: true
+          body: |
+            ## PR #${{ github.event.number }}
+
+            Commit: ${{ github.sha }}
+          files: remocoder-pr${{ github.event.number }}-android.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build-ios:
+    name: Build iOS (EAS Local)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Build iOS IPA (EAS Local)
+        working-directory: packages/mobile
+        run: eas build --platform ios --profile preview --local --non-interactive --output ../../remocoder-pr${{ github.event.number }}-ios.ipa
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Upload to GitHub Release draft
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: pr-${{ github.event.number }}
+          name: "PR #${{ github.event.number }} Build"
+          draft: true
+          prerelease: true
+          body: |
+            ## PR #${{ github.event.number }}
+
+            Commit: ${{ github.sha }}
+          files: remocoder-pr${{ github.event.number }}-ios.ipa
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  notify-slack:
+    name: Notify Slack
+    runs-on: ubuntu-latest
+    needs: [build-android, build-ios]
+    if: always() && (needs.build-android.result == 'success' || needs.build-ios.result == 'success')
+    steps:
+      - name: Post to Slack
+        uses: slackapi/slack-github-action@v2
+        with:
+          webhook: ${{ secrets.SLACK_WEBHOOK_URL }}
+          webhook-type: incoming-webhook
+          payload: |
+            {
+              "blocks": [
+                {
+                  "type": "header",
+                  "text": {
+                    "type": "plain_text",
+                    "text": "PR #${{ github.event.number }} ビルド完了 :rocket:"
+                  }
+                },
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "*コミット:* `${{ github.sha }}`\n*PR:* <${{ github.event.pull_request.html_url }}|#${{ github.event.number }}>"
+                  }
+                },
+                {
+                  "type": "section",
+                  "fields": [
+                    {
+                      "type": "mrkdwn",
+                      "text": "*Android :android:*\n${{ needs.build-android.result == 'success' && ':white_check_mark: 成功' || ':x: 失敗' }}"
+                    },
+                    {
+                      "type": "mrkdwn",
+                      "text": "*iOS :apple:*\n${{ needs.build-ios.result == 'success' && ':white_check_mark: 成功' || ':x: 失敗' }}"
+                    }
+                  ]
+                },
+                {
+                  "type": "actions",
+                  "elements": [
+                    {
+                      "type": "button",
+                      "text": {
+                        "type": "plain_text",
+                        "text": ":arrow_down: 成果物をダウンロード"
+                      },
+                      "url": "https://github.com/${{ github.repository }}/releases/tag/pr-${{ github.event.number }}",
+                      "style": "primary"
+                    }
+                  ]
+                }
+              ]
+            }

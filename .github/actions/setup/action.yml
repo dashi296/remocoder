@@ -26,7 +26,7 @@ runs:
 
     - name: Install setuptools for node-pty (macOS)
       if: inputs.node-pty-deps == 'true' && runner.os == 'macOS'
-      run: pip3 install setuptools
+      run: pip3 install setuptools --break-system-packages
       shell: bash
 
     - run: pnpm install --frozen-lockfile

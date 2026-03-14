@@ -17,8 +17,8 @@ runs:
         node-version: 20
         cache: pnpm
 
-    - name: Install system dependencies for node-pty
-      if: inputs.node-pty-deps == 'true'
+    - name: Install system dependencies for node-pty (Linux)
+      if: inputs.node-pty-deps == 'true' && runner.os == 'Linux'
       run: |
         sudo apt-get update
         sudo apt-get install -y python3 make g++

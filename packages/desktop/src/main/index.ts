@@ -13,7 +13,8 @@ import {
 } from './pty-server'
 import { getTailscaleIP } from './tailscale'
 import { setupAutoUpdater, checkForUpdates, downloadUpdate, installUpdate } from './updater'
-import type { SessionInfo, SessionSource } from '@remocoder/shared'
+import { initPowerManager, getPowerSettings, setPowerSetting, getPowerStatus } from './power-manager'
+import type { SessionInfo, SessionSource, PowerSettings } from '@remocoder/shared'
 import { v4 as uuidv4 } from 'uuid'
 
 function getTokenPath(): string {
@@ -174,6 +175,19 @@ function setupIpc(getToken: () => string) {
     win?.webContents.send('terminal-closed')
   })
 
+  // ── 電源管理用ハンドラ ────────────────────────────────────────────────────
+
+  ipcMain.handle('get-power-settings', () => getPowerSettings())
+
+  ipcMain.handle(
+    'set-power-setting',
+    (_e, { key, enabled }: { key: keyof PowerSettings; enabled: boolean }) => {
+      setPowerSetting(key, enabled)
+    },
+  )
+
+  ipcMain.handle('get-power-status', () => getPowerStatus())
+
   // ── 自動アップデート用ハンドラ ──────────────────────────────────────────────
 
   /** 手動で更新チェックをトリガー（エラーは update-error として通知済みのため void を返す） */
@@ -219,6 +233,7 @@ app.whenReady().then(async () => {
 
   if (win) {
     setupAutoUpdater(win)
+    initPowerManager(win)
   }
 
   // Tailscale IP を定期的に更新（30秒ごと）

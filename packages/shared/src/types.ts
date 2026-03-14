@@ -68,6 +68,14 @@ export interface SessionInfo {
 
 export const DEFAULT_WS_PORT = 8080
 
+/** スリープ抑制設定 */
+export interface PowerSettings {
+  /** AC電源（充電中）のときにスリープを抑制する */
+  preventSleepOnAC: boolean
+  /** バッテリー駆動中にスリープを抑制する */
+  preventSleepOnBattery: boolean
+}
+
 /** デスクトップアプリの自動アップデート情報 */
 export interface UpdateInfo {
   /** 新しいバージョン文字列 (semver) */

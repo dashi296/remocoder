@@ -419,6 +419,16 @@ const styles: Record<string, React.CSSProperties> = {
     whiteSpace: 'nowrap',
     flexShrink: 0,
   },
+  toolBadge: {
+    fontSize: 8,
+    fontWeight: 700,
+    letterSpacing: '0.1em',
+    padding: '2px 6px',
+    border: '1px solid',
+    borderRadius: 2,
+    whiteSpace: 'nowrap',
+    flexShrink: 0,
+  },
   openButton: {
     display: 'flex',
     alignItems: 'center',

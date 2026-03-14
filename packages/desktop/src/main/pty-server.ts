@@ -687,6 +687,8 @@ function spawnSource(source: SessionSource): pty.IPty {
       console.log(`[pty-server] Spawning shell: ${loginShell}${cwd ? ` (cwd: ${cwd})` : ''}`)
       return pty.spawn(loginShell, ['-l'], { ...baseOpts, ...(cwd ? { cwd } : {}) })
     }
+    default:
+      throw new Error(`[pty-server] Unknown session source kind: ${(source as { kind: string }).kind}`)
   }
 }
 

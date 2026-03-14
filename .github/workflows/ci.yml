@@ -124,7 +124,7 @@ jobs:
           cache: pnpm
 
       - name: Install system dependencies for node-pty and Electron
-        run: sudo apt-get install -y python3 make g++ libgtk-3-dev libxss1 libnss3
+        run: sudo apt-get install -y python3 make g++ libgtk-3-dev libxss1 libnss3 --fix-missing
 
       - run: pnpm install --frozen-lockfile
 

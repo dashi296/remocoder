@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { SessionInfo, SessionSource, MultiplexerSessionInfo, UpdateInfo } from '@remocoder/shared'
+import type { SessionInfo, SessionSource, MultiplexerSessionInfo, UpdateInfo, PowerSettings } from '@remocoder/shared'
 
 /** IPC イベントを購読し、解除関数を返す共通ヘルパー */
 function makeListener<T>(channel: string, cb: (payload: T) => void): () => void {
@@ -102,4 +102,23 @@ contextBridge.exposeInMainWorld('electronAPI', {
   /** アップデートエラーが発生したときに呼ばれる。戻り値はリスナー解除関数 */
   onUpdateError: (cb: (error: { message: string }) => void): (() => void) =>
     makeListener('update-error', cb),
+
+  // ── 電源管理API ────────────────────────────────────────────────────────────
+
+  /** スリープ抑制設定を取得する */
+  getPowerSettings: (): Promise<PowerSettings> =>
+    ipcRenderer.invoke('get-power-settings'),
+
+  /** スリープ抑制設定を変更する */
+  setPowerSetting: (key: keyof PowerSettings, enabled: boolean): Promise<void> =>
+    ipcRenderer.invoke('set-power-setting', { key, enabled }),
+
+  /** 現在の電源状態を取得する */
+  getPowerStatus: (): Promise<{ isOnAC: boolean; isBlockerActive: boolean }> =>
+    ipcRenderer.invoke('get-power-status'),
+
+  /** 電源状態が変化したときに呼ばれる。戻り値はリスナー解除関数 */
+  onPowerStatusChanged: (
+    cb: (status: { isOnAC: boolean; isBlockerActive: boolean }) => void,
+  ): (() => void) => makeListener('power-status-changed', cb),
 })

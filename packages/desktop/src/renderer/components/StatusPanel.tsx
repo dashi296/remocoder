@@ -1,5 +1,5 @@
 import React from 'react'
-import type { UpdateInfo } from '@remocoder/shared'
+import type { UpdateInfo, PowerSettings } from '@remocoder/shared'
 
 interface StatusPanelProps {
   tailscaleIP: string | null
@@ -10,6 +10,10 @@ interface StatusPanelProps {
   updateError: string | null
   onDownloadUpdate: () => void
   onInstallUpdate: () => void
+  powerSettings: PowerSettings
+  isOnAC: boolean
+  isBlockerActive: boolean
+  onSetPowerSetting: (key: keyof PowerSettings, enabled: boolean) => void
 }
 
 const dot: React.CSSProperties = {
@@ -29,6 +33,10 @@ export function StatusPanel({
   updateError,
   onDownloadUpdate,
   onInstallUpdate,
+  powerSettings,
+  isOnAC,
+  isBlockerActive,
+  onSetPowerSetting,
 }: StatusPanelProps) {
   const tailscaleConnected = tailscaleIP !== null
   const updateInfo = updateDownloaded ?? updateAvailable
@@ -103,6 +111,86 @@ export function StatusPanel({
           </span>
         </div>
       )}
+
+      {/* Power management */}
+      <div style={styles.rowDivider} />
+
+      {/* POWER_SOURCE row */}
+      <div style={styles.row}>
+        <div style={styles.rowLeft}>
+          <span
+            style={{
+              ...dot,
+              backgroundColor: isOnAC ? 'var(--green)' : 'var(--amber)',
+              boxShadow: isOnAC ? '0 0 6px var(--green)' : '0 0 6px var(--amber)',
+            }}
+          />
+          <span style={styles.label}>POWER_SOURCE</span>
+        </div>
+        <div style={styles.rowRight}>
+          <span style={{ ...styles.value, color: isOnAC ? 'var(--green)' : 'var(--amber)' }}>
+            {isOnAC ? 'AC' : 'BATTERY'}
+          </span>
+        </div>
+      </div>
+
+      {/* SLEEP/AC row */}
+      <div style={styles.row}>
+        <div style={styles.rowLeft}>
+          <span
+            style={{
+              ...dot,
+              backgroundColor: isBlockerActive && isOnAC ? 'var(--green)' : 'var(--text-dim)',
+              boxShadow: isBlockerActive && isOnAC ? '0 0 6px var(--green)' : 'none',
+            }}
+          />
+          <span style={styles.label}>SLEEP / AC</span>
+        </div>
+        <div style={styles.rowRight}>
+          <button
+            style={{
+              ...styles.toggleButton,
+              color: powerSettings.preventSleepOnAC ? 'var(--bg-base)' : 'var(--text-muted)',
+              background: powerSettings.preventSleepOnAC ? 'var(--green)' : 'transparent',
+              border: powerSettings.preventSleepOnAC
+                ? '1px solid var(--green)'
+                : '1px solid var(--border-bright)',
+            }}
+            onClick={() => onSetPowerSetting('preventSleepOnAC', !powerSettings.preventSleepOnAC)}
+          >
+            {powerSettings.preventSleepOnAC ? 'ON' : 'OFF'}
+          </button>
+        </div>
+      </div>
+
+      {/* SLEEP/BAT row */}
+      <div style={styles.row}>
+        <div style={styles.rowLeft}>
+          <span
+            style={{
+              ...dot,
+              backgroundColor: isBlockerActive && !isOnAC ? 'var(--amber)' : 'var(--text-dim)',
+              boxShadow: isBlockerActive && !isOnAC ? '0 0 6px var(--amber)' : 'none',
+            }}
+          />
+          <span style={styles.label}>SLEEP / BAT</span>
+        </div>
+        <div style={styles.rowRight}>
+          <button
+            style={{
+              ...styles.toggleButton,
+              color: powerSettings.preventSleepOnBattery ? 'var(--bg-base)' : 'var(--text-muted)',
+              background: powerSettings.preventSleepOnBattery ? 'var(--amber)' : 'transparent',
+              border: powerSettings.preventSleepOnBattery
+                ? '1px solid var(--amber)'
+                : '1px solid var(--border-bright)',
+            }}
+            onClick={() => onSetPowerSetting('preventSleepOnBattery', !powerSettings.preventSleepOnBattery)}
+          >
+            {powerSettings.preventSleepOnBattery ? 'ON' : 'OFF'}
+          </button>
+        </div>
+      </div>
 
       {/* Update error */}
       {updateError && (
@@ -297,6 +385,14 @@ const styles: Record<string, React.CSSProperties> = {
     cursor: 'pointer',
     whiteSpace: 'nowrap' as const,
     flexShrink: 0,
+  },
+  toggleButton: {
+    fontSize: 8,
+    fontWeight: 700,
+    letterSpacing: '0.12em',
+    borderRadius: 2,
+    padding: '2px 6px',
+    cursor: 'pointer',
   },
   connectionHint: {
     display: 'flex',

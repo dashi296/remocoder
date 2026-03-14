@@ -9,6 +9,10 @@ const makeDefaultProps = () => ({
   updateError: null,
   onDownloadUpdate: vi.fn(),
   onInstallUpdate: vi.fn(),
+  powerSettings: { preventSleepOnAC: false, preventSleepOnBattery: false },
+  isOnAC: true,
+  isBlockerActive: false,
+  onSetPowerSetting: vi.fn(),
 })
 
 describe('StatusPanel', () => {

@@ -4,7 +4,7 @@ import { StatusPanel } from './components/StatusPanel'
 import { TokenDisplay } from './components/TokenDisplay'
 import { SessionList } from './components/SessionList'
 import { TerminalPanel } from './components/TerminalPanel'
-import { DEFAULT_WS_PORT, type SessionInfo, type MultiplexerSessionInfo, type SessionSource, type UpdateInfo } from '@remocoder/shared'
+import { DEFAULT_WS_PORT, type SessionInfo, type MultiplexerSessionInfo, type SessionSource, type UpdateInfo, type PowerSettings } from '@remocoder/shared'
 
 // ── Mock data for development ─────────────────────────────
 const MOCK_MODE = !(window as any).electronAPI
@@ -49,6 +49,10 @@ const mockAPI = {
   onUpdateAvailable: (_cb: (info: UpdateInfo) => void) => () => { /* mock no-op */ },
   onUpdateDownloaded: (_cb: (info: UpdateInfo) => void) => () => { /* mock no-op */ },
   onUpdateError: (_cb: (error: { message: string }) => void) => () => { /* mock no-op */ },
+  getPowerSettings: async (): Promise<PowerSettings> => ({ preventSleepOnAC: false, preventSleepOnBattery: false }),
+  setPowerSetting: async (_key: keyof PowerSettings, _enabled: boolean) => { /* mock no-op */ },
+  getPowerStatus: async () => ({ isOnAC: true, isBlockerActive: false }),
+  onPowerStatusChanged: (_cb: (status: { isOnAC: boolean; isBlockerActive: boolean }) => void) => () => { /* mock no-op */ },
 }
 
 const api = MOCK_MODE ? mockAPI : (window as any).electronAPI
@@ -64,6 +68,9 @@ export default function App() {
   const [updateAvailable, setUpdateAvailable] = useState<UpdateInfo | null>(null)
   const [updateDownloaded, setUpdateDownloaded] = useState<UpdateInfo | null>(null)
   const [updateError, setUpdateError] = useState<string | null>(null)
+  const [powerSettings, setPowerSettings] = useState<PowerSettings>({ preventSleepOnAC: false, preventSleepOnBattery: false })
+  const [isOnAC, setIsOnAC] = useState(true)
+  const [isBlockerActive, setIsBlockerActive] = useState(false)
 
   function loadMultiplexerSessions() {
     api.getMultiplexerSessions?.().then(setMultiplexerSessions).catch(() => {})
@@ -93,6 +100,16 @@ export default function App() {
       setUpdateError(error.message)
     })
 
+    api.getPowerSettings?.().then(setPowerSettings).catch(() => {})
+    api.getPowerStatus?.().then((s: { isOnAC: boolean; isBlockerActive: boolean }) => {
+      setIsOnAC(s.isOnAC)
+      setIsBlockerActive(s.isBlockerActive)
+    }).catch(() => {})
+    const cleanupPower = api.onPowerStatusChanged?.((s: { isOnAC: boolean; isBlockerActive: boolean }) => {
+      setIsOnAC(s.isOnAC)
+      setIsBlockerActive(s.isBlockerActive)
+    })
+
     return () => {
       cleanupSessions?.()
       cleanupToken?.()
@@ -102,6 +119,7 @@ export default function App() {
       cleanupUpdateAvailable?.()
       cleanupUpdateDownloaded?.()
       cleanupUpdateError?.()
+      cleanupPower?.()
     }
   }, [])
 
@@ -140,6 +158,11 @@ export default function App() {
 
   const handleCloseTerminal = () => {
     setActiveTerminalSessionId(null)
+  }
+
+  const handleSetPowerSetting = async (key: keyof PowerSettings, enabled: boolean) => {
+    await api.setPowerSetting?.(key, enabled)
+    setPowerSettings((prev) => ({ ...prev, [key]: enabled }))
   }
 
   // ターミナルモード: TerminalPanelをフルスクリーンで表示
@@ -182,6 +205,10 @@ export default function App() {
           updateError={updateError}
           onDownloadUpdate={handleDownloadUpdate}
           onInstallUpdate={handleInstallUpdate}
+          powerSettings={powerSettings}
+          isOnAC={isOnAC}
+          isBlockerActive={isBlockerActive}
+          onSetPowerSetting={handleSetPowerSetting}
         />
         {token && (
           <TokenDisplay

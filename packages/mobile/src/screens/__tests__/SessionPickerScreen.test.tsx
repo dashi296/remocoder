@@ -19,6 +19,7 @@ const defaultProps = {
   token: 'test-token',
   onSelectProject: jest.fn(),
   onAttachSession: jest.fn(),
+  onAttachMultiplexer: jest.fn(),
   onBack: jest.fn(),
 }
 

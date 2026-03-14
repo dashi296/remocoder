@@ -4,8 +4,12 @@ import type { IncomingMessage } from 'http'
 import { existsSync, readdirSync, statSync } from 'fs'
 import { join } from 'path'
 import { homedir } from 'os'
-import { WsMessage, SessionInfo, ProjectInfo, DEFAULT_WS_PORT } from '@remocoder/shared'
+import { exec } from 'child_process'
+import { promisify } from 'util'
+import { WsMessage, SessionInfo, ProjectInfo, MultiplexerSessionInfo, SessionSource, DEFAULT_WS_PORT } from '@remocoder/shared'
 import { v4 as uuidv4 } from 'uuid'
+
+const execAsync = promisify(exec)
 
 let AUTH_TOKEN = process.env.REMOTE_TOKEN ?? uuidv4()
 
@@ -132,6 +136,8 @@ interface PtySession {
   lastActiveAt: number
   /** セッションが起動したプロジェクトパス */
   projectPath?: string
+  /** セッションの起動元 */
+  source?: SessionSource
 }
 
 /** 永続PTYセッションマップ（WS切断後も保持） */
@@ -161,6 +167,7 @@ function getSessionInfos(): SessionInfo[] {
     hasClient: s.wsClient !== null && s.wsClient.readyState === WebSocket.OPEN,
     isExternal: s.pty === null,
     projectPath: s.projectPath,
+    source: s.source,
   }))
 }
 
@@ -221,9 +228,10 @@ function setSessionActive(session: PtySession) {
   }
 }
 
-function createPtySession(clientIP?: string, projectPath?: string): PtySession {
+function createPtySession(source: SessionSource = { kind: 'claude' }, clientIP?: string): PtySession {
   const id = uuidv4()
-  const ptyProc = spawnShell(projectPath)
+  const ptyProc = spawnSource(source)
+  const projectPath = source.kind === 'claude' ? source.projectPath : undefined
 
   const session: PtySession = {
     id,
@@ -238,6 +246,7 @@ function createPtySession(clientIP?: string, projectPath?: string): PtySession {
     idleTimeoutId: null,
     lastActiveAt: 0,
     projectPath,
+    source,
   }
 
   ptyProc.onData((data) => {
@@ -296,9 +305,19 @@ function createExternalSession(providerWs: WebSocket): PtySession {
 // ─── デスクトップRenderer向けパブリックAPI ─────────────────────────────────────
 
 /** デスクトップから新規PTYセッションを作成する */
-export function desktopCreateSession(): string {
-  const session = createPtySession()
-  return session.id
+export function desktopCreateSession(source: SessionSource = { kind: 'claude' }): string {
+  // マルチプレクサの場合、同じセッションにアタッチ済みのPTYセッションがあれば再利用する
+  if (source.kind === 'tmux' || source.kind === 'screen' || source.kind === 'zellij') {
+    const { kind, sessionName } = source
+    const existing = Array.from(ptySessions.values()).find(
+      (s) => s.source?.kind === kind && (s.source as typeof source).sessionName === sessionName,
+    )
+    if (existing) {
+      console.log(`[pty-server] Reusing existing PTY session ${existing.id.slice(0, 8)} for ${kind}:${sessionName}`)
+      return existing.id
+    }
+  }
+  return createPtySession(source).id
 }
 
 /** デスクトップからセッションのスクロールバックを取得する */
@@ -407,8 +426,21 @@ export function startPtyServer(port = DEFAULT_WS_PORT, callbacks: PtyServerCallb
             JSON.stringify({
               type: 'session_list',
               sessions: getSessionInfos(),
+              multiplexerSessions: [],
             } satisfies WsMessage),
           )
+          // マルチプレクサセッションは非同期で取得して追加送信する
+          getMultiplexerSessions().then((multiplexerSessions) => {
+            if (multiplexerSessions.length > 0 && ws.readyState === WebSocket.OPEN) {
+              ws.send(
+                JSON.stringify({
+                  type: 'session_list',
+                  sessions: getSessionInfos(),
+                  multiplexerSessions,
+                } satisfies WsMessage),
+              )
+            }
+          })
         } else {
           ws.send(
             JSON.stringify({ type: 'auth_error', reason: 'invalid token' } satisfies WsMessage),
@@ -458,7 +490,20 @@ export function startPtyServer(port = DEFAULT_WS_PORT, callbacks: PtyServerCallb
       // ── セッション選択フェーズ ─────────────────────────────────────────
       if (msg.type === 'session_create') {
         detachFromSession()
-        const session = createPtySession(clientIP, msg.projectPath)
+        // source が指定されていればそれを使用、なければ後方互換で claude として扱う
+        const rawSource = msg.source ?? { kind: 'claude', projectPath: msg.projectPath }
+        const allowedKinds = ['claude', 'tmux', 'screen', 'zellij', 'shell'] as const
+        const isMultiplexer = rawSource.kind === 'tmux' || rawSource.kind === 'screen' || rawSource.kind === 'zellij'
+        const isInvalid =
+          !allowedKinds.includes(rawSource.kind as (typeof allowedKinds)[number]) ||
+          (isMultiplexer && (typeof rawSource.sessionName !== 'string' || rawSource.sessionName.length === 0))
+        if (isInvalid) {
+          console.warn(`[pty-server] Rejected session_create: invalid source ${JSON.stringify(rawSource)}`)
+          ws.send(JSON.stringify({ type: 'auth_error', reason: 'invalid session source' } satisfies WsMessage))
+          return
+        }
+        const source = rawSource as SessionSource
+        const session = createPtySession(source, clientIP)
         attachedSessionId = session.id
         session.wsClient = ws
         session.clientIP = clientIP
@@ -523,13 +568,29 @@ export function startPtyServer(port = DEFAULT_WS_PORT, callbacks: PtyServerCallb
 
       // ── セッション一覧要求（picker・アタッチ済み両方から受け付ける） ────
       if (msg.type === 'session_list_request') {
+        const sessions = getSessionInfos()
+        const projects = getRecentProjects()
         ws.send(
           JSON.stringify({
             type: 'session_list_response',
-            sessions: getSessionInfos(),
-            projects: getRecentProjects(),
+            sessions,
+            projects,
+            multiplexerSessions: [],
           } satisfies WsMessage),
         )
+        // マルチプレクサセッションは非同期で取得して追加送信する
+        getMultiplexerSessions().then((multiplexerSessions) => {
+          if (multiplexerSessions.length > 0 && ws.readyState === WebSocket.OPEN) {
+            ws.send(
+              JSON.stringify({
+                type: 'session_list_response',
+                sessions: getSessionInfos(),
+                projects: getRecentProjects(),
+                multiplexerSessions,
+              } satisfies WsMessage),
+            )
+          }
+        })
         return
       }
 
@@ -582,15 +643,106 @@ function resolveShell(): string {
   return '/bin/sh'
 }
 
-function spawnShell(projectPath?: string): pty.IPty {
-  const loginShell = resolveShell()
-  const cwd = projectPath && existsSync(projectPath) ? projectPath : undefined
-  console.log(`Spawning claude via shell: ${loginShell}${cwd ? ` (cwd: ${cwd})` : ''}`)
-  return pty.spawn(loginShell, ['-lc', 'exec claude'], {
-    name: 'xterm-color',
-    cols: 80,
-    rows: 30,
-    env: { ...process.env },
-    ...(cwd ? { cwd } : {}),
-  })
+// セッション名として許可する文字: 英数字・ドット・アンダースコア・ハイフン
+// tmux の "session:window.pane" 構文を避けるためコロンを禁止
+const SAFE_SESSION_NAME_RE = /^[a-zA-Z0-9._-]+$/
+
+/**
+ * マルチプレクサのセッション名を検証する。
+ * 不正な文字が含まれる場合は Error をスローする。
+ */
+function assertSafeSessionName(name: string, tool: string): void {
+  if (!SAFE_SESSION_NAME_RE.test(name)) {
+    throw new Error(`[pty-server] Unsafe session name rejected for ${tool}: "${name}"`)
+  }
+}
+
+function spawnSource(source: SessionSource): pty.IPty {
+  const baseOpts = { name: 'xterm-color', cols: 80, rows: 30, env: { ...process.env } }
+  switch (source.kind) {
+    case 'claude': {
+      const loginShell = resolveShell()
+      const cwd = source.projectPath && existsSync(source.projectPath) ? source.projectPath : undefined
+      console.log(`[pty-server] Spawning claude via shell: ${loginShell}${cwd ? ` (cwd: ${cwd})` : ''}`)
+      return pty.spawn(loginShell, ['-lc', 'exec claude'], { ...baseOpts, ...(cwd ? { cwd } : {}) })
+    }
+    case 'tmux': {
+      assertSafeSessionName(source.sessionName, 'tmux')
+      console.log(`[pty-server] Attaching to tmux session: ${source.sessionName}`)
+      return pty.spawn('tmux', ['attach-session', '-t', source.sessionName], baseOpts)
+    }
+    case 'screen': {
+      assertSafeSessionName(source.sessionName, 'screen')
+      console.log(`[pty-server] Attaching to screen session: ${source.sessionName}`)
+      return pty.spawn('screen', ['-r', source.sessionName], baseOpts)
+    }
+    case 'zellij': {
+      assertSafeSessionName(source.sessionName, 'zellij')
+      console.log(`[pty-server] Attaching to zellij session: ${source.sessionName}`)
+      return pty.spawn('zellij', ['attach', source.sessionName], baseOpts)
+    }
+    case 'shell': {
+      const loginShell = resolveShell()
+      const cwd = source.cwd && existsSync(source.cwd) ? source.cwd : undefined
+      console.log(`[pty-server] Spawning shell: ${loginShell}${cwd ? ` (cwd: ${cwd})` : ''}`)
+      return pty.spawn(loginShell, ['-l'], { ...baseOpts, ...(cwd ? { cwd } : {}) })
+    }
+  }
+}
+
+// ─── マルチプレクサセッション一覧取得 ────────────────────────────────────────
+
+/** 利用可能な tmux / screen / zellij セッション一覧を取得する */
+export async function getMultiplexerSessions(): Promise<MultiplexerSessionInfo[]> {
+  const results: MultiplexerSessionInfo[] = []
+
+  // tmux
+  try {
+    const { stdout } = await execAsync('tmux list-sessions -F "#{session_name}:#{session_windows}"')
+    for (const line of stdout.trim().split('\n').filter(Boolean)) {
+      const colonIdx = line.indexOf(':')
+      if (colonIdx === -1) continue
+      const sessionName = line.slice(0, colonIdx)
+      const windows = line.slice(colonIdx + 1)
+      if (!SAFE_SESSION_NAME_RE.test(sessionName)) continue
+      results.push({ tool: 'tmux', sessionName, detail: `${windows} windows` })
+    }
+  } catch {
+    // tmux未インストールまたはセッションなし
+  }
+
+  // screen
+  try {
+    // screen -ls は接続中セッションがある場合に exit code 1 を返すため stdout を取り出す
+    const screenOutput = await execAsync('screen -ls').then(
+      (r) => r.stdout,
+      (e: { stdout?: string }) => e.stdout ?? '',
+    )
+    for (const line of screenOutput.split('\n')) {
+      const match = line.match(/^\s+(\d+\.\S+)\s+.*\((Detached|Attached)\)/)
+      if (match) {
+        const sessionName = match[1]
+        if (!SAFE_SESSION_NAME_RE.test(sessionName)) continue
+        results.push({ tool: 'screen', sessionName, detail: match[2] })
+      }
+    }
+  } catch {
+    // screen未インストール
+  }
+
+  // zellij
+  try {
+    const { stdout } = await execAsync('zellij list-sessions')
+    for (const line of stdout.trim().split('\n').filter(Boolean)) {
+      // "session-name [Created...]" 形式の場合もあるため最初のトークンだけ取得
+      const sessionName = line.trim().split(/\s+/)[0]
+      if (sessionName && SAFE_SESSION_NAME_RE.test(sessionName)) {
+        results.push({ tool: 'zellij', sessionName })
+      }
+    }
+  } catch {
+    // zellij未インストールまたはセッションなし
+  }
+
+  return results
 }

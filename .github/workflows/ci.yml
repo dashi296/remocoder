@@ -13,14 +13,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: pnpm/action-setup@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: pnpm
-
-      - run: pnpm install --frozen-lockfile
+      - uses: ./.github/actions/setup
 
       - name: Type check shared
         run: pnpm --filter @remocoder/shared exec tsc --noEmit
@@ -37,17 +30,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: pnpm/action-setup@v4
-
-      - uses: actions/setup-node@v4
+      - uses: ./.github/actions/setup
         with:
-          node-version: 20
-          cache: pnpm
-
-      - name: Install system dependencies for node-pty
-        run: sudo apt-get install -y python3 make g++
-
-      - run: pnpm install --frozen-lockfile
+          node-pty-deps: 'true'
 
       - name: Cache Turborepo
         uses: actions/cache@v4
@@ -65,20 +50,15 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     environment: production
+    permissions:
+      contents: write
     strategy:
       matrix:
         platform: [ios, android]
     steps:
       - uses: actions/checkout@v4
 
-      - uses: pnpm/action-setup@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: pnpm
-
-      - run: pnpm install --frozen-lockfile
+      - uses: ./.github/actions/setup
 
       - uses: expo/expo-github-action@v8
         with:
@@ -88,19 +68,23 @@ jobs:
       - name: Build on EAS (${{ matrix.platform }})
         id: eas-build
         working-directory: packages/mobile
+        env:
+          PLATFORM: ${{ matrix.platform }}
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
         run: |
-          BUILD_JSON=$(eas build --platform ${{ matrix.platform }} --profile preview --non-interactive --json 2>/dev/null)
+          BUILD_JSON=$(eas build --platform "$PLATFORM" --profile preview --non-interactive --json 2>/dev/null)
           ARTIFACT_URL=$(echo "$BUILD_JSON" | jq -r '.[0].artifacts.buildUrl')
           echo "artifact_url=$ARTIFACT_URL" >> $GITHUB_OUTPUT
-        env:
-          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
 
       - name: Download artifact
+        env:
+          PLATFORM: ${{ matrix.platform }}
+          ARTIFACT_URL: ${{ steps.eas-build.outputs.artifact_url }}
         run: |
-          if [[ "${{ matrix.platform }}" == "ios" ]]; then
-            curl -L "${{ steps.eas-build.outputs.artifact_url }}" -o remocoder.ipa
+          if [[ "$PLATFORM" == "ios" ]]; then
+            curl -L "$ARTIFACT_URL" -o remocoder.ipa
           else
-            curl -L "${{ steps.eas-build.outputs.artifact_url }}" -o remocoder.apk
+            curl -L "$ARTIFACT_URL" -o remocoder.apk
           fi
 
       - name: Upload to GitHub Releases
@@ -111,24 +95,23 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   build:
-    name: Build Desktop
-    runs-on: ubuntu-latest
+    name: Build Desktop (macOS DMG)
+    runs-on: macos-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
 
-      - uses: pnpm/action-setup@v4
-
-      - uses: actions/setup-node@v4
+      - uses: ./.github/actions/setup
         with:
-          node-version: 20
-          cache: pnpm
+          node-pty-deps: 'true'
 
-      - name: Install system dependencies for node-pty and Electron
-        run: sudo apt-get install -y python3 make g++ libgtk-3-dev libxss1 libnss3
+      - uses: ./.github/actions/build-desktop
 
-      - run: pnpm install --frozen-lockfile
-
-      - name: Build desktop app
-        run: pnpm --filter @remocoder/desktop build
+      - name: Upload to GitHub Releases
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: packages/desktop/dist/*.dmg
         env:
-          ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

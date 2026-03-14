@@ -1,3 +1,19 @@
+/** PTYセッションの起動元を表す型 */
+export type SessionSource =
+  | { kind: 'claude'; projectPath?: string }
+  | { kind: 'tmux'; sessionName: string }
+  | { kind: 'screen'; sessionName: string }
+  | { kind: 'zellij'; sessionName: string }
+  | { kind: 'shell'; cwd?: string }
+
+/** tmux / screen / zellij のセッション情報 */
+export interface MultiplexerSessionInfo {
+  tool: 'tmux' | 'screen' | 'zellij'
+  sessionName: string
+  /** セッションの追加情報（例: ウィンドウ数、状態） */
+  detail?: string
+}
+
 // WebSocketメッセージの型定義
 export type WsMessage =
   | { type: 'input'; data: string }
@@ -9,8 +25,9 @@ export type WsMessage =
   | { type: 'auth_ok' }
   | { type: 'auth_error'; reason: string }
   | { type: 'shell_exit'; exitCode: number }
-  | { type: 'session_list'; sessions: SessionInfo[] }
-  | { type: 'session_create'; projectPath?: string }
+  | { type: 'session_list'; sessions: SessionInfo[]; multiplexerSessions?: MultiplexerSessionInfo[] }
+  /** projectPath は後方互換のために保持。source が優先される */
+  | { type: 'session_create'; projectPath?: string; source?: SessionSource }
   | { type: 'session_attach'; sessionId: string }
   | { type: 'session_attached'; sessionId: string; scrollback: string }
   | { type: 'session_not_found'; sessionId: string }
@@ -23,7 +40,7 @@ export type WsMessage =
   /** アタッチ済みクライアントがセッション一覧を要求する */
   | { type: 'session_list_request' }
   /** session_list_request への応答（セッション一覧 + 最近のプロジェクト一覧） */
-  | { type: 'session_list_response'; sessions: SessionInfo[]; projects: ProjectInfo[] }
+  | { type: 'session_list_response'; sessions: SessionInfo[]; projects: ProjectInfo[]; multiplexerSessions?: MultiplexerSessionInfo[] }
 
 export interface ProjectInfo {
   /** プロジェクトのフルパス */
@@ -45,6 +62,8 @@ export interface SessionInfo {
   isExternal?: boolean
   /** セッションが起動したプロジェクトパス */
   projectPath?: string
+  /** セッションの起動元 */
+  source?: SessionSource
 }
 
 export const DEFAULT_WS_PORT = 8080

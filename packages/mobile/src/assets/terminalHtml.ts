@@ -1,17 +1,22 @@
+import type { SessionSource } from '@remocoder/shared'
+
 /**
  * @param wsUrl WebSocket URL
  * @param token 認証トークン
  * @param projectPath セッションを起動するプロジェクトパス。null の場合はプロジェクトなし
  * @param sessionId 既存セッションにアタッチする場合のセッションID。指定時は session_attach を送信
+ * @param source セッション起動元。指定時は projectPath より優先して session_create の source フィールドに使用
  */
 export function buildTerminalHtml(
   wsUrl: string,
   token: string,
   projectPath: string | null = null,
   sessionId: string | null = null,
+  source: SessionSource | null = null,
 ): string {
   const projectPathJs = projectPath ? JSON.stringify(projectPath) : 'null'
   const sessionIdJs = sessionId ? JSON.stringify(sessionId) : 'null'
+  const sourceJs = source ? JSON.stringify(source) : 'null'
 
   return `
 <!DOCTYPE html>
@@ -46,6 +51,8 @@ export function buildTerminalHtml(
     const PROJECT_PATH = ${projectPathJs}
     // アタッチ先の既存セッションID（null = 新規作成）
     const ATTACH_SESSION_ID = ${sessionIdJs}
+    // セッション起動元（null = projectPath を使用）
+    const SESSION_SOURCE = ${sourceJs}
 
     let ws = null
     let reconnectDelay = 1000
@@ -72,6 +79,7 @@ export function buildTerminalHtml(
 
     /** session_create メッセージを構築する */
     function buildSessionCreate(path) {
+      if (SESSION_SOURCE) return { type: 'session_create', source: SESSION_SOURCE }
       return { type: 'session_create', ...(path ? { projectPath: path } : {}) }
     }
 

@@ -1,10 +1,13 @@
 import React from 'react'
-import type { SessionInfo } from '@remocoder/shared'
+import type { SessionInfo, MultiplexerSessionInfo } from '@remocoder/shared'
 
 interface SessionListProps {
   sessions: SessionInfo[]
+  multiplexerSessions?: MultiplexerSessionInfo[]
   onOpenTerminal?: (sessionId: string) => void
   onNewSession?: () => void
+  onAttachMultiplexer?: (tool: MultiplexerSessionInfo['tool'], sessionName: string) => void
+  onRefreshMultiplexer?: () => void
 }
 
 function formatTime(iso: string): string {
@@ -58,7 +61,7 @@ function SessionRow({
       <div style={styles.rowRight}>
         <span
           style={{
-            ...styles.statusBadge,
+            ...styles.badge,
             color: isActive ? 'var(--green)' : 'var(--amber)',
             borderColor: isActive ? 'var(--green-dim)' : 'var(--amber-dim)',
             background: isActive ? 'var(--green-pulse)' : 'var(--amber-glow)',
@@ -77,46 +80,139 @@ function SessionRow({
   )
 }
 
-export function SessionList({ sessions, onOpenTerminal, onNewSession }: SessionListProps) {
+function toolLabel(tool: MultiplexerSessionInfo['tool']): string {
+  return tool.toUpperCase()
+}
+
+function MultiplexerRow({
+  info,
+  index,
+  onAttach,
+}: {
+  info: MultiplexerSessionInfo
+  index: number
+  onAttach?: (tool: MultiplexerSessionInfo['tool'], sessionName: string) => void
+}) {
   return (
-    <section style={styles.section}>
-      <div style={styles.sectionHeader}>
-        <span style={styles.sectionLabel}>CONNECTIONS</span>
-        <div style={styles.headerLine} />
-        <span style={styles.count}>
-          {sessions.length > 0 ? `${sessions.length} ACTIVE` : '—'}
+    <div style={{ ...styles.row, animationDelay: `${index * 0.06}s` }}>
+      <div style={styles.rowLeft}>
+        <span
+          style={{
+            ...styles.badge,
+            color: 'var(--amber)',
+            borderColor: 'var(--amber-dim)',
+            background: 'var(--amber-glow)',
+          }}
+        >
+          {toolLabel(info.tool)}
         </span>
-        {onNewSession && (
-          <button style={styles.newButton} onClick={onNewSession} title="新規セッション作成">
-            <PlusIcon />
+        <div style={styles.sessionInfo}>
+          <span style={styles.sessionId}>{info.sessionName}</span>
+          {info.detail && <span style={styles.sessionTime}>{info.detail}</span>}
+        </div>
+      </div>
+      <div style={styles.rowRight}>
+        {onAttach && (
+          <button
+            style={styles.openButton}
+            onClick={() => onAttach(info.tool, info.sessionName)}
+            title="セッションにアタッチ"
+          >
+            <AttachIcon />
           </button>
         )}
       </div>
+    </div>
+  )
+}
 
-      {sessions.length === 0 ? (
-        <div style={styles.empty}>
-          <div style={styles.emptyIcon}>
-            <WifiIcon />
-          </div>
-          <p style={styles.emptyText}>接続待ち中</p>
-          <p style={styles.emptySubText}>
-            <span style={{ color: 'var(--green)', animation: 'blink 1.2s step-end infinite' }}>▮</span>
-            {' '}モバイルアプリからの接続を待っています
-          </p>
+export function SessionList({
+  sessions,
+  multiplexerSessions,
+  onOpenTerminal,
+  onNewSession,
+  onAttachMultiplexer,
+  onRefreshMultiplexer,
+}: SessionListProps) {
+  const hasMux = multiplexerSessions && multiplexerSessions.length > 0
+
+  return (
+    <>
+      <section style={styles.section}>
+        <div style={styles.sectionHeader}>
+          <span style={styles.sectionLabel}>CONNECTIONS</span>
+          <div style={styles.headerLine} />
+          <span style={styles.count}>
+            {sessions.length > 0 ? `${sessions.length} ACTIVE` : '—'}
+          </span>
           {onNewSession && (
-            <button style={styles.newSessionBtn} onClick={onNewSession}>
-              + 新規セッションを作成
+            <button style={styles.newButton} onClick={onNewSession} title="新規セッション作成">
+              <PlusIcon />
             </button>
           )}
         </div>
-      ) : (
-        <div style={styles.list}>
-          {sessions.map((s, i) => (
-            <SessionRow key={s.id} session={s} index={i} onOpen={onOpenTerminal} />
-          ))}
-        </div>
+
+        {sessions.length === 0 ? (
+          <div style={styles.empty}>
+            <div style={styles.emptyIcon}>
+              <WifiIcon />
+            </div>
+            <p style={styles.emptyText}>接続待ち中</p>
+            <p style={styles.emptySubText}>
+              <span style={{ color: 'var(--green)', animation: 'blink 1.2s step-end infinite' }}>▮</span>
+              {' '}モバイルアプリからの接続を待っています
+            </p>
+            {onNewSession && (
+              <button style={styles.newSessionBtn} onClick={onNewSession}>
+                + 新規セッションを作成
+              </button>
+            )}
+          </div>
+        ) : (
+          <div style={styles.list}>
+            {sessions.map((s, i) => (
+              <SessionRow key={s.id} session={s} index={i} onOpen={onOpenTerminal} />
+            ))}
+          </div>
+        )}
+      </section>
+
+      {/* マルチプレクサセクション（tmux / screen / zellij） */}
+      {multiplexerSessions !== undefined && (
+        <section style={styles.section}>
+          <div style={styles.sectionHeader}>
+            <span style={styles.sectionLabel}>MULTIPLEXERS</span>
+            <div style={styles.headerLine} />
+            <span style={{ ...styles.count, color: hasMux ? 'var(--amber)' : 'var(--text-dim)' }}>
+              {hasMux ? `${multiplexerSessions.length} FOUND` : '—'}
+            </span>
+            {onRefreshMultiplexer && (
+              <button style={styles.newButton} onClick={onRefreshMultiplexer} title="一覧を更新">
+                <RefreshIcon />
+              </button>
+            )}
+          </div>
+
+          {!hasMux ? (
+            <div style={styles.empty}>
+              <p style={styles.emptyText}>セッションなし</p>
+              <p style={styles.emptySubText}>tmux / screen / zellij のセッションが見つかりません</p>
+            </div>
+          ) : (
+            <div style={styles.list}>
+              {multiplexerSessions.map((m, i) => (
+                <MultiplexerRow
+                  key={`${m.tool}:${m.sessionName}`}
+                  info={m}
+                  index={i}
+                  onAttach={onAttachMultiplexer}
+                />
+              ))}
+            </div>
+          )}
+        </section>
       )}
-    </section>
+    </>
   )
 }
 
@@ -134,6 +230,25 @@ function PlusIcon() {
     <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
       <line x1="12" y1="5" x2="12" y2="19" />
       <line x1="5" y1="12" x2="19" y2="12" />
+    </svg>
+  )
+}
+
+function AttachIcon() {
+  return (
+    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" />
+      <polyline points="10 17 15 12 10 7" />
+      <line x1="15" y1="12" x2="3" y2="12" />
+    </svg>
+  )
+}
+
+function RefreshIcon() {
+  return (
+    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="23 4 23 10 17 10" />
+      <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
     </svg>
   )
 }
@@ -294,14 +409,15 @@ const styles: Record<string, React.CSSProperties> = {
     color: 'var(--text-muted)',
     letterSpacing: '0.04em',
   },
-  statusBadge: {
+  badge: {
     fontSize: 8,
     fontWeight: 700,
-    letterSpacing: '0.12em',
+    letterSpacing: '0.1em',
     padding: '2px 6px',
     border: '1px solid',
     borderRadius: 2,
     whiteSpace: 'nowrap',
+    flexShrink: 0,
   },
   openButton: {
     display: 'flex',

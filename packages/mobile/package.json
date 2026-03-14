@@ -27,6 +27,7 @@
     "react-native-webview": "~13.13.5"
   },
   "devDependencies": {
+    "@expo/config-plugins": "^55.0.6",
     "@testing-library/react-native": "^12.4.0",
     "@types/jest": "^29.0.0",
     "@types/react": "19.2.14",

@@ -8,7 +8,7 @@ import {
   ActivityIndicator,
 } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
-import { DEFAULT_WS_PORT, ProjectInfo, SessionInfo, WsMessage } from '@remocoder/shared'
+import { DEFAULT_WS_PORT, MultiplexerSessionInfo, ProjectInfo, SessionInfo, SessionSource, WsMessage } from '@remocoder/shared'
 import { formatDate, getSessionDisplayName } from '../utils'
 
 interface Props {
@@ -18,6 +18,8 @@ interface Props {
   onSelectProject: (projectPath: string | null) => void
   /** 実行中セッションを選択したときに呼ばれる */
   onAttachSession: (sessionId: string) => void
+  /** マルチプレクサセッション（tmux/screen/zellij）を選択したときに呼ばれる */
+  onAttachMultiplexer: (source: SessionSource) => void
   onBack: () => void
 }
 
@@ -27,12 +29,14 @@ type ListItem =
   | { kind: 'header'; label: string }
   | { kind: 'newSession' }
   | { kind: 'session'; session: SessionInfo }
+  | { kind: 'multiplexer'; mux: MultiplexerSessionInfo }
   | { kind: 'project'; project: ProjectInfo }
 
-export function SessionPickerScreen({ ip, token, onSelectProject, onAttachSession, onBack }: Props) {
+export function SessionPickerScreen({ ip, token, onSelectProject, onAttachSession, onAttachMultiplexer, onBack }: Props) {
   const [status, setStatus] = useState<Status>('connecting')
   const [projects, setProjects] = useState<ProjectInfo[]>([])
   const [sessions, setSessions] = useState<SessionInfo[]>([])
+  const [multiplexerSessions, setMultiplexerSessions] = useState<MultiplexerSessionInfo[]>([])
   const wsRef = useRef<WebSocket | null>(null)
   const selectedRef = useRef(false)
   const isMountedRef = useRef(true)
@@ -56,6 +60,7 @@ export function SessionPickerScreen({ ip, token, onSelectProject, onAttachSessio
           setProjects(msg.projects)
         } else if (msg.type === 'session_list') {
           setSessions(msg.sessions)
+          setMultiplexerSessions(msg.multiplexerSessions ?? [])
         } else if (msg.type === 'auth_error') {
           setStatus('error')
           ws.close()
@@ -92,17 +97,27 @@ export function SessionPickerScreen({ ip, token, onSelectProject, onAttachSessio
     onAttachSession(sessionId)
   }
 
+  const handleAttachMultiplexer = (mux: MultiplexerSessionInfo) => {
+    selectedRef.current = true
+    wsRef.current?.close()
+    onAttachMultiplexer({ kind: mux.tool, sessionName: mux.sessionName } as SessionSource)
+  }
+
   const listData = useMemo<ListItem[]>(() => {
     const items: ListItem[] = []
     if (sessions.length > 0) {
       items.push({ kind: 'header', label: '実行中のセッション' })
       sessions.forEach((s) => items.push({ kind: 'session', session: s }))
     }
+    if (multiplexerSessions.length > 0) {
+      items.push({ kind: 'header', label: 'マルチプレクサ' })
+      multiplexerSessions.forEach((m) => items.push({ kind: 'multiplexer', mux: m }))
+    }
     items.push({ kind: 'header', label: '新規セッション' })
     items.push({ kind: 'newSession' })
     projects.forEach((p) => items.push({ kind: 'project', project: p }))
     return items
-  }, [sessions, projects])
+  }, [sessions, multiplexerSessions, projects])
 
   return (
     <SafeAreaView style={styles.container}>
@@ -138,6 +153,7 @@ export function SessionPickerScreen({ ip, token, onSelectProject, onAttachSessio
             if (item.kind === 'header') return `header-${item.label}`
             if (item.kind === 'newSession') return 'newSession'
             if (item.kind === 'session') return `session-${item.session.id}`
+            if (item.kind === 'multiplexer') return `mux-${item.mux.tool}-${item.mux.sessionName}`
             if (item.kind === 'project') return `project-${item.project.path}`
             return String(i)
           }}
@@ -181,6 +197,24 @@ export function SessionPickerScreen({ ip, token, onSelectProject, onAttachSessio
                     <Text style={styles.sessionMeta}>
                       {session.status === 'active' ? 'アクティブ' : 'アイドル'}
                       {session.hasClient ? ' · 接続中' : ''}
+                    </Text>
+                  </View>
+                  <Text style={styles.attachArrow}>→</Text>
+                </TouchableOpacity>
+              )
+            }
+            if (item.kind === 'multiplexer') {
+              const { mux } = item
+              return (
+                <TouchableOpacity
+                  style={styles.sessionRow}
+                  onPress={() => handleAttachMultiplexer(mux)}
+                >
+                  <View style={[styles.statusDot, styles.dotIdle]} />
+                  <View style={styles.sessionInfo}>
+                    <Text style={styles.sessionName}>{mux.sessionName}</Text>
+                    <Text style={styles.sessionMeta}>
+                      {mux.tool.toUpperCase()}{mux.detail ? ` · ${mux.detail}` : ''}
                     </Text>
                   </View>
                   <Text style={styles.attachArrow}>→</Text>

@@ -4,7 +4,7 @@ import { StatusPanel } from './components/StatusPanel'
 import { TokenDisplay } from './components/TokenDisplay'
 import { SessionList } from './components/SessionList'
 import { TerminalPanel } from './components/TerminalPanel'
-import { DEFAULT_WS_PORT, type SessionInfo, type UpdateInfo } from '@remocoder/shared'
+import { DEFAULT_WS_PORT, type SessionInfo, type MultiplexerSessionInfo, type SessionSource, type UpdateInfo } from '@remocoder/shared'
 
 // ── Mock data for development ─────────────────────────────
 const MOCK_MODE = !(window as any).electronAPI
@@ -29,7 +29,7 @@ const mockAPI = {
   ],
   onSessionsUpdate: (_cb: (sessions: SessionInfo[]) => void) => () => { /* mock no-op */ },
   rotateToken: async () => 'new-token',
-  ptyCreate: async () => 'mock-session-id',
+  ptyCreate: async (_source?: SessionSource) => 'mock-session-id',
   ptyGetScrollback: async (_sessionId: string) => null as string | null,
   ptyInput: (_sessionId: string, _data: string) => { /* mock no-op */ },
   ptyResize: (_sessionId: string, _cols: number, _rows: number) => { /* mock no-op */ },
@@ -39,6 +39,10 @@ const mockAPI = {
   onPtyExit: (_cb: (sessionId: string, exitCode: number) => void) => () => { /* mock no-op */ },
   onTerminalOpened: (_cb: (sessionId: string) => void) => () => { /* mock no-op */ },
   onTerminalClosed: (_cb: () => void) => () => { /* mock no-op */ },
+  getMultiplexerSessions: async (): Promise<MultiplexerSessionInfo[]> => [
+    { tool: 'tmux', sessionName: 'main', detail: '3 windows' },
+    { tool: 'tmux', sessionName: 'work', detail: '1 windows' },
+  ],
   checkForUpdate: async () => { /* mock no-op */ },
   downloadUpdate: async () => { /* mock no-op */ },
   installUpdate: async () => { /* mock no-op */ },
@@ -56,14 +60,20 @@ export default function App() {
   const [token, setToken] = useState<string>('')
   const [sessions, setSessions] = useState<SessionInfo[]>([])
   const [activeTerminalSessionId, setActiveTerminalSessionId] = useState<string | null>(null)
+  const [multiplexerSessions, setMultiplexerSessions] = useState<MultiplexerSessionInfo[]>([])
   const [updateAvailable, setUpdateAvailable] = useState<UpdateInfo | null>(null)
   const [updateDownloaded, setUpdateDownloaded] = useState<UpdateInfo | null>(null)
   const [updateError, setUpdateError] = useState<string | null>(null)
+
+  function loadMultiplexerSessions() {
+    api.getMultiplexerSessions?.().then(setMultiplexerSessions).catch(() => {})
+  }
 
   useEffect(() => {
     api.getTailscaleIP().then(setTailscaleIP)
     api.getToken().then(setToken)
     api.getSessions().then(setSessions)
+    loadMultiplexerSessions()
 
     const cleanupSessions = api.onSessionsUpdate(setSessions)
     const cleanupToken = api.onTokenRotated?.((newToken: string) => setToken(newToken))
@@ -95,6 +105,23 @@ export default function App() {
     }
   }, [])
 
+  async function openSession(sessionId: string) {
+    try {
+      await api.openTerminalWindow(sessionId)
+      setActiveTerminalSessionId(sessionId)
+    } catch (err) {
+      setUpdateError(err instanceof Error ? err.message : String(err))
+    }
+  }
+
+  async function handleNewSession() {
+    await openSession(await api.ptyCreate())
+  }
+
+  async function handleAttachMultiplexer(tool: MultiplexerSessionInfo['tool'], sessionName: string) {
+    await openSession(await api.ptyCreate({ kind: tool, sessionName } as SessionSource))
+  }
+
   const handleDownloadUpdate = async () => {
     try {
       await api.downloadUpdate?.()
@@ -106,25 +133,6 @@ export default function App() {
   const handleInstallUpdate = async () => {
     try {
       await api.installUpdate?.()
-    } catch (err) {
-      setUpdateError(err instanceof Error ? err.message : String(err))
-    }
-  }
-
-  const handleOpenTerminal = async (sessionId: string) => {
-    try {
-      await api.openTerminalWindow(sessionId)
-      setActiveTerminalSessionId(sessionId)
-    } catch (err) {
-      setUpdateError(err instanceof Error ? err.message : String(err))
-    }
-  }
-
-  const handleNewSession = async () => {
-    try {
-      const sessionId = await api.ptyCreate()
-      await api.openTerminalWindow(sessionId)
-      setActiveTerminalSessionId(sessionId)
     } catch (err) {
       setUpdateError(err instanceof Error ? err.message : String(err))
     }
@@ -179,13 +187,16 @@ export default function App() {
           <TokenDisplay
             token={token}
             tailscaleIP={tailscaleIP}
-            onRotate={api.rotateToken ? async () => { const t = await api.rotateToken(); setToken(t) } : undefined}
+            onRotate={api.rotateToken ? async () => setToken(await api.rotateToken()) : undefined}
           />
         )}
         <SessionList
           sessions={sessions}
-          onOpenTerminal={handleOpenTerminal}
+          multiplexerSessions={multiplexerSessions}
+          onOpenTerminal={openSession}
           onNewSession={handleNewSession}
+          onAttachMultiplexer={handleAttachMultiplexer}
+          onRefreshMultiplexer={loadMultiplexerSessions}
         />
       </main>
 

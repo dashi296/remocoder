@@ -4,29 +4,19 @@ on:
   pull_request:
     types: [opened, synchronize, reopened]
 
-permissions:
-  contents: write
-  pull-requests: read
-
 jobs:
   build-android:
     name: Build Android (EAS Local)
     runs-on: ubuntu-latest
     environment: preview
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
 
-      - uses: pnpm/action-setup@v4
-
-      - uses: actions/setup-node@v4
+      - uses: ./.github/actions/setup
         with:
-          node-version: 20
-          cache: pnpm
-
-      - name: Install system dependencies for node-pty
-        run: sudo apt-get install -y python3 make g++
-
-      - run: pnpm install --frozen-lockfile
+          node-pty-deps: 'true'
 
       - uses: expo/expo-github-action@v8
         with:
@@ -35,9 +25,10 @@ jobs:
 
       - name: Build Android APK (EAS Local)
         working-directory: packages/mobile
-        run: eas build --platform android --profile preview --local --non-interactive --output ../../remocoder-pr${{ github.event.number }}-android.apk
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+          PR_NUMBER: ${{ github.event.number }}
+        run: eas build --platform android --profile preview --local --non-interactive --output "../../remocoder-pr${PR_NUMBER}-android.apk"
 
       - name: Upload to GitHub Release
         uses: softprops/action-gh-release@v2
@@ -45,10 +36,7 @@ jobs:
           tag_name: pr-${{ github.event.number }}
           name: "PR #${{ github.event.number }} Build"
           prerelease: true
-          body: |
-            ## PR #${{ github.event.number }}
-
-            Commit: ${{ github.sha }}
+          body: "Commit: ${{ github.sha }}"
           files: remocoder-pr${{ github.event.number }}-android.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -57,17 +45,12 @@ jobs:
     name: Build iOS (EAS Local)
     runs-on: macos-26
     environment: preview
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
 
-      - uses: pnpm/action-setup@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: pnpm
-
-      - run: pnpm install --frozen-lockfile
+      - uses: ./.github/actions/setup
 
       - uses: expo/expo-github-action@v8
         with:
@@ -76,9 +59,10 @@ jobs:
 
       - name: Build iOS IPA (EAS Local)
         working-directory: packages/mobile
-        run: eas build --platform ios --profile preview --local --non-interactive --output ../../remocoder-pr${{ github.event.number }}-ios.ipa
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+          PR_NUMBER: ${{ github.event.number }}
+        run: eas build --platform ios --profile preview --local --non-interactive --output "../../remocoder-pr${PR_NUMBER}-ios.ipa"
 
       - name: Upload to GitHub Release
         uses: softprops/action-gh-release@v2
@@ -86,11 +70,39 @@ jobs:
           tag_name: pr-${{ github.event.number }}
           name: "PR #${{ github.event.number }} Build"
           prerelease: true
-          body: |
-            ## PR #${{ github.event.number }}
-
-            Commit: ${{ github.sha }}
+          body: "Commit: ${{ github.sha }}"
           files: remocoder-pr${{ github.event.number }}-ios.ipa
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build-desktop:
+    name: Build Desktop macOS (DMG)
+    runs-on: macos-latest
+    environment: preview
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/setup
+        with:
+          node-pty-deps: 'true'
+
+      - uses: ./.github/actions/build-desktop
+
+      - name: Rename artifact
+        env:
+          PR_NUMBER: ${{ github.event.number }}
+        run: mv packages/desktop/dist/*.dmg "remocoder-pr${PR_NUMBER}-mac.dmg"
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: pr-${{ github.event.number }}
+          name: "PR #${{ github.event.number }} Build"
+          prerelease: true
+          body: "Commit: ${{ github.sha }}"
+          files: remocoder-pr${{ github.event.number }}-mac.dmg
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -98,52 +110,11 @@ jobs:
     name: Notify Slack
     runs-on: ubuntu-latest
     environment: preview
-    needs: [build-android, build-ios]
-    if: always() && (needs.build-android.result == 'success' || needs.build-ios.result == 'success')
+    needs: [build-android, build-ios, build-desktop]
+    if: always() && (needs.build-android.result == 'success' || needs.build-ios.result == 'success' || needs.build-desktop.result == 'success')
     steps:
       - name: Build Slack payload
         id: payload
-        run: |
-          python3 << 'PYEOF'
-          import json, urllib.parse, os
-
-          repo = os.environ['REPO']
-          pr = os.environ['PR']
-          sha = os.environ['SHA']
-          pr_url = os.environ['PR_URL']
-          android_result = os.environ['ANDROID_RESULT']
-          ios_result = os.environ['IOS_RESULT']
-
-          def qr_url(url):
-              encoded = urllib.parse.quote(url, safe='')
-              return f"https://api.qrserver.com/v1/create-qr-code/?size=200x200&data={encoded}"
-
-          android_status = ":white_check_mark: 成功" if android_result == "success" else ":x: 失敗"
-          ios_status = ":white_check_mark: 成功" if ios_result == "success" else ":x: 失敗"
-
-          blocks = [
-              {"type": "header", "text": {"type": "plain_text", "text": f"PR #{pr} ビルド完了 :rocket:"}},
-              {"type": "section", "text": {"type": "mrkdwn", "text": f"*コミット:* `{sha}`\n*PR:* <{pr_url}|#{pr}>"}},
-              {"type": "section", "fields": [
-                  {"type": "mrkdwn", "text": f"*Android :android:*\n{android_status}"},
-                  {"type": "mrkdwn", "text": f"*iOS :apple:*\n{ios_status}"},
-              ]},
-          ]
-
-          if android_result == "success":
-              android_url = f"https://github.com/{repo}/releases/download/pr-{pr}/remocoder-pr{pr}-android.apk"
-              blocks.append({"type": "image", "title": {"type": "plain_text", "text": "Android APK QR"}, "image_url": qr_url(android_url), "alt_text": "Android APK QR Code"})
-
-          if ios_result == "success":
-              ios_url = f"https://github.com/{repo}/releases/download/pr-{pr}/remocoder-pr{pr}-ios.ipa"
-              blocks.append({"type": "image", "title": {"type": "plain_text", "text": "iOS IPA QR"}, "image_url": qr_url(ios_url), "alt_text": "iOS IPA QR Code"})
-
-          blocks.append({"type": "actions", "elements": [{"type": "button", "text": {"type": "plain_text", "text": ":arrow_down: 成果物をダウンロード"}, "url": f"https://github.com/{repo}/releases/tag/pr-{pr}", "style": "primary"}]})
-
-          payload = json.dumps({"blocks": blocks}, ensure_ascii=False)
-          with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
-              f.write(f"payload={payload}\n")
-          PYEOF
         env:
           REPO: ${{ github.repository }}
           PR: ${{ github.event.number }}
@@ -151,6 +122,55 @@ jobs:
           PR_URL: ${{ github.event.pull_request.html_url }}
           ANDROID_RESULT: ${{ needs.build-android.result }}
           IOS_RESULT: ${{ needs.build-ios.result }}
+          DESKTOP_RESULT: ${{ needs.build-desktop.result }}
+        run: |
+          python3 << 'PYEOF'
+          import json, urllib.parse, os
+
+          repo    = os.environ['REPO']
+          pr      = os.environ['PR']
+          sha     = os.environ['SHA']
+          pr_url  = os.environ['PR_URL']
+          results = {
+              'android': os.environ['ANDROID_RESULT'],
+              'ios':     os.environ['IOS_RESULT'],
+              'desktop': os.environ['DESKTOP_RESULT'],
+          }
+
+          def status_label(result):
+              return ":white_check_mark: 成功" if result == "success" else ":x: 失敗"
+
+          def qr_url(url):
+              return f"https://api.qrserver.com/v1/create-qr-code/?size=200x200&data={urllib.parse.quote(url, safe='')}"
+
+          release_base = f"https://github.com/{repo}/releases/download/pr-{pr}"
+          artifact_urls = {
+              'android': f"{release_base}/remocoder-pr{pr}-android.apk",
+              'ios':     f"{release_base}/remocoder-pr{pr}-ios.ipa",
+          }
+
+          blocks = [
+              {"type": "header", "text": {"type": "plain_text", "text": f"PR #{pr} ビルド完了 :rocket:"}},
+              {"type": "section", "text": {"type": "mrkdwn", "text": f"*コミット:* `{sha}`\n*PR:* <{pr_url}|#{pr}>"}},
+              {"type": "section", "fields": [
+                  {"type": "mrkdwn", "text": f"*Android :android:*\n{status_label(results['android'])}"},
+                  {"type": "mrkdwn", "text": f"*iOS :apple:*\n{status_label(results['ios'])}"},
+                  {"type": "mrkdwn", "text": f"*macOS :desktop_computer:*\n{status_label(results['desktop'])}"},
+              ]},
+          ]
+
+          for platform in ('android', 'ios'):
+              if results[platform] == "success":
+                  labels = {'android': ('Android APK QR', 'Android APK QR Code'), 'ios': ('iOS IPA QR', 'iOS IPA QR Code')}
+                  title, alt = labels[platform]
+                  blocks.append({"type": "image", "title": {"type": "plain_text", "text": title}, "image_url": qr_url(artifact_urls[platform]), "alt_text": alt})
+
+          blocks.append({"type": "actions", "elements": [{"type": "button", "text": {"type": "plain_text", "text": ":arrow_down: 成果物をダウンロード"}, "url": f"https://github.com/{repo}/releases/tag/pr-{pr}", "style": "primary"}]})
+
+          payload = json.dumps({"blocks": blocks}, ensure_ascii=False)
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+              f.write(f"payload={payload}\n")
+          PYEOF
 
       - name: Post to Slack
         uses: slackapi/slack-github-action@v2

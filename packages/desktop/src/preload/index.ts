@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { SessionInfo, UpdateInfo } from '@remocoder/shared'
+import type { SessionInfo, SessionSource, MultiplexerSessionInfo, UpdateInfo } from '@remocoder/shared'
 
 /** IPC イベントを購読し、解除関数を返す共通ヘルパー */
 function makeListener<T>(channel: string, cb: (payload: T) => void): () => void {
@@ -24,7 +24,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // ── デスクトップターミナルAPI ──────────────────────────────────────────────
 
   /** 新規PTYセッションを作成し、セッションIDを返す */
-  ptyCreate: (): Promise<string> => ipcRenderer.invoke('pty-create'),
+  ptyCreate: (source?: SessionSource): Promise<string> => ipcRenderer.invoke('pty-create', source),
+
+  /** tmux / screen / zellij のセッション一覧を返す */
+  getMultiplexerSessions: (): Promise<MultiplexerSessionInfo[]> =>
+    ipcRenderer.invoke('get-multiplexer-sessions'),
 
   /** セッションのスクロールバック（過去の出力）を返す */
   ptyGetScrollback: (sessionId: string): Promise<string | null> =>

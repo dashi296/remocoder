@@ -9,10 +9,11 @@ import {
   desktopGetScrollback,
   desktopSendInput,
   desktopResize,
+  getMultiplexerSessions,
 } from './pty-server'
 import { getTailscaleIP } from './tailscale'
 import { setupAutoUpdater, checkForUpdates, downloadUpdate, installUpdate } from './updater'
-import type { SessionInfo } from '@remocoder/shared'
+import type { SessionInfo, SessionSource } from '@remocoder/shared'
 import { v4 as uuidv4 } from 'uuid'
 
 function getTokenPath(): string {
@@ -134,8 +135,13 @@ function setupIpc(getToken: () => string) {
   // ── デスクトップターミナル用ハンドラ ────────────────────────────────────────
 
   /** 新規PTYセッションを作成し、セッションIDを返す */
-  ipcMain.handle('pty-create', () => {
-    return desktopCreateSession()
+  ipcMain.handle('pty-create', (_e, source?: SessionSource) => {
+    return desktopCreateSession(source)
+  })
+
+  /** tmux / screen / zellij のセッション一覧を返す */
+  ipcMain.handle('get-multiplexer-sessions', () => {
+    return getMultiplexerSessions()
   })
 
   /** セッションのスクロールバックを返す */

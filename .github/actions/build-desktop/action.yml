@@ -1,0 +1,9 @@
+name: Build Desktop macOS DMG
+description: Install electron-builder system dependencies and build the macOS DMG.
+
+runs:
+  using: composite
+  steps:
+    - name: Build macOS DMG
+      run: pnpm --filter @remocoder/desktop dist:mac
+      shell: bash

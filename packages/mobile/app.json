@@ -24,6 +24,7 @@
       ]
     },
     "plugins": [
+      "./plugins/withGradleJvmArgs",
       [
         "expo-camera",
         {

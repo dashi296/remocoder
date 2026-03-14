@@ -35,6 +35,11 @@
         {
           "android": {
             "usesCleartextTraffic": true
+          },
+          "ios": {
+            "extraPodfileProperties": {
+              "SWIFT_STRICT_CONCURRENCY": "minimal"
+            }
           }
         }
       ]

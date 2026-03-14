@@ -18,7 +18,6 @@
     },
     "android": {
       "package": "com.remocoder.app",
-      "usesCleartextTraffic": true,
       "permissions": [
         "android.permission.CAMERA",
         "android.permission.RECORD_AUDIO"
@@ -29,6 +28,14 @@
         "expo-camera",
         {
           "cameraPermission": "QRコードスキャンのためにカメラへのアクセスが必要です"
+        }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "usesCleartextTraffic": true
+          }
         }
       ]
     ],

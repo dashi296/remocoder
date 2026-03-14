@@ -15,6 +15,7 @@
     "@remocoder/shared": "workspace:^",
     "@types/react-native": "^0.73.0",
     "expo": "~55.0.6",
+    "expo-build-properties": "^55.0.9",
     "expo-camera": "~55.0.9",
     "expo-constants": "^55.0.7",
     "expo-status-bar": "~55.0.4",

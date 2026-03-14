@@ -56,7 +56,7 @@ jobs:
 
   build-ios:
     name: Build iOS (EAS Local)
-    runs-on: macos-latest
+    runs-on: macos-15
     environment: preview
     steps:
       - uses: actions/checkout@v4

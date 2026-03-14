@@ -48,3 +48,11 @@ export interface SessionInfo {
 }
 
 export const DEFAULT_WS_PORT = 8080
+
+/** デスクトップアプリの自動アップデート情報 */
+export interface UpdateInfo {
+  /** 新しいバージョン文字列 (semver) */
+  readonly version: string
+  /** 現在のメジャーバージョンより大きい場合 true（モバイルとの互換性確認が必要） */
+  readonly isMajor: boolean
+}

@@ -6,6 +6,50 @@ on:
       - 'v*'
 
 jobs:
+  electron-build:
+    name: Electron Build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    environment: production
+    strategy:
+      matrix:
+        include:
+          - os: macos-latest
+            dist_args: --mac
+          - os: windows-latest
+            dist_args: --win
+          - os: ubuntu-latest
+            dist_args: --linux
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build and publish Electron app
+        working-directory: packages/desktop
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DIST_ARGS: ${{ matrix.dist_args }}
+        run: pnpm dist $DIST_ARGS --publish always
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-${{ matrix.os }}
+          path: |
+            packages/desktop/dist/**/*.dmg
+            packages/desktop/dist/**/*.exe
+            packages/desktop/dist/**/*.AppImage
+            packages/desktop/dist/**/*.yml
+            packages/desktop/dist/**/*.yaml
+          if-no-files-found: ignore
+
   eas-submit:
     name: EAS Build & Submit (${{ matrix.platform }})
     runs-on: ubuntu-latest

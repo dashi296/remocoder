@@ -15,7 +15,7 @@ export function ForceUpdateScreen({ message, storeUrl }: Props) {
     <View style={styles.container}>
       <Text style={styles.title}>アップデートが必要です</Text>
       <Text style={styles.message}>{message}</Text>
-      <TouchableOpacity style={styles.button} onPress={handleUpdate}>
+      <TouchableOpacity style={[styles.button, !storeUrl && styles.buttonDisabled]} onPress={handleUpdate} disabled={!storeUrl}>
         <Text style={styles.buttonText}>ストアでアップデート</Text>
       </TouchableOpacity>
     </View>
@@ -49,6 +49,10 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     paddingHorizontal: 32,
     borderRadius: 10,
+  },
+  buttonDisabled: {
+    backgroundColor: '#555',
+    opacity: 0.6,
   },
   buttonText: {
     color: '#ffffff',

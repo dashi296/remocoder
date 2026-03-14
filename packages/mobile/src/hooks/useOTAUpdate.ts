@@ -25,8 +25,9 @@ export function useOTAUpdate(): void {
             },
           ],
         )
-      } catch {
-        // OTA チェック失敗はサイレントに無視する
+      } catch (err) {
+        // ネットワーク障害や expo-updates 設定ミスは非致命的。ログのみ残す
+        console.warn('[useOTAUpdate] OTA チェック/ダウンロード失敗（非致命的）:', err)
       }
     }
 

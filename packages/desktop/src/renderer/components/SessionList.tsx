@@ -61,7 +61,7 @@ function SessionRow({
       <div style={styles.rowRight}>
         <span
           style={{
-            ...styles.statusBadge,
+            ...styles.badge,
             color: isActive ? 'var(--green)' : 'var(--amber)',
             borderColor: isActive ? 'var(--green-dim)' : 'var(--amber-dim)',
             background: isActive ? 'var(--green-pulse)' : 'var(--amber-glow)',
@@ -80,10 +80,8 @@ function SessionRow({
   )
 }
 
-const TOOL_LABEL: Record<MultiplexerSessionInfo['tool'], string> = {
-  tmux: 'TMUX',
-  screen: 'SCREEN',
-  zellij: 'ZELLIJ',
+function toolLabel(tool: MultiplexerSessionInfo['tool']): string {
+  return tool.toUpperCase()
 }
 
 function MultiplexerRow({
@@ -100,13 +98,13 @@ function MultiplexerRow({
       <div style={styles.rowLeft}>
         <span
           style={{
-            ...styles.toolBadge,
+            ...styles.badge,
             color: 'var(--amber)',
             borderColor: 'var(--amber-dim)',
             background: 'var(--amber-glow)',
           }}
         >
-          {TOOL_LABEL[info.tool]}
+          {toolLabel(info.tool)}
         </span>
         <div style={styles.sessionInfo}>
           <span style={styles.sessionId}>{info.sessionName}</span>
@@ -411,16 +409,7 @@ const styles: Record<string, React.CSSProperties> = {
     color: 'var(--text-muted)',
     letterSpacing: '0.04em',
   },
-  statusBadge: {
-    fontSize: 8,
-    fontWeight: 700,
-    letterSpacing: '0.12em',
-    padding: '2px 6px',
-    border: '1px solid',
-    borderRadius: 2,
-    whiteSpace: 'nowrap',
-  },
-  toolBadge: {
+  badge: {
     fontSize: 8,
     fontWeight: 700,
     letterSpacing: '0.1em',

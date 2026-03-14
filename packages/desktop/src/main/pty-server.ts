@@ -309,22 +309,15 @@ export function desktopCreateSession(source: SessionSource = { kind: 'claude' })
   // マルチプレクサの場合、同じセッションにアタッチ済みのPTYセッションがあれば再利用する
   if (source.kind === 'tmux' || source.kind === 'screen' || source.kind === 'zellij') {
     const { kind, sessionName } = source
-    const existing = Array.from(ptySessions.values()).find((s) => {
-      const src = s.source
-      return (
-        src &&
-        (src.kind === 'tmux' || src.kind === 'screen' || src.kind === 'zellij') &&
-        src.kind === kind &&
-        src.sessionName === sessionName
-      )
-    })
+    const existing = Array.from(ptySessions.values()).find(
+      (s) => s.source?.kind === kind && (s.source as typeof source).sessionName === sessionName,
+    )
     if (existing) {
       console.log(`[pty-server] Reusing existing PTY session ${existing.id.slice(0, 8)} for ${kind}:${sessionName}`)
       return existing.id
     }
   }
-  const session = createPtySession(source)
-  return session.id
+  return createPtySession(source).id
 }
 
 /** デスクトップからセッションのスクロールバックを取得する */
@@ -486,21 +479,15 @@ export function startPtyServer(port = DEFAULT_WS_PORT, callbacks: PtyServerCallb
         detachFromSession()
         // source が指定されていればそれを使用、なければ後方互換で claude として扱う
         const rawSource = msg.source ?? { kind: 'claude', projectPath: msg.projectPath }
-        // ランタイム検証: kind が許可済みの値であることを確認
         const allowedKinds = ['claude', 'tmux', 'screen', 'zellij', 'shell'] as const
-        type AllowedKind = (typeof allowedKinds)[number]
-        if (!allowedKinds.includes(rawSource.kind as AllowedKind)) {
-          console.warn(`[pty-server] Rejected session_create with unknown kind: ${rawSource.kind}`)
+        const isMultiplexer = rawSource.kind === 'tmux' || rawSource.kind === 'screen' || rawSource.kind === 'zellij'
+        const isInvalid =
+          !allowedKinds.includes(rawSource.kind as (typeof allowedKinds)[number]) ||
+          (isMultiplexer && (typeof rawSource.sessionName !== 'string' || rawSource.sessionName.length === 0))
+        if (isInvalid) {
+          console.warn(`[pty-server] Rejected session_create: invalid source ${JSON.stringify(rawSource)}`)
           ws.send(JSON.stringify({ type: 'auth_error', reason: 'invalid session source' } satisfies WsMessage))
           return
-        }
-        // sessionName を持つ種別はここで文字列型であることを確認
-        if (rawSource.kind === 'tmux' || rawSource.kind === 'screen' || rawSource.kind === 'zellij') {
-          if (typeof rawSource.sessionName !== 'string' || rawSource.sessionName.length === 0) {
-            console.warn(`[pty-server] Rejected session_create: missing sessionName for ${rawSource.kind}`)
-            ws.send(JSON.stringify({ type: 'auth_error', reason: 'invalid session source' } satisfies WsMessage))
-            return
-          }
         }
         const source = rawSource as SessionSource
         const session = createPtySession(source, clientIP)

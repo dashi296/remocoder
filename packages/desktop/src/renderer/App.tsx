@@ -56,7 +56,7 @@ export default function App() {
   const [activeTerminalSessionId, setActiveTerminalSessionId] = useState<string | null>(null)
   const [multiplexerSessions, setMultiplexerSessions] = useState<MultiplexerSessionInfo[]>([])
 
-  const loadMultiplexerSessions = () => {
+  function loadMultiplexerSessions() {
     api.getMultiplexerSessions?.().then(setMultiplexerSessions).catch(() => {})
   }
 
@@ -82,22 +82,17 @@ export default function App() {
     }
   }, [])
 
-  const handleOpenTerminal = async (sessionId: string) => {
+  async function openSession(sessionId: string) {
     await api.openTerminalWindow(sessionId)
     setActiveTerminalSessionId(sessionId)
   }
 
-  const handleNewSession = async () => {
-    const sessionId = await api.ptyCreate()
-    await api.openTerminalWindow(sessionId)
-    setActiveTerminalSessionId(sessionId)
+  async function handleNewSession() {
+    await openSession(await api.ptyCreate())
   }
 
-  const handleAttachMultiplexer = async (tool: MultiplexerSessionInfo['tool'], sessionName: string) => {
-    const source: SessionSource = { kind: tool, sessionName }
-    const sessionId = await api.ptyCreate(source)
-    await api.openTerminalWindow(sessionId)
-    setActiveTerminalSessionId(sessionId)
+  async function handleAttachMultiplexer(tool: MultiplexerSessionInfo['tool'], sessionName: string) {
+    await openSession(await api.ptyCreate({ kind: tool, sessionName } as SessionSource))
   }
 
   const handleCloseTerminal = () => {
@@ -144,13 +139,13 @@ export default function App() {
           <TokenDisplay
             token={token}
             tailscaleIP={tailscaleIP}
-            onRotate={api.rotateToken ? async () => { const t = await api.rotateToken(); setToken(t) } : undefined}
+            onRotate={api.rotateToken ? async () => setToken(await api.rotateToken()) : undefined}
           />
         )}
         <SessionList
           sessions={sessions}
           multiplexerSessions={multiplexerSessions}
-          onOpenTerminal={handleOpenTerminal}
+          onOpenTerminal={openSession}
           onNewSession={handleNewSession}
           onAttachMultiplexer={handleAttachMultiplexer}
           onRefreshMultiplexer={loadMultiplexerSessions}

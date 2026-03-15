@@ -59,11 +59,11 @@ const Animated = {
   Value: AnimatedValue,
   View: (props: any) => React.createElement('View', props),
   Text: (props: any) => React.createElement('Text', props),
-  timing: (_value: any, _config: any) => ({ start: jest.fn() }),
-  spring: (_value: any, _config: any) => ({ start: jest.fn() }),
-  sequence: (_animations: any[]) => ({ start: jest.fn() }),
-  parallel: (_animations: any[]) => ({ start: jest.fn() }),
-  delay: (_ms: number) => ({ start: jest.fn() }),
+  timing: (_value: any, _config: any) => ({ start: jest.fn(), stop: jest.fn() }),
+  spring: (_value: any, _config: any) => ({ start: jest.fn(), stop: jest.fn() }),
+  sequence: (_animations: any[]) => ({ start: jest.fn(), stop: jest.fn() }),
+  parallel: (_animations: any[]) => ({ start: jest.fn(), stop: jest.fn() }),
+  delay: (_ms: number) => ({ start: jest.fn(), stop: jest.fn() }),
 }
 
 const Alert = {

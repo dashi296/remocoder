@@ -1,4 +1,4 @@
-import React, { useRef, useCallback, useState, useEffect } from 'react'
+import React, { useRef, useCallback, useState } from 'react'
 import {
   View,
   Text,
@@ -72,12 +72,9 @@ export function ChatScreen({ ip, token, projectPath, sessionId, source, onDiscon
 
   const statusCfg = STATUS_CONFIG[status as ConnectionStatus]
 
-  // 新しいアイテムが追加されたら末尾へスクロール
-  useEffect(() => {
-    if (items.length > 0) {
-      setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100)
-    }
-  }, [items.length])
+  const handleContentSizeChange = useCallback(() => {
+    flatListRef.current?.scrollToEnd({ animated: true })
+  }, [])
 
   const handleSend = useCallback(() => {
     const trimmed = inputText.trim()
@@ -161,6 +158,7 @@ export function ChatScreen({ ip, token, projectPath, sessionId, source, onDiscon
         renderItem={renderItem}
         contentContainerStyle={styles.listContent}
         ListEmptyComponent={<EmptyState status={status as ConnectionStatus} />}
+        onContentSizeChange={handleContentSizeChange}
       />
 
       {/* 入力エリア */}

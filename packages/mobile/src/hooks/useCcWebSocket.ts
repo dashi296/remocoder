@@ -183,6 +183,10 @@ export function useCcWebSocket({
     [initialSessionId, buildSessionCreate, sendWs, addItem],
   )
 
+  // 再接続時も最新の handleMessage を参照できるよう ref 経由で呼ぶ
+  const handleMessageRef = useRef(handleMessage)
+  handleMessageRef.current = handleMessage
+
   const connect = useCallback(() => {
     if (!mountedRef.current) return
     const url = `ws://${ip}:${DEFAULT_WS_PORT}`
@@ -190,10 +194,12 @@ export function useCcWebSocket({
     wsRef.current = ws
 
     ws.onopen = () => {
-      sendWs({ type: 'auth', token })
+      // onopen 時点の ws インスタンスに直接送信し、古い ref を参照しない
+      ws.send(JSON.stringify({ type: 'auth', token } satisfies WsMessage))
     }
 
-    ws.onmessage = (e) => handleMessage(e.data)
+    // handleMessageRef 経由で呼ぶことで、再接続後も最新のクロージャを使用する
+    ws.onmessage = (e) => handleMessageRef.current(e.data)
 
     ws.onclose = () => {
       if (!mountedRef.current || noReconnectRef.current) return
@@ -206,7 +212,7 @@ export function useCcWebSocket({
     ws.onerror = () => {
       // onclose が続けて呼ばれるため、ここでは何もしない
     }
-  }, [ip, token, handleMessage, sendWs])
+  }, [ip, token])
 
   useEffect(() => {
     mountedRef.current = true

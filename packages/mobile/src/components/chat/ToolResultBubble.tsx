@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native'
+import { View, Text, TouchableOpacity, StyleSheet, Platform } from 'react-native'
 
 interface Props {
   toolUseId: string
@@ -93,7 +93,7 @@ const styles = StyleSheet.create({
   content: {
     color: '#8b949e',
     fontSize: 11,
-    fontFamily: 'Menlo, Monaco, monospace',
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
     lineHeight: 16,
   },
   toggleBtn: {

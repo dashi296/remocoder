@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native'
+import { View, Text, TouchableOpacity, StyleSheet, Platform } from 'react-native'
 
 interface Props {
   permissionId: string
@@ -21,6 +21,14 @@ export function PermissionCard({
   onRespond,
 }: Props) {
   const [detailExpanded, setDetailExpanded] = useState(false)
+  // 二重タップ防止: 親の state 更新前でもローカルで即時無効化する
+  const [localResponded, setLocalResponded] = useState(false)
+
+  const handleRespond = (isApproved: boolean) => {
+    if (localResponded) return
+    setLocalResponded(true)
+    onRespond(permissionId, isApproved)
+  }
 
   const inputStr =
     typeof input === 'string' ? input : JSON.stringify(input, null, 2)
@@ -61,7 +69,7 @@ export function PermissionCard({
 
         {/* アクション */}
         <View style={styles.actions}>
-          {responded ? (
+          {responded || localResponded ? (
             <View style={[styles.resultBadge, approved ? styles.badgeApproved : styles.badgeDenied]}>
               <Text style={styles.resultText}>{approved ? '✓ 承認済み' : '✕ 拒否済み'}</Text>
             </View>
@@ -69,14 +77,14 @@ export function PermissionCard({
             <>
               <TouchableOpacity
                 style={[styles.btn, styles.btnDeny]}
-                onPress={() => onRespond(permissionId, false)}
+                onPress={() => handleRespond(false)}
                 activeOpacity={0.8}
               >
                 <Text style={styles.btnDenyText}>拒否</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.btn, styles.btnApprove]}
-                onPress={() => onRespond(permissionId, true)}
+                onPress={() => handleRespond(true)}
                 activeOpacity={0.8}
               >
                 <Text style={styles.btnApproveText}>承認</Text>
@@ -135,7 +143,7 @@ const styles = StyleSheet.create({
   toolName: {
     color: '#dcdcaa',
     fontSize: 14,
-    fontFamily: 'Menlo, Monaco, monospace',
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
     fontWeight: '600',
   },
   prompt: {
@@ -161,7 +169,7 @@ const styles = StyleSheet.create({
   detailText: {
     color: '#8b949e',
     fontSize: 11,
-    fontFamily: 'Menlo, Monaco, monospace',
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
     lineHeight: 16,
   },
   actions: {

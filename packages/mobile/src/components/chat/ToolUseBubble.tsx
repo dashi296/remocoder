@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native'
+import { View, Text, TouchableOpacity, StyleSheet, Platform } from 'react-native'
 
 interface Props {
   toolName: string
@@ -72,7 +72,7 @@ const styles = StyleSheet.create({
     color: '#dcdcaa',
     fontSize: 13,
     fontWeight: '600',
-    fontFamily: 'Menlo, Monaco, monospace',
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
   },
   chevron: {
     color: '#8b949e',
@@ -87,7 +87,7 @@ const styles = StyleSheet.create({
   inputText: {
     color: '#8b949e',
     fontSize: 11,
-    fontFamily: 'Menlo, Monaco, monospace',
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
     lineHeight: 16,
   },
 })

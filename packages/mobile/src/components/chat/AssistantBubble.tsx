@@ -1,5 +1,5 @@
 import React from 'react'
-import { View, Text, StyleSheet } from 'react-native'
+import { View, Text, StyleSheet, Platform } from 'react-native'
 
 interface Props {
   content: string
@@ -75,7 +75,7 @@ const styles = StyleSheet.create({
   codeText: {
     color: '#e6edf3',
     fontSize: 12,
-    fontFamily: 'Menlo, Monaco, monospace',
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
     lineHeight: 18,
   },
 })

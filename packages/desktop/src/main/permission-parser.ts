@@ -5,7 +5,7 @@ export interface ParsedPermission {
 }
 
 // ANSI エスケープシーケンス除去パターン
-const ANSI_RE = /\x1b\[[0-9;]*[A-Za-z]|\x1b\][^\x07]*\x07|\x1b[()][AB012]/g
+const ANSI_RE = /\x1b\[[?>=!]*[0-9;]*[A-Za-z]|\x1b\][^\x07]*\x07|\x1b[()][AB012]/g
 
 export function stripAnsi(s: string): string {
   return s.replace(ANSI_RE, '')
@@ -27,9 +27,9 @@ export function tryParsePermission(buf: string): ParsedPermission | null {
   const toolName = toolMatch ? toolMatch[1].trim() : 'Unknown'
 
   const details: string[] = []
-  const re = new RegExp(TOOL_BOX_CONTENT_RE.source, 'g')
+  const contentRe = new RegExp(TOOL_BOX_CONTENT_RE.source, 'g')
   let m: RegExpExecArray | null
-  while ((m = re.exec(clean)) !== null) {
+  while ((m = contentRe.exec(clean)) !== null) {
     const line = m[1].trim()
     if (line) details.push(line)
   }

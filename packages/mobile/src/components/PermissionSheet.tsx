@@ -18,45 +18,16 @@ const TIMEOUT_MS = 60000
 export function PermissionSheet({ request, onDecide }: Props) {
   const slideAnim = useRef(new Animated.Value(300)).current
   const progressAnim = useRef(new Animated.Value(1)).current
-  const autoRejectTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
     if (request) {
-      // Slide up
-      Animated.spring(slideAnim, {
-        toValue: 0,
-        useNativeDriver: true,
-        bounciness: 4,
-      }).start()
-      // Progress bar countdown
+      Animated.spring(slideAnim, { toValue: 0, useNativeDriver: true, bounciness: 4 }).start()
       progressAnim.setValue(1)
-      Animated.timing(progressAnim, {
-        toValue: 0,
-        duration: TIMEOUT_MS,
-        useNativeDriver: false,
-      }).start()
-      // Auto-dismiss after timeout (server also auto-rejects)
-      autoRejectTimer.current = setTimeout(() => {
-        onDecide(request.requestId, 'reject')
-      }, TIMEOUT_MS)
+      Animated.timing(progressAnim, { toValue: 0, duration: TIMEOUT_MS, useNativeDriver: false }).start()
     } else {
-      Animated.timing(slideAnim, {
-        toValue: 300,
-        duration: 200,
-        useNativeDriver: true,
-      }).start()
-      if (autoRejectTimer.current) {
-        clearTimeout(autoRejectTimer.current)
-        autoRejectTimer.current = null
-      }
+      Animated.timing(slideAnim, { toValue: 300, duration: 200, useNativeDriver: true }).start()
     }
-    return () => {
-      if (autoRejectTimer.current) {
-        clearTimeout(autoRejectTimer.current)
-        autoRejectTimer.current = null
-      }
-    }
-  }, [request, onDecide, slideAnim, progressAnim])
+  }, [request, slideAnim, progressAnim])
 
   if (!request) return null
 

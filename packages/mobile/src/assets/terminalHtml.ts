@@ -79,8 +79,13 @@ export function buildTerminalHtml(
 
     /** session_create メッセージを構築する */
     function buildSessionCreate(path) {
-      if (SESSION_SOURCE) return { type: 'session_create', source: SESSION_SOURCE }
-      return { type: 'session_create', ...(path ? { projectPath: path } : {}) }
+      if (SESSION_SOURCE) {
+        return { type: 'session_create', source: SESSION_SOURCE }
+      }
+      if (path) {
+        return { type: 'session_create', projectPath: path }
+      }
+      return { type: 'session_create' }
     }
 
     function stopKeepalive() {

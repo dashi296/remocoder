@@ -59,42 +59,52 @@ export function TerminalScreen({ ip, token, projectPath, sessionId, source, onDi
 
   const handleMessage = useCallback(
     (event: WebViewMessageEvent) => {
+      let msg: Record<string, unknown>
       try {
-        const msg = JSON.parse(event.nativeEvent.data)
-        if (msg.type === 'debug') {
+        msg = JSON.parse(event.nativeEvent.data)
+      } catch {
+        return
+      }
+
+      switch (msg.type) {
+        case 'debug':
           console.log('[WebView debug]', msg.msg)
-        } else if (msg.type === 'auth_error') {
+          break
+        case 'auth_error':
           setStatus('auth_error')
-        } else if (msg.type === 'auth_ok') {
-          // auth_ok 後はセッション選択待ち状態 → session_attached で connected へ
-        } else if (msg.type === 'session_attached') {
-          setCurrentSessionId(msg.sessionId)
+          break
+        case 'session_attached':
+          setCurrentSessionId(msg.sessionId as string)
           setStatus('connected')
           closeSwitcher()
-        } else if (msg.type === 'connected') {
+          break
+        case 'connected':
           setStatus('connected')
-        } else if (msg.type === 'disconnected') {
+          break
+        case 'disconnected':
           setStatus('reconnecting')
-        } else if (msg.type === 'shell_exit') {
+          break
+        case 'shell_exit':
           setStatus('shell_exit')
-        } else if (msg.type === 'session_not_found') {
+          break
+        case 'session_not_found':
           setStatus('auth_error')
           closeSwitcher()
-        } else if (msg.type === 'session_list_response') {
-          setSessionList(msg.sessions)
-          setProjectList(msg.projects)
+          break
+        case 'session_list_response':
+          setSessionList(msg.sessions as SessionInfo[])
+          setProjectList(msg.projects as ProjectInfo[])
           setSwitcherLoading(false)
           setShowSwitcher(true)
-        } else if (msg.type === 'permission_request') {
+          break
+        case 'permission_request':
           setPendingPermission({
-            requestId: msg.requestId,
-            toolName: msg.toolName,
-            details: msg.details,
-            requiresAlways: msg.requiresAlways,
+            requestId: msg.requestId as string,
+            toolName: msg.toolName as string,
+            details: msg.details as string[],
+            requiresAlways: msg.requiresAlways as boolean,
           })
-        }
-      } catch {
-        // 無視
+          break
       }
     },
     [closeSwitcher],

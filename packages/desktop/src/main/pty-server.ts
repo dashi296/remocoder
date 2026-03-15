@@ -294,6 +294,7 @@ function createPtySession(source: SessionSource = { kind: 'claude' }, clientIP?:
 
   ptyProc.onExit(({ exitCode }) => {
     if (session.idleTimeoutId) clearTimeout(session.idleTimeoutId)
+    if (session.pendingPermission) clearTimeout(session.pendingPermission.timeoutId)
     if (session.wsClient?.readyState === WebSocket.OPEN) {
       session.wsClient.send(JSON.stringify({ type: 'shell_exit', exitCode } satisfies WsMessage))
       session.wsClient.close()
@@ -432,6 +433,11 @@ export function startPtyServer(port = DEFAULT_WS_PORT, callbacks: PtyServerCallb
       if (attachedSessionId) {
         const session = ptySessions.get(attachedSessionId)
         if (session && session.wsClient === ws) {
+          if (session.pendingPermission) {
+            clearTimeout(session.pendingPermission.timeoutId)
+            session.pendingPermission = null
+            session.permissionBuffer = ''
+          }
           session.wsClient = null
           session.clientIP = undefined
           notifySessions()
@@ -509,6 +515,33 @@ export function startPtyServer(port = DEFAULT_WS_PORT, callbacks: PtyServerCallb
           }
           serverCallbacks.onPtyOutput?.(providerSessionId, msg.data)
           setSessionActive(provSession)
+          // 外部セッションでも承認プロンプトを検出する
+          if (!provSession.pendingPermission && provSession.wsClient?.readyState === WebSocket.OPEN) {
+            const stripped = stripAnsi(msg.data)
+            provSession.permissionBuffer = (provSession.permissionBuffer + stripped).slice(-2048)
+            const parsed = tryParsePermission(provSession.permissionBuffer)
+            if (parsed) {
+              const requestId = uuidv4()
+              const timeoutId = setTimeout(() => {
+                if (provSession.pendingPermission?.requestId === requestId) {
+                  sessionWrite(provSession, 'n\n')
+                  provSession.pendingPermission = null
+                  provSession.permissionBuffer = ''
+                }
+              }, 65000)
+              provSession.pendingPermission = { requestId, timeoutId }
+              provSession.permissionBuffer = ''
+              provSession.wsClient.send(
+                JSON.stringify({
+                  type: 'permission_request',
+                  requestId,
+                  toolName: parsed.toolName,
+                  details: parsed.details,
+                  requiresAlways: parsed.requiresAlways,
+                } satisfies WsMessage),
+              )
+            }
+          }
         } else if (msg.type === 'shell_exit') {
           if (provSession.idleTimeoutId) clearTimeout(provSession.idleTimeoutId)
           if (provSession.wsClient?.readyState === WebSocket.OPEN) {
@@ -642,7 +675,12 @@ export function startPtyServer(port = DEFAULT_WS_PORT, callbacks: PtyServerCallb
           clearTimeout(pending.timeoutId)
           session.pendingPermission = null
           session.permissionBuffer = ''
-          const key = msg.decision === 'approve' ? 'y\n' : msg.decision === 'always' ? 'a\n' : 'n\n'
+          let key: string
+          switch (msg.decision) {
+            case 'approve': key = 'y\n'; break
+            case 'always':  key = 'a\n'; break
+            default:        key = 'n\n'; break
+          }
           sessionWrite(session, key)
         }
         return

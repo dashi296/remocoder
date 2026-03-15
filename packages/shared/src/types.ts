@@ -14,7 +14,7 @@ export interface MultiplexerSessionInfo {
   detail?: string
 }
 
-// WebSocketメッセージの型定義
+/** WebSocketメッセージの型定義 */
 export type WsMessage =
   | { type: 'input'; data: string }
   | { type: 'output'; data: string }
@@ -42,19 +42,9 @@ export type WsMessage =
   /** session_list_request への応答（セッション一覧 + 最近のプロジェクト一覧） */
   | { type: 'session_list_response'; sessions: SessionInfo[]; projects: ProjectInfo[]; multiplexerSessions?: MultiplexerSessionInfo[] }
   /** デスクトップがモバイルへ承認プロンプトを通知する */
-  | {
-      type: 'permission_request'
-      requestId: string
-      toolName: string
-      details: string[]
-      requiresAlways: boolean
-    }
+  | { type: 'permission_request'; requestId: string; toolName: string; details: string[]; requiresAlways: boolean }
   /** モバイルがデスクトップへ承認結果を返す */
-  | {
-      type: 'permission_response'
-      requestId: string
-      decision: 'approve' | 'reject' | 'always'
-    }
+  | { type: 'permission_response'; requestId: string; decision: 'approve' | 'reject' | 'always' }
 
 export interface ProjectInfo {
   /** プロジェクトのフルパス */

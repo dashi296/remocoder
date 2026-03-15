@@ -171,7 +171,9 @@ function getSessionInfos(): SessionInfo[] {
     status: s.status,
     clientIP: s.clientIP,
     hasClient: s.wsClient !== null && s.wsClient.readyState === WebSocket.OPEN,
-    isExternal: s.pty === null,
+    // CC セッション（ccSession あり）は内部セッションとして扱う
+    // providerWs が設定されている場合のみ外部ターミナルセッション
+    isExternal: s.providerWs !== null,
     projectPath: s.projectPath,
     source: s.source,
   }))

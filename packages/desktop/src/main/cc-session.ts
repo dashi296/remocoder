@@ -19,11 +19,6 @@ import type { WsMessage, CcPermissionRequest } from '@remocoder/shared'
 // 内部型
 // ──────────────────────────────────────────────────────────────────────────────
 
-interface PendingPermission {
-  permissionId: string
-  resolve: (approved: boolean) => void
-}
-
 /** claude --output-format stream-json の assistant ブロック */
 interface ClaudeContentBlock {
   type: 'text' | 'tool_use' | string
@@ -56,7 +51,6 @@ interface ClaudeStreamEvent {
 export class CcSession {
   private readonly proc: ChildProcess
   private wsClient: WebSocket | null
-  private readonly pendingPermissions = new Map<string, PendingPermission>()
 
   constructor(
     public readonly sessionId: string,
@@ -86,19 +80,28 @@ export class CcSession {
 
   /** ユーザーメッセージを stdin 経由で送信する */
   sendUserMessage(content: string): void {
-    this.proc.stdin?.write(content + '\n')
+    if (!this.proc.stdin) {
+      console.error(`[cc-session ${this.sessionId.slice(0, 8)}] stdin unavailable, cannot send user message`)
+      this.send({
+        type: 'cc_message',
+        id: uuidv4(),
+        role: 'assistant',
+        content: 'エラー: セッションへのメッセージ送信に失敗しました（stdin が利用不可）',
+        sessionId: this.sessionId,
+      })
+      return
+    }
+    this.proc.stdin.write(content + '\n')
   }
 
   /** Mobile からの承認/拒否応答を処理する */
-  handlePermissionResponse(permissionId: string, approved: boolean): void {
-    // claude は権限確認を stdin で受け取る（yes / no）
-    this.proc.stdin?.write((approved ? 'yes' : 'no') + '\n')
-
-    const pending = this.pendingPermissions.get(permissionId)
-    if (pending) {
-      pending.resolve(approved)
-      this.pendingPermissions.delete(permissionId)
+  handlePermissionResponse(_permissionId: string, approved: boolean): void {
+    if (!this.proc.stdin) {
+      console.error(`[cc-session ${this.sessionId.slice(0, 8)}] stdin unavailable, cannot send permission response`)
+      return
     }
+    // claude は権限確認を stdin で受け取る（yes / no）
+    this.proc.stdin.write((approved ? 'yes' : 'no') + '\n')
   }
 
   kill(): void {
@@ -114,17 +117,32 @@ export class CcSession {
   }
 
   private setupHandlers(): void {
-    // stdout を行単位でパース
-    const rl = createInterface({ input: this.proc.stdout! })
-    rl.on('line', (line) => {
-      const trimmed = line.trim()
-      if (!trimmed) return
-      try {
-        this.handleEvent(JSON.parse(trimmed) as ClaudeStreamEvent)
-      } catch {
-        // JSON でない行（デバッグ出力等）は無視
-      }
+    // spawn 自体の失敗（コマンドが存在しない等）を捕捉する
+    this.proc.on('error', (err) => {
+      console.error(`[cc-session ${this.sessionId.slice(0, 8)}] spawn error:`, err.message)
+      this.send({
+        type: 'cc_message',
+        id: uuidv4(),
+        role: 'assistant',
+        content: `エラー: claude の起動に失敗しました（${err.message}）`,
+        sessionId: this.sessionId,
+      })
+      this.onExit(1)
     })
+
+    // stdout が null の場合（spawn 失敗時等）はスキップ
+    if (this.proc.stdout) {
+      const rl = createInterface({ input: this.proc.stdout })
+      rl.on('line', (line) => {
+        const trimmed = line.trim()
+        if (!trimmed) return
+        try {
+          this.handleEvent(JSON.parse(trimmed) as ClaudeStreamEvent)
+        } catch {
+          // JSON でない行（デバッグ出力等）は無視
+        }
+      })
+    }
 
     this.proc.stderr?.on('data', (chunk: Buffer) => {
       console.error(`[cc-session ${this.sessionId.slice(0, 8)}] stderr:`, chunk.toString())

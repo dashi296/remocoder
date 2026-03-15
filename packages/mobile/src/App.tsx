@@ -43,9 +43,13 @@ export default function App() {
     setState((prev) => ({ ...prev, screen: 'chat', projectPath, sessionId: null, source: { kind: 'claude', projectPath: projectPath ?? undefined } }))
   }
 
-  const handleAttachSession = (sessionId: string) => {
-    // 既存セッションのソースが claude かどうかは不明なため、ひとまずチャットUIへ（PTYセッションの場合は後でフォールバック）
-    setState((prev) => ({ ...prev, screen: 'chat', sessionId, projectPath: null, source: null }))
+  const handleAttachSession = (session: import('@remocoder/shared').SessionInfo) => {
+    const isClaude = !session.source || session.source.kind === 'claude'
+    if (isClaude) {
+      setState((prev) => ({ ...prev, screen: 'chat', sessionId: session.id, projectPath: null, source: null }))
+    } else {
+      setState((prev) => ({ ...prev, screen: 'terminal', sessionId: session.id, projectPath: null, source: null }))
+    }
   }
 
   const handleAttachMultiplexer = (source: SessionSource) => {

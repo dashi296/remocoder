@@ -17,7 +17,7 @@ interface Props {
   /** プロジェクト選択時に呼ばれる。null は新規セッション（プロジェクトなし） */
   onSelectProject: (projectPath: string | null) => void
   /** 実行中セッションを選択したときに呼ばれる */
-  onAttachSession: (sessionId: string) => void
+  onAttachSession: (session: SessionInfo) => void
   /** マルチプレクサセッション（tmux/screen/zellij）を選択したときに呼ばれる */
   onAttachMultiplexer: (source: SessionSource) => void
   onBack: () => void
@@ -91,10 +91,10 @@ export function SessionPickerScreen({ ip, token, onSelectProject, onAttachSessio
     onSelectProject(projectPath)
   }
 
-  const handleAttachSession = (sessionId: string) => {
+  const handleAttachSession = (session: SessionInfo) => {
     selectedRef.current = true
     wsRef.current?.close()
-    onAttachSession(sessionId)
+    onAttachSession(session)
   }
 
   const handleAttachMultiplexer = (mux: MultiplexerSessionInfo) => {
@@ -179,7 +179,7 @@ export function SessionPickerScreen({ ip, token, onSelectProject, onAttachSessio
               return (
                 <TouchableOpacity
                   style={styles.sessionRow}
-                  onPress={() => handleAttachSession(session.id)}
+                  onPress={() => handleAttachSession(session)}
                 >
                   <View
                     style={[

@@ -165,6 +165,14 @@ export function buildTerminalHtml(
           postToNative({ type: 'shell_exit', exitCode: msg.exitCode })
         } else if (msg.type === 'session_list_response') {
           postToNative({ type: 'session_list_response', sessions: msg.sessions, projects: msg.projects })
+        } else if (msg.type === 'permission_request') {
+          postToNative({
+            type: 'permission_request',
+            requestId: msg.requestId,
+            toolName: msg.toolName,
+            details: msg.details,
+            requiresAlways: msg.requiresAlways,
+          })
         } else if (msg.type === 'ping') {
           currentWs.send(JSON.stringify({ type: 'pong' }))
         }
@@ -219,6 +227,11 @@ export function buildTerminalHtml(
     /** 新規セッションを作成して切り替える */
     window.createNewSession = function(newProjectPath) {
       sendWs(buildSessionCreate(newProjectPath))
+    }
+
+    /** 承認ダイアログの結果をサーバーへ送信する */
+    window.sendPermissionResponse = function(requestId, decision) {
+      sendWs({ type: 'permission_response', requestId, decision })
     }
   </script>
 </body>

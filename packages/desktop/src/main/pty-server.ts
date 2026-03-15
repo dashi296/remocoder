@@ -8,6 +8,7 @@ import { exec } from 'child_process'
 import { promisify } from 'util'
 import { WsMessage, SessionInfo, ProjectInfo, MultiplexerSessionInfo, SessionSource, DEFAULT_WS_PORT } from '@remocoder/shared'
 import { v4 as uuidv4 } from 'uuid'
+import { tryParsePermission, stripAnsi } from './permission-parser'
 
 const execAsync = promisify(exec)
 
@@ -138,6 +139,10 @@ interface PtySession {
   projectPath?: string
   /** セッションの起動元 */
   source?: SessionSource
+  /** 承認プロンプト検出用の直近出力バッファ（ANSIなし、上限2KB） */
+  permissionBuffer: string
+  /** 承認待ちリクエスト（存在する間は重複検出しない） */
+  pendingPermission: { requestId: string; timeoutId: ReturnType<typeof setTimeout> } | null
 }
 
 /** 永続PTYセッションマップ（WS切断後も保持） */
@@ -247,6 +252,8 @@ function createPtySession(source: SessionSource = { kind: 'claude' }, clientIP?:
     lastActiveAt: 0,
     projectPath,
     source,
+    permissionBuffer: '',
+    pendingPermission: null,
   }
 
   ptyProc.onData((data) => {
@@ -255,6 +262,34 @@ function createPtySession(source: SessionSource = { kind: 'claude' }, clientIP?:
       session.wsClient.send(JSON.stringify({ type: 'output', data } satisfies WsMessage))
     }
     serverCallbacks.onPtyOutput?.(id, data)
+
+    // 承認プロンプト検出（待機中は重複検出しない）
+    if (!session.pendingPermission && session.wsClient?.readyState === WebSocket.OPEN) {
+      const stripped = stripAnsi(data)
+      session.permissionBuffer = (session.permissionBuffer + stripped).slice(-2048)
+      const parsed = tryParsePermission(session.permissionBuffer)
+      if (parsed) {
+        const requestId = uuidv4()
+        const timeoutId = setTimeout(() => {
+          if (session.pendingPermission?.requestId === requestId) {
+            sessionWrite(session, 'n\n')
+            session.pendingPermission = null
+            session.permissionBuffer = ''
+          }
+        }, 60000)
+        session.pendingPermission = { requestId, timeoutId }
+        session.permissionBuffer = ''
+        session.wsClient.send(
+          JSON.stringify({
+            type: 'permission_request',
+            requestId,
+            toolName: parsed.toolName,
+            details: parsed.details,
+            requiresAlways: parsed.requiresAlways,
+          } satisfies WsMessage),
+        )
+      }
+    }
   })
 
   ptyProc.onExit(({ exitCode }) => {
@@ -293,6 +328,8 @@ function createExternalSession(providerWs: WebSocket): PtySession {
     wsClient: null,
     idleTimeoutId: null,
     lastActiveAt: 0,
+    permissionBuffer: '',
+    pendingPermission: null,
   }
 
   ptySessions.set(id, session)
@@ -599,6 +636,17 @@ export function startPtyServer(port = DEFAULT_WS_PORT, callbacks: PtyServerCallb
       const session = ptySessions.get(attachedSessionId)
       if (!session) return
 
+      if (msg.type === 'permission_response') {
+        const pending = session.pendingPermission
+        if (pending && pending.requestId === msg.requestId) {
+          clearTimeout(pending.timeoutId)
+          session.pendingPermission = null
+          session.permissionBuffer = ''
+          const key = msg.decision === 'approve' ? 'y\n' : msg.decision === 'always' ? 'a\n' : 'n\n'
+          sessionWrite(session, key)
+        }
+        return
+      }
       if (msg.type === 'input') {
         sessionWrite(session, msg.data)
         setSessionActive(session)

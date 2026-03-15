@@ -13,6 +13,7 @@ import { WebView, WebViewMessageEvent } from 'react-native-webview'
 import { DEFAULT_WS_PORT, SessionInfo, ProjectInfo, SessionSource } from '@remocoder/shared'
 import { buildTerminalHtml } from '../assets/terminalHtml'
 import { formatDate, getSessionDisplayName } from '../utils'
+import { PermissionSheet, PermissionRequest } from '../components/PermissionSheet'
 
 type ConnectionStatus = 'connecting' | 'connected' | 'reconnecting' | 'auth_error' | 'shell_exit'
 
@@ -48,6 +49,7 @@ export function TerminalScreen({ ip, token, projectPath, sessionId, source, onDi
   const [sessionList, setSessionList] = useState<SessionInfo[]>([])
   const [projectList, setProjectList] = useState<ProjectInfo[]>([])
   const [switcherLoading, setSwitcherLoading] = useState(false)
+  const [pendingPermission, setPendingPermission] = useState<PermissionRequest | null>(null)
   const webViewRef = useRef<WebView>(null)
 
   const closeSwitcher = useCallback(() => {
@@ -83,12 +85,29 @@ export function TerminalScreen({ ip, token, projectPath, sessionId, source, onDi
           setProjectList(msg.projects)
           setSwitcherLoading(false)
           setShowSwitcher(true)
+        } else if (msg.type === 'permission_request') {
+          setPendingPermission({
+            requestId: msg.requestId,
+            toolName: msg.toolName,
+            details: msg.details,
+            requiresAlways: msg.requiresAlways,
+          })
         }
       } catch {
         // 無視
       }
     },
     [closeSwitcher],
+  )
+
+  const handlePermissionDecide = useCallback(
+    (requestId: string, decision: 'approve' | 'reject' | 'always') => {
+      setPendingPermission(null)
+      webViewRef.current?.injectJavaScript(
+        `window.sendPermissionResponse(${JSON.stringify(requestId)}, ${JSON.stringify(decision)}); true;`,
+      )
+    },
+    [],
   )
 
   const handleRetry = useCallback(() => {
@@ -166,6 +185,9 @@ export function TerminalScreen({ ip, token, projectPath, sessionId, source, onDi
         onError={(e) => console.error('WebView error:', e.nativeEvent)}
         onHttpError={(e) => console.error('WebView HTTP error:', e.nativeEvent.statusCode)}
       />
+
+      {/* 承認ボトムシート */}
+      <PermissionSheet request={pendingPermission} onDecide={handlePermissionDecide} />
 
       {/* セッション切替モーダル */}
       <Modal

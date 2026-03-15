@@ -41,6 +41,20 @@ export type WsMessage =
   | { type: 'session_list_request' }
   /** session_list_request への応答（セッション一覧 + 最近のプロジェクト一覧） */
   | { type: 'session_list_response'; sessions: SessionInfo[]; projects: ProjectInfo[]; multiplexerSessions?: MultiplexerSessionInfo[] }
+  /** デスクトップがモバイルへ承認プロンプトを通知する */
+  | {
+      type: 'permission_request'
+      requestId: string
+      toolName: string
+      details: string[]
+      requiresAlways: boolean
+    }
+  /** モバイルがデスクトップへ承認結果を返す */
+  | {
+      type: 'permission_response'
+      requestId: string
+      decision: 'approve' | 'reject' | 'always'
+    }
 
 export interface ProjectInfo {
   /** プロジェクトのフルパス */

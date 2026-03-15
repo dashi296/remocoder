@@ -84,13 +84,15 @@ export const DEFAULT_WS_PORT = 8080
 /** Claude Code SDK が発行するメッセージのロール */
 export type CcRole = 'assistant' | 'user'
 
-/** アシスタントのテキスト返答 */
+/** チャットメッセージ（アシスタントまたはユーザー） */
 export interface CcMessage {
   type: 'cc_message'
   id: string
   role: CcRole
   content: string
   sessionId: string
+  /** メッセージ生成時刻 (ISO 8601) */
+  timestamp?: string
 }
 
 /** ツール実行リクエスト（Claude → ツール） */
@@ -106,6 +108,7 @@ export interface CcToolUse {
 export interface CcToolResult {
   type: 'cc_tool_result'
   toolUseId: string
+  /** テキスト形式のツール実行結果（バイナリ・画像等は含まない） */
   content: string
   isError: boolean
   sessionId: string

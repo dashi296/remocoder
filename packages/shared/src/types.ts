@@ -41,6 +41,15 @@ export type WsMessage =
   | { type: 'session_list_request' }
   /** session_list_request への応答（セッション一覧 + 最近のプロジェクト一覧） */
   | { type: 'session_list_response'; sessions: SessionInfo[]; projects: ProjectInfo[]; multiplexerSessions?: MultiplexerSessionInfo[] }
+  // ── チャットUI向け Claude Code SDK イベント ──
+  | CcMessage
+  | CcToolUse
+  | CcToolResult
+  | CcPermissionRequest
+  | CcPermissionResponse
+  | CcSessionStart
+  | CcSessionEnd
+  | CcUserInput
 
 export interface ProjectInfo {
   /** プロジェクトのフルパス */
@@ -67,6 +76,82 @@ export interface SessionInfo {
 }
 
 export const DEFAULT_WS_PORT = 8080
+
+// ──────────────────────────────────────────────
+// チャットUI向け Claude Code SDK イベント型
+// ──────────────────────────────────────────────
+
+/** Claude Code SDK が発行するメッセージのロール */
+export type CcRole = 'assistant' | 'user'
+
+/** チャットメッセージ（アシスタントまたはユーザー） */
+export interface CcMessage {
+  type: 'cc_message'
+  id: string
+  role: CcRole
+  content: string
+  sessionId: string
+  /** メッセージ生成時刻 (ISO 8601) */
+  timestamp?: string
+}
+
+/** ツール実行リクエスト（Claude → ツール） */
+export interface CcToolUse {
+  type: 'cc_tool_use'
+  toolUseId: string
+  toolName: string
+  input: unknown
+  sessionId: string
+}
+
+/** ツール実行結果（ツール → Claude） */
+export interface CcToolResult {
+  type: 'cc_tool_result'
+  toolUseId: string
+  /** テキスト形式のツール実行結果（バイナリ・画像等は含まない） */
+  content: string
+  isError: boolean
+  sessionId: string
+}
+
+/** ユーザーによる承認が必要なリクエスト */
+export interface CcPermissionRequest {
+  type: 'cc_permission_request'
+  permissionId: string
+  toolName: string
+  input: unknown
+  /** ユーザーに表示するプロンプト文字列 */
+  prompt: string
+  sessionId: string
+}
+
+/** Mobile → Desktop: 承認/拒否の応答 */
+export interface CcPermissionResponse {
+  type: 'cc_permission_response'
+  permissionId: string
+  approved: boolean
+  sessionId: string
+}
+
+/** Claude Code SDK セッション開始通知 */
+export interface CcSessionStart {
+  type: 'cc_session_start'
+  sessionId: string
+}
+
+/** Claude Code SDK セッション終了通知 */
+export interface CcSessionEnd {
+  type: 'cc_session_end'
+  sessionId: string
+  exitCode?: number
+}
+
+/** Mobile → Desktop: ユーザーメッセージ送信 */
+export interface CcUserInput {
+  type: 'cc_user_input'
+  content: string
+  sessionId: string
+}
 
 /** スリープ抑制設定 */
 export interface PowerSettings {

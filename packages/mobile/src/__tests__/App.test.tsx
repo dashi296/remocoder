@@ -101,6 +101,38 @@ describe('App', () => {
     expect(screen.getByText('接続中...')).toBeTruthy()
   })
 
+  it('onAttachMultiplexer(tmux) → TerminalScreen に遷移する', async () => {
+    const profiles = [{ id: '1', name: 'MacBook', ip: '100.64.0.1', token: 'tok' }]
+    AsyncStorage.getItem.mockResolvedValue(JSON.stringify(profiles))
+    AsyncStorage.setItem.mockResolvedValue(undefined)
+
+    render(<App />)
+    await waitFor(() => screen.getByText('MacBook'))
+    fireEvent.press(screen.getByText('MacBook'))
+
+    await waitFor(() => screen.getByText('セッションを選択'))
+
+    act(() => { mockWs.onopen?.() })
+    act(() => { mockWs.onmessage?.({ data: JSON.stringify({ type: 'auth_ok' }) }) })
+    act(() => {
+      mockWs.onmessage?.({
+        data: JSON.stringify({
+          type: 'session_list',
+          sessions: [],
+          multiplexerSessions: [{ tool: 'tmux', sessionName: 'dev', detail: '3 windows' }],
+        }),
+      })
+    })
+    act(() => { mockWs.onmessage?.({ data: JSON.stringify({ type: 'project_list', projects: [] }) }) })
+
+    await waitFor(() => screen.getByText('dev'))
+    fireEvent.press(screen.getByText('dev'))
+
+    // TerminalScreen に遷移し「接続中...」が表示される
+    await waitFor(() => screen.getByText('接続中...'))
+    expect(screen.getByText('接続中...')).toBeTruthy()
+  })
+
   it('onAttachSession(session) → source なしは ChatScreen に遷移する', async () => {
     const profiles = [{ id: '1', name: 'MacBook', ip: '100.64.0.1', token: 'tok' }]
     AsyncStorage.getItem.mockResolvedValue(JSON.stringify(profiles))

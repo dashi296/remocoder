@@ -1,6 +1,9 @@
 /** @type {import('jest').Config} */
 module.exports = {
   testEnvironment: 'node',
+  globals: {
+    __DEV__: true,
+  },
   transform: {
     '^.+\\.tsx?$': [
       'ts-jest',

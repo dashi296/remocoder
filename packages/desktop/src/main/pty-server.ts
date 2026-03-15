@@ -142,7 +142,7 @@ interface PtySession {
   /** 承認プロンプト検出用の直近出力バッファ（ANSIなし、上限2KB） */
   permissionBuffer: string
   /** 承認待ちリクエスト（存在する間は重複検出しない） */
-  pendingPermission: { requestId: string; timeoutId: ReturnType<typeof setTimeout> } | null
+  pendingPermission: { requestId: string; timeoutId: ReturnType<typeof setTimeout>; style: 'numbered' | 'legacy' } | null
 }
 
 /** 永続PTYセッションマップ（WS切断後も保持） */
@@ -267,17 +267,21 @@ function createPtySession(source: SessionSource = { kind: 'claude' }, clientIP?:
     if (!session.pendingPermission && session.wsClient?.readyState === WebSocket.OPEN) {
       const stripped = stripAnsi(data)
       session.permissionBuffer = (session.permissionBuffer + stripped).slice(-2048)
+      // デバッグ: Allow? / proceed? を含む出力をログ出力
+      if (/[Aa]llow|proceed/i.test(stripped)) {
+        console.log(`[permission-debug] buffer tail (${session.permissionBuffer.length}B):`, JSON.stringify(session.permissionBuffer.slice(-300)))
+      }
       const parsed = tryParsePermission(session.permissionBuffer)
       if (parsed) {
         const requestId = uuidv4()
         const timeoutId = setTimeout(() => {
           if (session.pendingPermission?.requestId === requestId) {
-            sessionWrite(session, 'n\n')
+            sessionWrite(session, session.pendingPermission.style === 'numbered' ? '3' : 'n\n')
             session.pendingPermission = null
             session.permissionBuffer = ''
           }
         }, 60000)
-        session.pendingPermission = { requestId, timeoutId }
+        session.pendingPermission = { requestId, timeoutId, style: parsed.style }
         session.permissionBuffer = ''
         session.wsClient.send(
           JSON.stringify({
@@ -524,12 +528,12 @@ export function startPtyServer(port = DEFAULT_WS_PORT, callbacks: PtyServerCallb
               const requestId = uuidv4()
               const timeoutId = setTimeout(() => {
                 if (provSession.pendingPermission?.requestId === requestId) {
-                  sessionWrite(provSession, 'n\n')
+                  sessionWrite(provSession, provSession.pendingPermission.style === 'numbered' ? '3' : 'n\n')
                   provSession.pendingPermission = null
                   provSession.permissionBuffer = ''
                 }
               }, 65000)
-              provSession.pendingPermission = { requestId, timeoutId }
+              provSession.pendingPermission = { requestId, timeoutId, style: parsed.style }
               provSession.permissionBuffer = ''
               provSession.wsClient.send(
                 JSON.stringify({
@@ -664,6 +668,34 @@ export function startPtyServer(port = DEFAULT_WS_PORT, callbacks: PtyServerCallb
         return
       }
 
+      // ── 開発用: 承認プロンプトのモック注入（セッション未アタッチでも動作） ──────
+      if (msg.type === 'debug_trigger_permission' && process.env.NODE_ENV !== 'production') {
+        const targetId = (msg as { type: string; sessionId?: string }).sessionId ?? attachedSessionId
+        const target = targetId ? ptySessions.get(targetId) : null
+        if (target?.wsClient?.readyState === WebSocket.OPEN && !target.pendingPermission) {
+          const requestId = uuidv4()
+          const timeoutId = setTimeout(() => {
+            if (target.pendingPermission?.requestId === requestId) {
+              target.pendingPermission = null
+            }
+          }, 60000)
+          target.pendingPermission = { requestId, timeoutId, style: 'numbered' }
+          target.wsClient.send(
+            JSON.stringify({
+              type: 'permission_request',
+              requestId,
+              toolName: 'Bash',
+              details: ['rm -rf /tmp/test', 'ls -la /Users/user/projects'],
+              requiresAlways: true,
+            } satisfies WsMessage),
+          )
+          console.log(`[debug] Injected test permission_request to session ${targetId?.slice(0, 8)}`)
+        } else {
+          console.warn(`[debug] No session with connected mobile client found for debug_trigger_permission`)
+        }
+        return
+      }
+
       // ── セッション操作フェーズ ────────────────────────────────────────
       if (!attachedSessionId) return
       const session = ptySessions.get(attachedSessionId)
@@ -676,10 +708,18 @@ export function startPtyServer(port = DEFAULT_WS_PORT, callbacks: PtyServerCallb
           session.pendingPermission = null
           session.permissionBuffer = ''
           let key: string
-          switch (msg.decision) {
-            case 'approve': key = 'y\n'; break
-            case 'always':  key = 'a\n'; break
-            default:        key = 'n\n'; break
+          if (pending.style === 'numbered') {
+            switch (msg.decision) {
+              case 'approve': key = '1'; break
+              case 'always':  key = '2'; break
+              default:        key = '3'; break
+            }
+          } else {
+            switch (msg.decision) {
+              case 'approve': key = 'y\n'; break
+              case 'always':  key = 'a\n'; break
+              default:        key = 'n\n'; break
+            }
           }
           sessionWrite(session, key)
         }

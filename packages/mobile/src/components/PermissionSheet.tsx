@@ -37,7 +37,7 @@ const DANGER_PATTERNS = [
   /\bdd\s+/,
   /\bmkfs\b/,
   />\s*\/dev\//,
-  /\bchmod\s+[0-7]*7[0-7]{2}\b/,
+  /\bchmod\s+[0-7]{2}[2367]\b/,
 ]
 
 function isDangerous(details: string[]): boolean {

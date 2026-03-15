@@ -460,8 +460,11 @@ export function startPtyServer(port = DEFAULT_WS_PORT, callbacks: PtyServerCallb
         if (session && session.wsClient === ws) {
           if (session.pendingPermission) {
             clearTimeout(session.pendingPermission.timeoutId)
+            const p = session.pendingPermission
+            sessionWrite(session, p.style === 'numbered' ? (p.requiresAlways ? '3' : '2') : 'n\n')
             session.pendingPermission = null
           }
+          session.permissionBuffer = ''
           session.wsClient = null
           session.clientIP = undefined
           notifySessions()

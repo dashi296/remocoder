@@ -8,6 +8,7 @@ import { exec } from 'child_process'
 import { promisify } from 'util'
 import { WsMessage, SessionInfo, ProjectInfo, MultiplexerSessionInfo, SessionSource, DEFAULT_WS_PORT } from '@remocoder/shared'
 import { v4 as uuidv4 } from 'uuid'
+import { CcSession } from './cc-session'
 
 const execAsync = promisify(exec)
 
@@ -138,6 +139,11 @@ interface PtySession {
   projectPath?: string
   /** セッションの起動元 */
   source?: SessionSource
+  /**
+   * Claude Code SDK セッション（source.kind === 'claude' かつ SDK モード時のみ設定）。
+   * 設定されている場合は PTY の代わりにこちらで I/O を行う。
+   */
+  ccSession?: CcSession
 }
 
 /** 永続PTYセッションマップ（WS切断後も保持） */
@@ -165,7 +171,9 @@ function getSessionInfos(): SessionInfo[] {
     status: s.status,
     clientIP: s.clientIP,
     hasClient: s.wsClient !== null && s.wsClient.readyState === WebSocket.OPEN,
-    isExternal: s.pty === null,
+    // CC セッション（ccSession あり）は内部セッションとして扱う
+    // providerWs が設定されている場合のみ外部ターミナルセッション
+    isExternal: s.providerWs !== null,
     projectPath: s.projectPath,
     source: s.source,
   }))
@@ -230,12 +238,14 @@ function setSessionActive(session: PtySession) {
 
 function createPtySession(source: SessionSource = { kind: 'claude' }, clientIP?: string): PtySession {
   const id = uuidv4()
-  const ptyProc = spawnSource(source)
   const projectPath = source.kind === 'claude' ? source.projectPath : undefined
+
+  // claude ソースは SDK（CcSession）で起動し、他は PTY を使う
+  const isCcMode = source.kind === 'claude'
 
   const session: PtySession = {
     id,
-    pty: ptyProc,
+    pty: isCcMode ? null : spawnSource(source),
     providerWs: null,
     createdAt: new Date().toISOString(),
     status: 'active',
@@ -249,30 +259,56 @@ function createPtySession(source: SessionSource = { kind: 'claude' }, clientIP?:
     source,
   }
 
-  ptyProc.onData((data) => {
-    appendScrollback(session, data)
-    if (session.wsClient?.readyState === WebSocket.OPEN) {
-      session.wsClient.send(JSON.stringify({ type: 'output', data } satisfies WsMessage))
-    }
-    serverCallbacks.onPtyOutput?.(id, data)
-  })
+  if (isCcMode) {
+    // CcSession を作成し、イベントを ws 経由で Mobile に転送する
+    session.ccSession = new CcSession(
+      id,
+      projectPath,
+      null, // wsClient は session_attached 後に setClient() で設定する
+      (exitCode) => {
+        if (session.idleTimeoutId) clearTimeout(session.idleTimeoutId)
+        if (session.wsClient?.readyState === WebSocket.OPEN) {
+          session.wsClient.send(
+            JSON.stringify({ type: 'cc_session_end', sessionId: id, exitCode } satisfies WsMessage),
+          )
+          session.wsClient.close()
+        }
+        serverCallbacks.onPtyExit?.(id, exitCode)
+        console.log(`[pty-server] CC session ${id.slice(0, 8)} exited (code: ${exitCode}). Remaining: ${ptySessions.size - 1}`)
+        ptySessions.delete(id)
+        notifySessions()
+      },
+    )
+    console.log(`[pty-server] Created CC session: ${id}`)
+  } else {
+    const ptyProc = session.pty!
 
-  ptyProc.onExit(({ exitCode }) => {
-    if (session.idleTimeoutId) clearTimeout(session.idleTimeoutId)
-    if (session.wsClient?.readyState === WebSocket.OPEN) {
-      session.wsClient.send(JSON.stringify({ type: 'shell_exit', exitCode } satisfies WsMessage))
-      session.wsClient.close()
-    }
-    serverCallbacks.onPtyExit?.(id, exitCode)
-    console.log(`[pty-server] Session ${id.slice(0, 8)} exited (code: ${exitCode}). Remaining: ${ptySessions.size - 1}`)
-    ptySessions.delete(id)
-    notifySessions()
-  })
+    ptyProc.onData((data) => {
+      appendScrollback(session, data)
+      if (session.wsClient?.readyState === WebSocket.OPEN) {
+        session.wsClient.send(JSON.stringify({ type: 'output', data } satisfies WsMessage))
+      }
+      serverCallbacks.onPtyOutput?.(id, data)
+    })
+
+    ptyProc.onExit(({ exitCode }) => {
+      if (session.idleTimeoutId) clearTimeout(session.idleTimeoutId)
+      if (session.wsClient?.readyState === WebSocket.OPEN) {
+        session.wsClient.send(JSON.stringify({ type: 'shell_exit', exitCode } satisfies WsMessage))
+        session.wsClient.close()
+      }
+      serverCallbacks.onPtyExit?.(id, exitCode)
+      console.log(`[pty-server] PTY session ${id.slice(0, 8)} exited (code: ${exitCode}). Remaining: ${ptySessions.size - 1}`)
+      ptySessions.delete(id)
+      notifySessions()
+    })
+
+    console.log(`[pty-server] Created PTY session: ${id}`)
+  }
 
   ptySessions.set(id, session)
   setSessionActive(session)
   notifySessions()
-  console.log(`Created PTY session: ${id}`)
   return session
 }
 
@@ -397,6 +433,7 @@ export function startPtyServer(port = DEFAULT_WS_PORT, callbacks: PtyServerCallb
         if (session && session.wsClient === ws) {
           session.wsClient = null
           session.clientIP = undefined
+          session.ccSession?.setClient(null)
           notifySessions()
         }
         attachedSessionId = null
@@ -507,6 +544,8 @@ export function startPtyServer(port = DEFAULT_WS_PORT, callbacks: PtyServerCallb
         attachedSessionId = session.id
         session.wsClient = ws
         session.clientIP = clientIP
+        // CC セッションにクライアントをセット
+        session.ccSession?.setClient(ws)
         notifySessions()
         ws.send(
           JSON.stringify({
@@ -541,6 +580,8 @@ export function startPtyServer(port = DEFAULT_WS_PORT, callbacks: PtyServerCallb
         session.wsClient = ws
         session.clientIP = clientIP
         attachedSessionId = session.id
+        // CC セッションにクライアントをセット
+        session.ccSession?.setClient(ws)
         notifySessions()
         ws.send(
           JSON.stringify({
@@ -599,6 +640,22 @@ export function startPtyServer(port = DEFAULT_WS_PORT, callbacks: PtyServerCallb
       const session = ptySessions.get(attachedSessionId)
       if (!session) return
 
+      // ── CC セッション向けメッセージ ──────────────────────────────────
+      if (msg.type === 'cc_user_input') {
+        if (session.ccSession) {
+          session.ccSession.sendUserMessage(msg.content)
+          setSessionActive(session)
+        }
+        return
+      }
+      if (msg.type === 'cc_permission_response') {
+        if (session.ccSession) {
+          session.ccSession.handlePermissionResponse(msg.permissionId, msg.approved)
+        }
+        return
+      }
+
+      // ── PTY セッション向けメッセージ ─────────────────────────────────
       if (msg.type === 'input') {
         sessionWrite(session, msg.data)
         setSessionActive(session)

@@ -112,7 +112,9 @@ describe('SessionPickerScreen', () => {
     await waitFor(() => expect(screen.getByText('myapp')).toBeTruthy())
     fireEvent.press(screen.getByText('myapp'))
 
-    expect(defaultProps.onAttachSession).toHaveBeenCalledWith('sid-abc')
+    expect(defaultProps.onAttachSession).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'sid-abc' }),
+    )
     expect(mockWs.close).toHaveBeenCalled()
   })
 

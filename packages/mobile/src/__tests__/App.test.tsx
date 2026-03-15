@@ -4,6 +4,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react-nativ
 import App from '../App'
 import AsyncStorage from '../__mocks__/async-storage'
 
+// ChatScreen は WebSocket・WS実装依存が多いため、ここではスタブ化する
 jest.mock('../screens/ChatScreen', () => ({
   ChatScreen: () => React.createElement(Text, null, '接続中...'),
 }))
@@ -68,7 +69,7 @@ describe('App', () => {
     expect(screen.getByText('MacBook')).toBeTruthy()
   })
 
-  it('onSelectProject(path) → ChatScreen が projectPath 付きでレンダーされる', async () => {
+  it('onSelectProject(path) → ChatScreen が表示される（claude セッション）', async () => {
     const profiles = [{ id: '1', name: 'MacBook', ip: '100.64.0.1', token: 'tok' }]
     AsyncStorage.getItem.mockResolvedValue(JSON.stringify(profiles))
     AsyncStorage.setItem.mockResolvedValue(undefined)
@@ -100,7 +101,7 @@ describe('App', () => {
     expect(screen.getByText('接続中...')).toBeTruthy()
   })
 
-  it('onAttachSession(sessionId) → ChatScreen に sessionId が渡される', async () => {
+  it('onAttachSession(session) → source なしは ChatScreen に遷移する', async () => {
     const profiles = [{ id: '1', name: 'MacBook', ip: '100.64.0.1', token: 'tok' }]
     AsyncStorage.getItem.mockResolvedValue(JSON.stringify(profiles))
     AsyncStorage.setItem.mockResolvedValue(undefined)

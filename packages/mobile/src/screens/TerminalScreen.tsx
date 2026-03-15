@@ -76,6 +76,7 @@ export function TerminalScreen({ ip, token, projectPath, sessionId, source, onDi
         case 'session_attached':
           setCurrentSessionId(msg.sessionId as string)
           setStatus('connected')
+          setPendingPermission(null)
           closeSwitcher()
           break
         case 'connected':
@@ -83,6 +84,7 @@ export function TerminalScreen({ ip, token, projectPath, sessionId, source, onDi
           break
         case 'disconnected':
           setStatus('reconnecting')
+          setPendingPermission(null)
           break
         case 'shell_exit':
           setStatus('shell_exit')

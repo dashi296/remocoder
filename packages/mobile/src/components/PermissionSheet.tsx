@@ -1,5 +1,5 @@
-import React, { useEffect, useRef } from 'react'
-import { Animated, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
+import React, { useEffect, useMemo, useRef } from 'react'
+import { Animated, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
 export interface PermissionRequest {
@@ -15,6 +15,34 @@ interface Props {
 }
 
 const TIMEOUT_MS = 60000
+const DANGER_COLOR = '#f44747'
+
+/** ツール名 → 操作説明・詳細ラベルのマッピング */
+const TOOL_INFO: Record<string, { action: string; detailLabel: string }> = {
+  Bash:      { action: 'シェルコマンドを実行',     detailLabel: '実行コマンド' },
+  Read:      { action: 'ファイルを読み取り',       detailLabel: '対象ファイル' },
+  Write:     { action: 'ファイルに書き込み',       detailLabel: '対象ファイル' },
+  Edit:      { action: 'ファイルを編集',          detailLabel: '対象ファイル' },
+  MultiEdit: { action: 'ファイルを一括編集',       detailLabel: '対象ファイル' },
+  Glob:      { action: 'ファイルを検索',          detailLabel: '検索パターン' },
+  Grep:      { action: 'ファイル内容を検索',       detailLabel: '検索パターン' },
+  LS:        { action: 'ディレクトリを一覧表示',    detailLabel: '対象パス' },
+  WebFetch:  { action: 'URLにアクセス',          detailLabel: 'URL' },
+  WebSearch: { action: 'Web検索を実行',          detailLabel: '検索クエリ' },
+}
+
+const DANGER_PATTERNS = [
+  /\brm\s+(-\w*[rf]\w*\s+|--recursive|--force)/,
+  /\bsudo\b/,
+  /\bdd\s+/,
+  /\bmkfs\b/,
+  />\s*\/dev\//,
+  /\bchmod\s+[0-7]*7[0-7]{2}\b/,
+]
+
+function isDangerous(details: string[]): boolean {
+  return details.some(line => DANGER_PATTERNS.some(re => re.test(line)))
+}
 
 export function PermissionSheet({ request, onDecide }: Props) {
   const { bottom: bottomInset } = useSafeAreaInsets()
@@ -24,12 +52,19 @@ export function PermissionSheet({ request, onDecide }: Props) {
   useEffect(() => {
     if (!request) return
     slideAnim.setValue(300)
-    Animated.spring(slideAnim, { toValue: 0, useNativeDriver: true, bounciness: 4 }).start()
+    const spring = Animated.spring(slideAnim, { toValue: 0, useNativeDriver: true, bounciness: 4 })
+    const timing = Animated.timing(progressAnim, { toValue: 0, duration: TIMEOUT_MS, useNativeDriver: false })
+    spring.start()
     progressAnim.setValue(1)
-    Animated.timing(progressAnim, { toValue: 0, duration: TIMEOUT_MS, useNativeDriver: false }).start()
-  }, [request, slideAnim, progressAnim])
+    timing.start(({ finished }) => { if (finished) onDecide(request.requestId, 'reject') })
+    return () => { spring.stop(); timing.stop() }
+  }, [request, slideAnim, progressAnim, onDecide])
+
+  const toolInfo = request ? TOOL_INFO[request.toolName] : undefined
+  const dangerous = useMemo(() => request ? isDangerous(request.details) : false, [request])
 
   if (!request) return null
+  const decide = (decision: 'approve' | 'reject' | 'always') => onDecide(request.requestId, decision)
 
   return (
     <Animated.View
@@ -40,6 +75,7 @@ export function PermissionSheet({ request, onDecide }: Props) {
         style={[
           styles.progressBar,
           {
+            backgroundColor: dangerous ? DANGER_COLOR : '#4ec9b0',
             width: progressAnim.interpolate({
               inputRange: [0, 1],
               outputRange: ['0%', '100%'],
@@ -48,40 +84,41 @@ export function PermissionSheet({ request, onDecide }: Props) {
         ]}
       />
 
-      {/* Tool name */}
+      {/* Tool name + action description */}
       <Text style={styles.toolLabel}>承認リクエスト</Text>
-      <Text style={styles.toolName}>{request.toolName}</Text>
+      <View style={styles.toolRow}>
+        <Text style={styles.toolName}>{request.toolName}</Text>
+        {toolInfo && <Text style={styles.toolAction}>{toolInfo.action}</Text>}
+        {dangerous && <Text style={styles.dangerBadge}>⚠ 危険</Text>}
+      </View>
 
       {/* Details */}
       {request.details.length > 0 && (
-        <View style={styles.detailsBox}>
-          {request.details.map((line, i) => (
-            <Text key={i} style={styles.detailLine} numberOfLines={3} ellipsizeMode="middle">
-              {line}
-            </Text>
-          ))}
+        <View style={[styles.detailsBox, dangerous && styles.detailsBoxDanger]}>
+          {toolInfo && <Text style={styles.detailLabel}>{toolInfo.detailLabel}</Text>}
+          <ScrollView style={styles.detailsScroll} nestedScrollEnabled>
+            {request.details.map((line, i) => (
+              <Text
+                key={i}
+                style={[styles.detailLine, dangerous && styles.detailLineDanger]}
+              >
+                {line}
+              </Text>
+            ))}
+          </ScrollView>
         </View>
       )}
 
       {/* Buttons */}
       <View style={styles.buttons}>
-        <TouchableOpacity
-          style={[styles.btn, styles.btnReject]}
-          onPress={() => onDecide(request.requestId, 'reject')}
-        >
+        <TouchableOpacity style={[styles.btn, styles.btnReject]} onPress={() => decide('reject')}>
           <Text style={styles.btnText}>拒否</Text>
         </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.btn, styles.btnApprove]}
-          onPress={() => onDecide(request.requestId, 'approve')}
-        >
+        <TouchableOpacity style={[styles.btn, styles.btnApprove]} onPress={() => decide('approve')}>
           <Text style={styles.btnText}>許可</Text>
         </TouchableOpacity>
         {request.requiresAlways && (
-          <TouchableOpacity
-            style={[styles.btn, styles.btnAlways]}
-            onPress={() => onDecide(request.requestId, 'always')}
-          >
+          <TouchableOpacity style={[styles.btn, styles.btnAlways]} onPress={() => decide('always')}>
             <Text style={styles.btnText}>常に許可</Text>
           </TouchableOpacity>
         )}
@@ -111,7 +148,6 @@ const styles = StyleSheet.create({
   },
   progressBar: {
     height: 3,
-    backgroundColor: '#4ec9b0',
     borderRadius: 2,
     alignSelf: 'flex-start',
     marginBottom: 12,
@@ -124,12 +160,33 @@ const styles = StyleSheet.create({
     letterSpacing: 0.8,
     marginBottom: 4,
   },
+  toolRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 10,
+  },
   toolName: {
     color: '#c9d1d9',
     fontSize: 16,
     fontWeight: '700',
     fontFamily: 'monospace',
-    marginBottom: 10,
+  },
+  toolAction: {
+    color: '#8b949e',
+    fontSize: 13,
+    fontWeight: '400',
+  },
+  dangerBadge: {
+    color: DANGER_COLOR,
+    fontSize: 12,
+    fontWeight: '700',
+    backgroundColor: 'rgba(244,71,71,0.15)',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    overflow: 'hidden',
   },
   detailsBox: {
     backgroundColor: '#161b22',
@@ -137,12 +194,30 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 8,
     marginBottom: 14,
-    gap: 4,
+  },
+  detailsBoxDanger: {
+    borderWidth: 1,
+    borderColor: 'rgba(244,71,71,0.35)', // DANGER_COLOR at 35% opacity
+  },
+  detailLabel: {
+    color: '#8b949e',
+    fontSize: 10,
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+    marginBottom: 6,
+  },
+  detailsScroll: {
+    maxHeight: 100,
   },
   detailLine: {
     color: '#d4d4d4',
     fontSize: 12,
     fontFamily: 'monospace',
+    marginBottom: 2,
+  },
+  detailLineDanger: {
+    color: '#f97583',
   },
   buttons: {
     flexDirection: 'row',
@@ -156,7 +231,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   btnReject: {
-    backgroundColor: 'rgba(244,71,71,0.2)',
+    backgroundColor: 'rgba(244,71,71,0.2)', // DANGER_COLOR at 20% opacity
     borderWidth: 1,
     borderColor: 'rgba(244,71,71,0.4)',
   },

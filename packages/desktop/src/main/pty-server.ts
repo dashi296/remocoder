@@ -248,16 +248,30 @@ function sendPermissionRequest(
 
 /**
  * PTY出力データから承認プロンプトを検出し、モバイルクライアントへ通知する。
- * 既に pending な承認リクエストがある場合、またはモバイルクライアントが未接続の場合は何もしない。
+ * 既に pending な承認リクエストがある場合は何もしない。
+ * クライアントが未接続の場合はバッファのみ更新し、接続時に備える。
  */
 function detectAndSendPermission(session: PtySession, data: string): void {
-  if (session.pendingPermission || session.wsClient?.readyState !== WebSocket.OPEN) return
+  if (session.pendingPermission) return
 
   session.permissionBuffer = (session.permissionBuffer + stripAnsi(data)).slice(-2048)
+
+  if (session.wsClient?.readyState !== WebSocket.OPEN) return
 
   const parsed = tryParsePermission(session.permissionBuffer)
   if (!parsed) return
 
+  sendPermissionRequest(session, parsed.toolName, parsed.details, parsed.requiresAlways, parsed.style)
+}
+
+/**
+ * セッションへのアタッチ直後に呼び出し、バッファに残存する承認プロンプトを即時検出する。
+ * クライアント未接続中に出力されたプロンプトを見逃さないための補完処理。
+ */
+function checkPermissionOnAttach(session: PtySession): void {
+  if (session.pendingPermission || session.wsClient?.readyState !== WebSocket.OPEN) return
+  const parsed = tryParsePermission(session.permissionBuffer)
+  if (!parsed) return
   sendPermissionRequest(session, parsed.toolName, parsed.details, parsed.requiresAlways, parsed.style)
 }
 
@@ -463,8 +477,8 @@ export function startPtyServer(port = DEFAULT_WS_PORT, callbacks: PtyServerCallb
             const p = session.pendingPermission
             sessionWrite(session, p.style === 'numbered' ? (p.requiresAlways ? '3' : '2') : 'n\n')
             session.pendingPermission = null
+            session.permissionBuffer = ''
           }
-          session.permissionBuffer = ''
           session.wsClient = null
           session.clientIP = undefined
           notifySessions()
@@ -587,6 +601,7 @@ export function startPtyServer(port = DEFAULT_WS_PORT, callbacks: PtyServerCallb
             source: session.source,
           } satisfies WsMessage),
         )
+        checkPermissionOnAttach(session)
         return
       }
 
@@ -622,6 +637,7 @@ export function startPtyServer(port = DEFAULT_WS_PORT, callbacks: PtyServerCallb
             source: session.source,
           } satisfies WsMessage),
         )
+        checkPermissionOnAttach(session)
         return
       }
 

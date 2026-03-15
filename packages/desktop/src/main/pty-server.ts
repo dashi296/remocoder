@@ -665,7 +665,7 @@ export function startPtyServer(port = DEFAULT_WS_PORT, callbacks: PtyServerCallb
       }
 
       // ── 開発用: 承認プロンプトのモック注入（セッション未アタッチでも動作） ──────
-      if (msg.type === 'debug_trigger_permission' && process.env.NODE_ENV !== 'production') {
+      if ((msg as { type: string }).type === 'debug_trigger_permission' && process.env.NODE_ENV !== 'production') {
         const debugMsg = msg as unknown as { type: string; sessionId?: string }
         const targetId = debugMsg.sessionId ?? attachedSessionId
         const target = targetId ? ptySessions.get(targetId) : null

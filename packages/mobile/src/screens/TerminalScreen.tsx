@@ -158,6 +158,22 @@ export function TerminalScreen({ ip, token, projectPath, sessionId, source, onDi
       <View style={[styles.statusBar, { backgroundColor: statusCfg.bgColor }]}>
         <Text style={[styles.statusText, { color: statusCfg.color }]}>{statusCfg.label}</Text>
         <View style={styles.statusActions}>
+          {/* DEBUG: PermissionSheet動作確認（開発ビルドのみ） */}
+          {__DEV__ && (
+            <TouchableOpacity
+              style={[styles.actionButton, { backgroundColor: 'rgba(220,180,0,0.3)' }]}
+              onPress={() =>
+                setPendingPermission({
+                  requestId: 'debug-001',
+                  toolName: 'Bash',
+                  details: ['rm -rf /tmp/test', 'ls -la /Users/user/projects'],
+                  requiresAlways: true,
+                })
+              }
+            >
+              <Text style={styles.actionButtonText}>TEST</Text>
+            </TouchableOpacity>
+          )}
           {status === 'connected' && (
             <TouchableOpacity
               style={styles.actionButton}

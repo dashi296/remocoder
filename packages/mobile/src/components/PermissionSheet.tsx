@@ -1,5 +1,6 @@
 import React, { useEffect, useRef } from 'react'
 import { Animated, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
 export interface PermissionRequest {
   requestId: string
@@ -16,6 +17,7 @@ interface Props {
 const TIMEOUT_MS = 60000
 
 export function PermissionSheet({ request, onDecide }: Props) {
+  const { bottom: bottomInset } = useSafeAreaInsets()
   const slideAnim = useRef(new Animated.Value(300)).current
   const progressAnim = useRef(new Animated.Value(1)).current
 
@@ -32,7 +34,9 @@ export function PermissionSheet({ request, onDecide }: Props) {
   if (!request) return null
 
   return (
-    <Animated.View style={[styles.sheet, { transform: [{ translateY: slideAnim }] }]}>
+    <Animated.View
+      style={[styles.sheet, { paddingBottom: 24 + bottomInset, transform: [{ translateY: slideAnim }] }]}
+    >
       {/* Progress bar */}
       <Animated.View
         style={[
@@ -99,7 +103,6 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 16,
     paddingHorizontal: 16,
     paddingTop: 4,
-    paddingBottom: 24,
     borderTopWidth: 1,
     borderColor: 'rgba(255,255,255,0.08)',
     elevation: 8,

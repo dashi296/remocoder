@@ -213,18 +213,16 @@ function sessionResize(session: PtySession, cols: number, rows: number): void {
 const PERMISSION_TIMEOUT = 60000
 
 /**
- * PTY出力データから承認プロンプトを検出し、モバイルクライアントへ通知する。
- * 既に pending な承認リクエストがある場合、またはモバイルクライアントが未接続の場合は何もしない。
+ * 承認リクエストをモバイルクライアントへ送信し、タイムアウト時に自動拒否する。
+ * 呼び出し前に wsClient が OPEN であることを確認すること。
  */
-function detectAndSendPermission(session: PtySession, data: string): void {
-  if (session.pendingPermission || session.wsClient?.readyState !== WebSocket.OPEN) return
-
-  const stripped = stripAnsi(data)
-  session.permissionBuffer = (session.permissionBuffer + stripped).slice(-2048)
-
-  const parsed = tryParsePermission(session.permissionBuffer)
-  if (!parsed) return
-
+function sendPermissionRequest(
+  session: PtySession,
+  toolName: string,
+  details: string[],
+  requiresAlways: boolean,
+  style: 'numbered' | 'legacy',
+): void {
   const requestId = uuidv4()
   const timeoutId = setTimeout(() => {
     if (session.pendingPermission?.requestId === requestId) {
@@ -235,17 +233,32 @@ function detectAndSendPermission(session: PtySession, data: string): void {
     }
   }, PERMISSION_TIMEOUT)
 
-  session.pendingPermission = { requestId, timeoutId, style: parsed.style, requiresAlways: parsed.requiresAlways }
+  session.pendingPermission = { requestId, timeoutId, style, requiresAlways }
   session.permissionBuffer = ''
-  session.wsClient.send(
+  session.wsClient!.send(
     JSON.stringify({
       type: 'permission_request',
       requestId,
-      toolName: parsed.toolName,
-      details: parsed.details,
-      requiresAlways: parsed.requiresAlways,
+      toolName,
+      details,
+      requiresAlways,
     } satisfies WsMessage),
   )
+}
+
+/**
+ * PTY出力データから承認プロンプトを検出し、モバイルクライアントへ通知する。
+ * 既に pending な承認リクエストがある場合、またはモバイルクライアントが未接続の場合は何もしない。
+ */
+function detectAndSendPermission(session: PtySession, data: string): void {
+  if (session.pendingPermission || session.wsClient?.readyState !== WebSocket.OPEN) return
+
+  session.permissionBuffer = (session.permissionBuffer + stripAnsi(data)).slice(-2048)
+
+  const parsed = tryParsePermission(session.permissionBuffer)
+  if (!parsed) return
+
+  sendPermissionRequest(session, parsed.toolName, parsed.details, parsed.requiresAlways, parsed.style)
 }
 
 /**
@@ -448,7 +461,6 @@ export function startPtyServer(port = DEFAULT_WS_PORT, callbacks: PtyServerCallb
           if (session.pendingPermission) {
             clearTimeout(session.pendingPermission.timeoutId)
             session.pendingPermission = null
-            session.permissionBuffer = ''
           }
           session.wsClient = null
           session.clientIP = undefined
@@ -569,6 +581,7 @@ export function startPtyServer(port = DEFAULT_WS_PORT, callbacks: PtyServerCallb
             type: 'session_attached',
             sessionId: session.id,
             scrollback: '',
+            source: session.source,
           } satisfies WsMessage),
         )
         return
@@ -603,6 +616,7 @@ export function startPtyServer(port = DEFAULT_WS_PORT, callbacks: PtyServerCallb
             type: 'session_attached',
             sessionId: session.id,
             scrollback: getScrollback(session),
+            source: session.source,
           } satisfies WsMessage),
         )
         return
@@ -656,22 +670,7 @@ export function startPtyServer(port = DEFAULT_WS_PORT, callbacks: PtyServerCallb
         const targetId = debugMsg.sessionId ?? attachedSessionId
         const target = targetId ? ptySessions.get(targetId) : null
         if (target?.wsClient?.readyState === WebSocket.OPEN && !target.pendingPermission) {
-          const requestId = uuidv4()
-          const timeoutId = setTimeout(() => {
-            if (target.pendingPermission?.requestId === requestId) {
-              target.pendingPermission = null
-            }
-          }, 60000)
-          target.pendingPermission = { requestId, timeoutId, style: 'numbered' }
-          target.wsClient.send(
-            JSON.stringify({
-              type: 'permission_request',
-              requestId,
-              toolName: 'Bash',
-              details: ['rm -rf /tmp/test', 'ls -la /Users/user/projects'],
-              requiresAlways: true,
-            } satisfies WsMessage),
-          )
+          sendPermissionRequest(target, 'Bash', ['rm -rf /tmp/test', 'ls -la /Users/user/projects'], true, 'numbered')
           console.log(`[debug] Injected test permission_request to session ${targetId?.slice(0, 8)}`)
         } else {
           console.warn(`[debug] No session with connected mobile client found for debug_trigger_permission`)

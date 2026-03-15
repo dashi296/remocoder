@@ -29,7 +29,7 @@ export type WsMessage =
   /** projectPath は後方互換のために保持。source が優先される */
   | { type: 'session_create'; projectPath?: string; source?: SessionSource }
   | { type: 'session_attach'; sessionId: string }
-  | { type: 'session_attached'; sessionId: string; scrollback: string }
+  | { type: 'session_attached'; sessionId: string; scrollback: string; source?: SessionSource }
   | { type: 'session_not_found'; sessionId: string }
   /** 外部ターミナルから PTY セッションを登録する */
   | { type: 'session_register'; cols: number; rows: number }

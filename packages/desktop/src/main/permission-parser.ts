@@ -6,11 +6,9 @@ export interface ParsedPermission {
   style: 'numbered' | 'legacy'
 }
 
-// ANSI エスケープシーケンス除去パターン
-const ANSI_RE = /\x1b\[[?>=!]*[0-9;]*[A-Za-z]|\x1b\][^\x07]*\x07|\x1b[()][AB012]/g
-
 export function stripAnsi(s: string): string {
-  return s.replace(ANSI_RE, '')
+  // eslint-disable-next-line no-control-regex
+  return s.replace(/\x1b\[[?>=!]*[0-9;]*[A-Za-z]|\x1b\][^\x07]*\x07|\x1b[()][AB012]/g, '')
 }
 
 // ── 新形式: 番号付きメニュー（Claude Code 現行版） ───────────────────────────

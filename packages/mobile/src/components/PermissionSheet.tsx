@@ -22,13 +22,11 @@ export function PermissionSheet({ request, onDecide }: Props) {
   const progressAnim = useRef(new Animated.Value(1)).current
 
   useEffect(() => {
-    if (request) {
-      Animated.spring(slideAnim, { toValue: 0, useNativeDriver: true, bounciness: 4 }).start()
-      progressAnim.setValue(1)
-      Animated.timing(progressAnim, { toValue: 0, duration: TIMEOUT_MS, useNativeDriver: false }).start()
-    } else {
-      Animated.timing(slideAnim, { toValue: 300, duration: 200, useNativeDriver: true }).start()
-    }
+    if (!request) return
+    slideAnim.setValue(300)
+    Animated.spring(slideAnim, { toValue: 0, useNativeDriver: true, bounciness: 4 }).start()
+    progressAnim.setValue(1)
+    Animated.timing(progressAnim, { toValue: 0, duration: TIMEOUT_MS, useNativeDriver: false }).start()
   }, [request, slideAnim, progressAnim])
 
   if (!request) return null

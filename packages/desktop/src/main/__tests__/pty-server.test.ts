@@ -43,6 +43,16 @@ vi.mock('node-pty', () => ({
   }),
 }))
 
+// CcSession は child_process.spawn を呼ぶためモック化する
+vi.mock('../cc-session', () => ({
+  CcSession: vi.fn().mockImplementation(() => ({
+    setClient: vi.fn(),
+    kill: vi.fn(),
+    sendUserMessage: vi.fn(),
+    handlePermissionResponse: vi.fn(),
+  })),
+}))
+
 // Helper: create a mock WebSocket that supports EventEmitter + send/close
 function createMockWs() {
   const ws: any = new EventEmitter()
@@ -68,10 +78,10 @@ function connectAndAuth(startPtyServer: any) {
   return { ws }
 }
 
-// Helper: connect + auth + create session (full flow)
+// Helper: connect + auth + create PTY session (shell source) for PTY-specific tests
 function connectAuthAndCreate(startPtyServer: any) {
   const { ws } = connectAndAuth(startPtyServer)
-  sendMessage(ws, { type: 'session_create' })
+  sendMessage(ws, { type: 'session_create', source: { kind: 'shell' } })
   ws.send.mockClear()
   return { ws }
 }
@@ -203,15 +213,26 @@ describe('startPtyServer', () => {
   })
 
   describe('session_create', () => {
-    it('session_create で PTY をスポーンし session_attached を返す', () => {
+    it('session_create (shell) で PTY をスポーンし session_attached を返す', () => {
       const { ws } = connectAndAuth(startPtyServer)
-      sendMessage(ws, { type: 'session_create' })
+      sendMessage(ws, { type: 'session_create', source: { kind: 'shell' } })
 
       expect(ptyState.lastShell).not.toBeNull()
       const calls = ws.send.mock.calls.map((c: any) => JSON.parse(c[0]))
       const attached = calls.find((m: any) => m.type === 'session_attached')
       expect(attached).toBeDefined()
       expect(attached.scrollback).toBe('')
+    })
+
+    it('session_create (claude) で CcSession を作成し session_attached を返す', () => {
+      const { ws } = connectAndAuth(startPtyServer)
+      sendMessage(ws, { type: 'session_create' })
+
+      // CcSession が使われるため PTY は spawn されない
+      expect(ptyState.lastShell).toBeNull()
+      const calls = ws.send.mock.calls.map((c: any) => JSON.parse(c[0]))
+      const attached = calls.find((m: any) => m.type === 'session_attached')
+      expect(attached).toBeDefined()
     })
   })
 
@@ -228,11 +249,11 @@ describe('startPtyServer', () => {
     it('既存クライアントがいる場合、上書きアタッチで旧クライアントを強制切断する', () => {
       startPtyServer()
 
-      // セッションを作成してアタッチ
+      // セッションを作成してアタッチ（shell で PTY を使用）
       const firstWs = createMockWs()
       wssState.instance!.emit('connection', firstWs)
       sendMessage(firstWs, { type: 'auth', token: 'test-token' })
-      sendMessage(firstWs, { type: 'session_create' })
+      sendMessage(firstWs, { type: 'session_create', source: { kind: 'shell' } })
       const sessionId = JSON.parse(
         firstWs.send.mock.calls.find((c: any) => JSON.parse(c[0]).type === 'session_attached')[0],
       ).sessionId
@@ -254,11 +275,11 @@ describe('startPtyServer', () => {
     it('session_attach 成功後に scrollback が含まれる session_attached を返す', () => {
       startPtyServer()
 
-      // セッション作成 + PTY 出力を積む
+      // PTY セッション作成 + PTY 出力を積む
       const ws1 = createMockWs()
       wssState.instance!.emit('connection', ws1)
       sendMessage(ws1, { type: 'auth', token: 'test-token' })
-      sendMessage(ws1, { type: 'session_create' })
+      sendMessage(ws1, { type: 'session_create', source: { kind: 'shell' } })
       const sessionId = JSON.parse(
         ws1.send.mock.calls.find((c: any) => JSON.parse(c[0]).type === 'session_attached')[0],
       ).sessionId
@@ -409,7 +430,7 @@ describe('startPtyServer', () => {
       const ws = createMockWs()
       wssState.instance!.emit('connection', ws)
       sendMessage(ws, { type: 'auth', token: 'test-token' })
-      sendMessage(ws, { type: 'session_create' })
+      sendMessage(ws, { type: 'session_create', source: { kind: 'shell' } })
 
       ptyState.lastShell._onDataCb('hello')
       expect(onPtyOutput).toHaveBeenCalledWith(expect.any(String), 'hello')
@@ -423,7 +444,7 @@ describe('startPtyServer', () => {
       const ws = createMockWs()
       wssState.instance!.emit('connection', ws)
       sendMessage(ws, { type: 'auth', token: 'test-token' })
-      sendMessage(ws, { type: 'session_create' })
+      sendMessage(ws, { type: 'session_create', source: { kind: 'shell' } })
 
       const beforeClose = onSessionsChange.mock.calls.at(-1)![0]
       expect(beforeClose.length).toBe(1)

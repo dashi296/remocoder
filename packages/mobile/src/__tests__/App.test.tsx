@@ -1,7 +1,12 @@
 import React, { act } from 'react'
+import { Text } from 'react-native'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react-native'
 import App from '../App'
 import AsyncStorage from '../__mocks__/async-storage'
+
+jest.mock('../screens/ChatScreen', () => ({
+  ChatScreen: () => React.createElement(Text, null, '接続中...'),
+}))
 
 // SessionPickerScreen が使う WebSocket をモック
 const mockWs = {
@@ -63,7 +68,7 @@ describe('App', () => {
     expect(screen.getByText('MacBook')).toBeTruthy()
   })
 
-  it('onSelectProject(path) → TerminalScreen が projectPath 付きでレンダーされる', async () => {
+  it('onSelectProject(path) → ChatScreen が projectPath 付きでレンダーされる', async () => {
     const profiles = [{ id: '1', name: 'MacBook', ip: '100.64.0.1', token: 'tok' }]
     AsyncStorage.getItem.mockResolvedValue(JSON.stringify(profiles))
     AsyncStorage.setItem.mockResolvedValue(undefined)
@@ -90,12 +95,12 @@ describe('App', () => {
     await waitFor(() => screen.getByText('myapp'))
     fireEvent.press(screen.getByText('myapp'))
 
-    // TerminalScreen に遷移し「接続中...」が表示される
+    // ChatScreen に遷移し「接続中...」が表示される
     await waitFor(() => screen.getByText('接続中...'))
     expect(screen.getByText('接続中...')).toBeTruthy()
   })
 
-  it('onAttachSession(sessionId) → TerminalScreen に sessionId が渡される', async () => {
+  it('onAttachSession(sessionId) → ChatScreen に sessionId が渡される', async () => {
     const profiles = [{ id: '1', name: 'MacBook', ip: '100.64.0.1', token: 'tok' }]
     AsyncStorage.getItem.mockResolvedValue(JSON.stringify(profiles))
     AsyncStorage.setItem.mockResolvedValue(undefined)
@@ -123,7 +128,7 @@ describe('App', () => {
     await waitFor(() => screen.getByText('existing'))
     fireEvent.press(screen.getByText('existing'))
 
-    // TerminalScreen に遷移
+    // ChatScreen に遷移し「接続中...」が表示される
     await waitFor(() => screen.getByText('接続中...'))
     expect(screen.getByText('接続中...')).toBeTruthy()
   })

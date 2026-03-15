@@ -13,6 +13,7 @@ import { WebView, WebViewMessageEvent } from 'react-native-webview'
 import { DEFAULT_WS_PORT, SessionInfo, ProjectInfo, SessionSource } from '@remocoder/shared'
 import { buildTerminalHtml } from '../assets/terminalHtml'
 import { formatDate, getSessionDisplayName } from '../utils'
+import { PermissionSheet, PermissionRequest } from '../components/PermissionSheet'
 
 type ConnectionStatus = 'connecting' | 'connected' | 'reconnecting' | 'auth_error' | 'shell_exit'
 
@@ -48,6 +49,7 @@ export function TerminalScreen({ ip, token, projectPath, sessionId, source, onDi
   const [sessionList, setSessionList] = useState<SessionInfo[]>([])
   const [projectList, setProjectList] = useState<ProjectInfo[]>([])
   const [switcherLoading, setSwitcherLoading] = useState(false)
+  const [pendingPermission, setPendingPermission] = useState<PermissionRequest | null>(null)
   const webViewRef = useRef<WebView>(null)
 
   const closeSwitcher = useCallback(() => {
@@ -57,38 +59,67 @@ export function TerminalScreen({ ip, token, projectPath, sessionId, source, onDi
 
   const handleMessage = useCallback(
     (event: WebViewMessageEvent) => {
+      let msg: Record<string, unknown>
       try {
-        const msg = JSON.parse(event.nativeEvent.data)
-        if (msg.type === 'debug') {
+        msg = JSON.parse(event.nativeEvent.data)
+      } catch {
+        return
+      }
+
+      switch (msg.type) {
+        case 'debug':
           console.log('[WebView debug]', msg.msg)
-        } else if (msg.type === 'auth_error') {
+          break
+        case 'auth_error':
           setStatus('auth_error')
-        } else if (msg.type === 'auth_ok') {
-          // auth_ok 後はセッション選択待ち状態 → session_attached で connected へ
-        } else if (msg.type === 'session_attached') {
-          setCurrentSessionId(msg.sessionId)
+          break
+        case 'session_attached':
+          setCurrentSessionId(msg.sessionId as string)
           setStatus('connected')
+          setPendingPermission(null)
           closeSwitcher()
-        } else if (msg.type === 'connected') {
+          break
+        case 'connected':
           setStatus('connected')
-        } else if (msg.type === 'disconnected') {
+          break
+        case 'disconnected':
           setStatus('reconnecting')
-        } else if (msg.type === 'shell_exit') {
+          setPendingPermission(null)
+          break
+        case 'shell_exit':
           setStatus('shell_exit')
-        } else if (msg.type === 'session_not_found') {
+          break
+        case 'session_not_found':
           setStatus('auth_error')
           closeSwitcher()
-        } else if (msg.type === 'session_list_response') {
-          setSessionList(msg.sessions)
-          setProjectList(msg.projects)
+          break
+        case 'session_list_response':
+          setSessionList(msg.sessions as SessionInfo[])
+          setProjectList(msg.projects as ProjectInfo[])
           setSwitcherLoading(false)
           setShowSwitcher(true)
-        }
-      } catch {
-        // 無視
+          break
+        case 'permission_request':
+          setPendingPermission({
+            requestId: msg.requestId as string,
+            toolName: msg.toolName as string,
+            details: msg.details as string[],
+            requiresAlways: msg.requiresAlways as boolean,
+          })
+          break
       }
     },
     [closeSwitcher],
+  )
+
+  const handlePermissionDecide = useCallback(
+    (requestId: string, decision: 'approve' | 'reject' | 'always') => {
+      setPendingPermission(null)
+      webViewRef.current?.injectJavaScript(
+        `window.sendPermissionResponse(${JSON.stringify(requestId)}, ${JSON.stringify(decision)}); true;`,
+      )
+    },
+    [],
   )
 
   const handleRetry = useCallback(() => {
@@ -129,6 +160,22 @@ export function TerminalScreen({ ip, token, projectPath, sessionId, source, onDi
       <View style={[styles.statusBar, { backgroundColor: statusCfg.bgColor }]}>
         <Text style={[styles.statusText, { color: statusCfg.color }]}>{statusCfg.label}</Text>
         <View style={styles.statusActions}>
+          {/* DEBUG: PermissionSheet動作確認（開発ビルドのみ） */}
+          {__DEV__ && (
+            <TouchableOpacity
+              style={[styles.actionButton, { backgroundColor: 'rgba(220,180,0,0.3)' }]}
+              onPress={() =>
+                setPendingPermission({
+                  requestId: 'debug-001',
+                  toolName: 'Bash',
+                  details: ['rm -rf /tmp/test', 'ls -la /Users/user/projects'],
+                  requiresAlways: true,
+                })
+              }
+            >
+              <Text style={styles.actionButtonText}>TEST</Text>
+            </TouchableOpacity>
+          )}
           {status === 'connected' && (
             <TouchableOpacity
               style={styles.actionButton}
@@ -166,6 +213,9 @@ export function TerminalScreen({ ip, token, projectPath, sessionId, source, onDi
         onError={(e) => console.error('WebView error:', e.nativeEvent)}
         onHttpError={(e) => console.error('WebView HTTP error:', e.nativeEvent.statusCode)}
       />
+
+      {/* 承認ボトムシート */}
+      <PermissionSheet request={pendingPermission} onDecide={handlePermissionDecide} />
 
       {/* セッション切替モーダル */}
       <Modal

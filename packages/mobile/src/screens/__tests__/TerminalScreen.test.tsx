@@ -202,4 +202,92 @@ describe('TerminalScreen', () => {
       expect(screen.queryByText('セッション切替')).toBeNull()
     })
   })
+
+  describe('PermissionSheet', () => {
+    it('permission_request を受信すると PermissionSheet が表示される', () => {
+      render(<TerminalScreen {...defaultProps} />)
+      sendFromWebView({
+        type: 'permission_request',
+        requestId: 'req-001',
+        toolName: 'Bash',
+        details: ['rm -rf /tmp/test'],
+        requiresAlways: true,
+      })
+
+      expect(screen.getByText('承認リクエスト')).toBeTruthy()
+      expect(screen.getByText('Bash')).toBeTruthy()
+      expect(screen.getByText('rm -rf /tmp/test')).toBeTruthy()
+      expect(screen.getByText('許可')).toBeTruthy()
+      expect(screen.getByText('拒否')).toBeTruthy()
+      expect(screen.getByText('常に許可')).toBeTruthy()
+    })
+
+    it('requiresAlways=false のとき「常に許可」ボタンが表示されない', () => {
+      render(<TerminalScreen {...defaultProps} />)
+      sendFromWebView({
+        type: 'permission_request',
+        requestId: 'req-002',
+        toolName: 'Write',
+        details: ['/tmp/file.ts'],
+        requiresAlways: false,
+      })
+
+      expect(screen.getByText('許可')).toBeTruthy()
+      expect(screen.getByText('拒否')).toBeTruthy()
+      expect(screen.queryByText('常に許可')).toBeNull()
+    })
+
+    it('「許可」を押すと sendPermissionResponse が injectJavaScript で呼ばれ、シートが閉じる', () => {
+      render(<TerminalScreen {...defaultProps} />)
+      sendFromWebView({
+        type: 'permission_request',
+        requestId: 'req-003',
+        toolName: 'Bash',
+        details: [],
+        requiresAlways: false,
+      })
+
+      fireEvent.press(screen.getByText('許可'))
+
+      expect(injectJavaScriptMock).toHaveBeenCalledWith(
+        expect.stringContaining('window.sendPermissionResponse("req-003", "approve")'),
+      )
+      expect(screen.queryByText('承認リクエスト')).toBeNull()
+    })
+
+    it('「拒否」を押すと reject decision が送られ、シートが閉じる', () => {
+      render(<TerminalScreen {...defaultProps} />)
+      sendFromWebView({
+        type: 'permission_request',
+        requestId: 'req-004',
+        toolName: 'Bash',
+        details: [],
+        requiresAlways: false,
+      })
+
+      fireEvent.press(screen.getByText('拒否'))
+
+      expect(injectJavaScriptMock).toHaveBeenCalledWith(
+        expect.stringContaining('window.sendPermissionResponse("req-004", "reject")'),
+      )
+      expect(screen.queryByText('承認リクエスト')).toBeNull()
+    })
+
+    it('「常に許可」を押すと always decision が送られる', () => {
+      render(<TerminalScreen {...defaultProps} />)
+      sendFromWebView({
+        type: 'permission_request',
+        requestId: 'req-005',
+        toolName: 'Bash',
+        details: [],
+        requiresAlways: true,
+      })
+
+      fireEvent.press(screen.getByText('常に許可'))
+
+      expect(injectJavaScriptMock).toHaveBeenCalledWith(
+        expect.stringContaining('window.sendPermissionResponse("req-005", "always")'),
+      )
+    })
+  })
 })

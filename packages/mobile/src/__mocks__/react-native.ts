@@ -41,6 +41,31 @@ const FlatList = ({ data, renderItem, keyExtractor }: any) =>
     ),
   )
 
+// Animated mock — supports Value, timing, spring, and View/Text
+class AnimatedValue {
+  _value: number
+  constructor(val: number) {
+    this._value = val
+  }
+  setValue(val: number) {
+    this._value = val
+  }
+  interpolate(_config: any) {
+    return this
+  }
+}
+
+const Animated = {
+  Value: AnimatedValue,
+  View: (props: any) => React.createElement('View', props),
+  Text: (props: any) => React.createElement('Text', props),
+  timing: (_value: any, _config: any) => ({ start: jest.fn(), stop: jest.fn() }),
+  spring: (_value: any, _config: any) => ({ start: jest.fn(), stop: jest.fn() }),
+  sequence: (_animations: any[]) => ({ start: jest.fn(), stop: jest.fn() }),
+  parallel: (_animations: any[]) => ({ start: jest.fn(), stop: jest.fn() }),
+  delay: (_ms: number) => ({ start: jest.fn(), stop: jest.fn() }),
+}
+
 const Alert = {
   alert: jest.fn((title: string, message: string, buttons: any[]) => {
     // テスト内で手動にボタンを呼び出せるよう最後のボタンの onPress を即時実行しない
@@ -79,4 +104,5 @@ export {
   Linking,
   StyleSheet,
   Platform,
+  Animated,
 }

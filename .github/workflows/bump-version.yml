@@ -1,0 +1,72 @@
+name: Bump Patch Version
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  bump-version:
+    # github-actions[bot] によるコミットでは実行しない（無限ループ防止）
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # GH_PAT を使うことで、タグ push が Release ワークフローをトリガーできる
+          # GH_PAT が未設定の場合は GITHUB_TOKEN にフォールバック（Release は手動トリガーが必要）
+          token: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Bump patch version
+        id: bump
+        run: |
+          CURRENT=$(node -p "require('./packages/desktop/package.json').version")
+          NEW=$(node -p "
+            const [major, minor, patch] = '\$CURRENT'.split('.').map(Number);
+            \`\${major}.\${minor}.\${patch + 1}\`
+          ")
+          echo "new_version=$NEW" >> $GITHUB_OUTPUT
+
+          # package.json を一括更新
+          node -e "
+            const fs = require('fs');
+            const files = [
+              'packages/desktop/package.json',
+              'packages/mobile/package.json',
+              'packages/shared/package.json',
+            ];
+            files.forEach(f => {
+              const pkg = JSON.parse(fs.readFileSync(f, 'utf8'));
+              pkg.version = '\$NEW';
+              fs.writeFileSync(f, JSON.stringify(pkg, null, 2) + '\n');
+            });
+          "
+
+          # app.json を更新
+          node -e "
+            const fs = require('fs');
+            const app = JSON.parse(fs.readFileSync('packages/mobile/app.json', 'utf8'));
+            app.expo.version = '\$NEW';
+            fs.writeFileSync('packages/mobile/app.json', JSON.stringify(app, null, 2) + '\n');
+          "
+
+      - name: Commit and tag
+        env:
+          NEW_VERSION: ${{ steps.bump.outputs.new_version }}
+        run: |
+          git add \
+            packages/desktop/package.json \
+            packages/mobile/package.json \
+            packages/shared/package.json \
+            packages/mobile/app.json
+          git commit -m "chore: v${NEW_VERSION} へバージョンアップ"
+          git tag "v${NEW_VERSION}"
+          git push origin main --tags

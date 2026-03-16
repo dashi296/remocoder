@@ -28,9 +28,11 @@ jobs:
       - name: Bump patch version
         id: bump
         run: |
-          CURRENT=$(node -p "require('./packages/desktop/package.json').version")
+          # 最新タグからバージョンを取得（タグがない場合は v0.0.0 をベースにする）
+          LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
+          CURRENT=${LATEST_TAG#v}
           NEW=$(node -p "
-            const [major, minor, patch] = '\$CURRENT'.split('.').map(Number);
+            const [major, minor, patch] = '$CURRENT'.split('.').map(Number);
             \`\${major}.\${minor}.\${patch + 1}\`
           ")
           echo "new_version=$NEW" >> $GITHUB_OUTPUT

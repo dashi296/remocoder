@@ -24,7 +24,6 @@
       ]
     },
     "plugins": [
-      "@sentry/react-native/expo",
       "./plugins/withGradleJvmArgs",
       [
         "expo-camera",

@@ -15,10 +15,6 @@ jobs:
         include:
           - os: macos-latest
             dist_args: --mac
-          - os: windows-latest
-            dist_args: --win
-          - os: ubuntu-latest
-            dist_args: --linux
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup
@@ -64,9 +60,17 @@ jobs:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
           PLATFORM: ${{ matrix.platform }}
         run: |
-          eas build \
-            --platform "$PLATFORM" \
-            --profile production \
-            --non-interactive \
-            --auto-submit \
-            --no-wait
+          if [[ "$PLATFORM" == "android" ]]; then
+            eas build \
+              --platform "$PLATFORM" \
+              --profile production \
+              --non-interactive \
+              --auto-submit \
+              --no-wait
+          else
+            eas build \
+              --platform "$PLATFORM" \
+              --profile production \
+              --non-interactive \
+              --no-wait
+          fi

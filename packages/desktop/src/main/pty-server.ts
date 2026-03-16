@@ -18,17 +18,18 @@ let AUTH_TOKEN = process.env.REMOTE_TOKEN ?? uuidv4()
 
 /**
  * ~/.claude/projects/ のディレクトリ名をファイルシステムを実際にたどって復元する。
- * Claude のエンコード形式: '/' を '-' に置換。
- * パスコンポーネント自体に '-' が含まれる場合（例: my-project）も対応するため、
- * 各セグメントでファイルシステムの存在確認を行いながらグリーディに解決する。
+ * Claude のエンコード形式: '/' を '-' に置換（パス区切り文字のみ）。
+ * パスコンポーネント自体に '-' または '_' が含まれる場合（例: my-project, my_lib）も
+ * 対応するため、各セグメントでファイルシステムの存在確認を行いながらグリーディに解決する。
  */
 export function decodeProjectPath(encodedName: string): string {
   const parts = encodedName.slice(1).split('-')
 
-  // Claude のエンコード: '/' → '-', '_' → '-' の両方を行う。
-  // そのため '-' は '/', '-', '_' のいずれかを表す可能性がある。
-  // バックトラッキングで「実際に存在するパス」を探し、
-  // かつセグメント内の '-' を '_' に置換したバリアントも試みる。
+  // Claude は '/' を '-' に置換してエンコードする。
+  // パスコンポーネント内の '-' もエンコード後は同じ '-' になるため曖昧性が生じる。
+  // また '_' はファイルシステム上に存在する可能性があるため、
+  // セグメント内の '-' を '_' に置換したバリアントも試みながら
+  // バックトラッキングで「実際に存在するパス」を探す。
   function existsWithVariants(dir: string, segment: string): string | null {
     const positions = [...segment.matchAll(/-/g)].map((m) => m.index!)
     for (let mask = 0; mask < 1 << positions.length; mask++) {

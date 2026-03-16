@@ -59,16 +59,6 @@ export function buildTerminalHtml(
       let scrollAccum = 0
       let momentumId = null
       let isTouching = false  // 指が触れているか（Android多重touchstart対策）
-      let touchMoveCount = 0  // [DEBUG] touchmove 発火回数
-      let lastDebugTime = 0   // [DEBUG] デバッグログ間隔制御
-
-      function dbg(msg) {
-        const now = Date.now()
-        // 200ms に1回まで
-        if (now - lastDebugTime < 200) return
-        lastDebugTime = now
-        postToNative({ type: 'debug', msg: '[scroll] ' + msg })
-      }
 
       function cancelMomentum() {
         if (momentumId !== null) { cancelAnimationFrame(momentumId); momentumId = null }
@@ -90,7 +80,6 @@ export function buildTerminalHtml(
           // 下スワイプ(deltaY<0)=古い内容へ=ホイールアップ(64)
           const steps = Math.max(1, Math.min(5, Math.round(Math.abs(deltaY) / 30)))
           const seq = deltaY > 0 ? '\\x1b[<65;1;1M' : '\\x1b[<64;1;1M'
-          dbg('SGR scroll steps=' + steps + ' bufType=' + bufType)
           for (let i = 0; i < steps; i++) sendWs({ type: 'input', data: seq })
         } else {
           // 通常スクリーン: xterm.js スクロールバック（10px = 1ライン）
@@ -98,11 +87,7 @@ export function buildTerminalHtml(
           const lines = Math.trunc(scrollAccum)
           scrollAccum -= lines
           if (lines !== 0) {
-            const vBefore = term.buffer.active.viewportY
-            const base = term.buffer.active.baseY
             term.scrollLines(lines)
-            const vAfter = term.buffer.active.viewportY
-            dbg('scrollLines(' + lines + ') bufType=' + bufType + ' deltaY=' + deltaY.toFixed(1) + ' viewportY: ' + vBefore + '->' + vAfter + ' baseY=' + base)
           }
         }
       }
@@ -114,16 +99,13 @@ export function buildTerminalHtml(
         if (!isTouching) {
           velocityPxMs = 0
           scrollAccum = 0
-          touchMoveCount = 0
           lastMoveTime = Date.now()
-          dbg('touchstart y=' + e.touches[0].clientY)
         }
         lastY = e.touches[0].clientY
         isTouching = true
       }, { capture: true, passive: true })
 
       document.addEventListener('touchmove', function(e) {
-        touchMoveCount++
         const currentY = e.touches[0].clientY
         const now = Date.now()
         const deltaY = lastY - currentY
@@ -132,10 +114,6 @@ export function buildTerminalHtml(
         velocityPxMs = velocityPxMs * 0.6 + (deltaY / dt) * 0.4
         lastY = currentY
         lastMoveTime = now
-        // [DEBUG] 最初の touchmove だけログ
-        if (touchMoveCount === 1) {
-          dbg('first touchmove deltaY=' + deltaY.toFixed(1) + ' defaultPrevented=' + e.defaultPrevented + ' cancelable=' + e.cancelable)
-        }
         if (e.cancelable) e.preventDefault()
         if (Math.abs(deltaY) >= 1) applyScroll(deltaY)
       }, { capture: true, passive: false })
@@ -144,7 +122,6 @@ export function buildTerminalHtml(
         // まだ他の指が触れている場合は終了しない
         if (e.touches.length > 0) return
         isTouching = false
-        dbg('touchend moveCount=' + touchMoveCount + ' velocity=' + velocityPxMs.toFixed(3))
 
         // SGR(tmux等)では慣性スクロールしない
         const scrollTarget = getScrollTarget()
@@ -352,9 +329,12 @@ export function buildTerminalHtml(
       sendWs({ type: 'session_attach', sessionId })
     }
 
-    /** 新規セッションを作成して切り替える */
+    /** 新規セッションを作成して切り替える（常に claude セッションとして起動） */
     window.createNewSession = function(newProjectPath) {
-      sendWs(buildSessionCreate(newProjectPath))
+      const source = newProjectPath
+        ? { kind: 'claude', projectPath: newProjectPath }
+        : { kind: 'claude' }
+      sendWs({ type: 'session_create', source })
     }
 
     /** 承認ダイアログの結果をサーバーへ送信する */

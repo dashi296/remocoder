@@ -1,3 +1,4 @@
+import * as Sentry from '@sentry/electron/renderer'
 import React, { useEffect, useState } from 'react'
 import './index.css'
 import { StatusPanel } from './components/StatusPanel'
@@ -5,6 +6,12 @@ import { TokenDisplay } from './components/TokenDisplay'
 import { SessionList } from './components/SessionList'
 import { TerminalPanel } from './components/TerminalPanel'
 import { DEFAULT_WS_PORT, type SessionInfo, type MultiplexerSessionInfo, type SessionSource, type UpdateInfo, type PowerSettings } from '@remocoder/shared'
+
+// DSNはmainプロセスからIPCで転送されるため、rendererでの指定は不要
+Sentry.init({
+  environment: import.meta.env.MODE,
+  enabled: import.meta.env.PROD,
+})
 
 // ── Mock data for development ─────────────────────────────
 const MOCK_MODE = !(window as any).electronAPI

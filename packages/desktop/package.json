@@ -67,6 +67,7 @@
   },
   "dependencies": {
     "@remocoder/shared": "workspace:*",
+    "@sentry/electron": "^7.10.0",
     "electron-updater": "^6.8.3",
     "node-pty": "^1.1.0",
     "qrcode": "^1.5.4",

@@ -25,6 +25,7 @@ module.exports = {
     '^expo-constants$': '<rootDir>/src/__mocks__/expo-constants.ts',
     '^expo-updates$': '<rootDir>/src/__mocks__/expo-updates.ts',
     '^react-native-safe-area-context$': '<rootDir>/src/__mocks__/react-native-safe-area-context.tsx',
+    '^@sentry/react-native$': '<rootDir>/src/__mocks__/sentry-react-native.ts',
   },
   testMatch: ['**/src/**/__tests__/**/*.{ts,tsx}', '**/src/**/*.test.{ts,tsx}'],
   collectCoverageFrom: ['src/**/*.{ts,tsx}'],

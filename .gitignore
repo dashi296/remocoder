@@ -5,3 +5,5 @@ coverage/
 *.log
 .DS_Store
 packages/desktop/out/
+.env
+.env.local

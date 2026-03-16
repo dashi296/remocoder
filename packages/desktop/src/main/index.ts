@@ -1,3 +1,4 @@
+import * as Sentry from '@sentry/electron/main'
 import { app, BrowserWindow, Tray, Menu, nativeImage, ipcMain } from 'electron'
 import { join } from 'path'
 import { readFileSync, writeFileSync } from 'fs'
@@ -41,6 +42,13 @@ function loadOrCreateToken(): string {
 if (!app.requestSingleInstanceLock()) {
   app.exit()
 }
+
+const sentryDsn = process.env['SENTRY_DSN'] || undefined
+Sentry.init({
+  dsn: sentryDsn,
+  environment: process.env['NODE_ENV'],
+  enabled: process.env['NODE_ENV'] !== 'development' && !!sentryDsn,
+})
 
 let win: BrowserWindow | null = null
 let tray: Tray | null = null

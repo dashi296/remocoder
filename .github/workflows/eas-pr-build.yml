@@ -75,43 +75,12 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  build-desktop:
-    name: Build Desktop macOS (DMG)
-    runs-on: macos-latest
-    environment: preview
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: ./.github/actions/setup
-        with:
-          node-pty-deps: 'true'
-
-      - uses: ./.github/actions/build-desktop
-
-      - name: Rename artifact
-        env:
-          PR_NUMBER: ${{ github.event.number }}
-        run: mv packages/desktop/dist/*.dmg "remocoder-pr${PR_NUMBER}-mac.dmg"
-
-      - name: Upload to GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: pr-${{ github.event.number }}
-          name: "PR #${{ github.event.number }} Build"
-          prerelease: true
-          body: "Commit: ${{ github.sha }}"
-          files: remocoder-pr${{ github.event.number }}-mac.dmg
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
   notify-slack:
     name: Notify Slack
     runs-on: ubuntu-latest
     environment: preview
-    needs: [build-android, build-ios, build-desktop]
-    if: always() && (needs.build-android.result == 'success' || needs.build-ios.result == 'success' || needs.build-desktop.result == 'success')
+    needs: [build-android, build-ios]
+    if: always() && (needs.build-android.result == 'success' || needs.build-ios.result == 'success')
     steps:
       - name: Build Slack payload
         id: payload
@@ -122,7 +91,6 @@ jobs:
           PR_URL: ${{ github.event.pull_request.html_url }}
           ANDROID_RESULT: ${{ needs.build-android.result }}
           IOS_RESULT: ${{ needs.build-ios.result }}
-          DESKTOP_RESULT: ${{ needs.build-desktop.result }}
         run: |
           python3 << 'PYEOF'
           import json, urllib.parse, os
@@ -134,7 +102,6 @@ jobs:
           results = {
               'android': os.environ['ANDROID_RESULT'],
               'ios':     os.environ['IOS_RESULT'],
-              'desktop': os.environ['DESKTOP_RESULT'],
           }
 
           def status_label(result):
@@ -155,7 +122,6 @@ jobs:
               {"type": "section", "fields": [
                   {"type": "mrkdwn", "text": f"*Android :android:*\n{status_label(results['android'])}"},
                   {"type": "mrkdwn", "text": f"*iOS :apple:*\n{status_label(results['ios'])}"},
-                  {"type": "mrkdwn", "text": f"*macOS :desktop_computer:*\n{status_label(results['desktop'])}"},
               ]},
           ]
 

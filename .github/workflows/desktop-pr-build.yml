@@ -1,0 +1,37 @@
+name: Desktop PR Build
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  build-desktop:
+    name: Build Desktop macOS (DMG)
+    runs-on: macos-latest
+    environment: preview
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/setup
+        with:
+          node-pty-deps: 'true'
+
+      - uses: ./.github/actions/build-desktop
+
+      - name: Rename artifact
+        env:
+          PR_NUMBER: ${{ github.event.number }}
+        run: mv packages/desktop/dist/*.dmg "remocoder-pr${PR_NUMBER}-mac.dmg"
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: pr-${{ github.event.number }}
+          name: "PR #${{ github.event.number }} Build"
+          prerelease: true
+          body: "Commit: ${{ github.sha }}"
+          files: remocoder-pr${{ github.event.number }}-mac.dmg
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -18,6 +18,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup
+        with:
+          node-pty-deps: 'true'
 
       - name: Build and publish Electron app
         working-directory: packages/desktop
@@ -38,13 +40,64 @@ jobs:
             packages/desktop/dist/**/*.yaml
           if-no-files-found: ignore
 
-  eas-submit:
-    name: EAS Build & Submit (${{ matrix.platform }})
+  eas-build-android:
+    name: EAS Local Build (android)
     runs-on: ubuntu-latest
     environment: production
-    strategy:
-      matrix:
-        platform: [ios, android]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      # EAS クラウドビルド（月次クレジット上限のためコメントアウト）
+      # - name: Build and Submit on EAS cloud (android)
+      #   working-directory: packages/mobile
+      #   env:
+      #     EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+      #   run: |
+      #     eas build \
+      #       --platform android \
+      #       --profile production \
+      #       --non-interactive \
+      #       --auto-submit \
+      #       --no-wait
+
+      - name: Build locally (android)
+        working-directory: packages/mobile
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: |
+          eas build \
+            --platform android \
+            --profile production \
+            --non-interactive \
+            --local \
+            --output build-android.aab
+
+      - name: Submit to Google Play (android)
+        working-directory: packages/mobile
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: |
+          eas submit \
+            --platform android \
+            --profile production \
+            --non-interactive \
+            --path build-android.aab
+
+  eas-build-ios:
+    name: EAS Local Build (ios)
+    runs-on: macos-latest
+    environment: production
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup
@@ -54,23 +107,37 @@ jobs:
           eas-version: latest
           token: ${{ secrets.EXPO_TOKEN }}
 
-      - name: Build and Submit on EAS (${{ matrix.platform }})
+      # EAS クラウドビルド（月次クレジット上限のためコメントアウト）
+      # - name: Build and Submit on EAS cloud (ios)
+      #   working-directory: packages/mobile
+      #   env:
+      #     EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+      #   run: |
+      #     eas build \
+      #       --platform ios \
+      #       --profile production \
+      #       --non-interactive \
+      #       --no-wait
+
+      - name: Build locally (ios)
         working-directory: packages/mobile
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
-          PLATFORM: ${{ matrix.platform }}
         run: |
-          if [[ "$PLATFORM" == "android" ]]; then
-            eas build \
-              --platform "$PLATFORM" \
-              --profile production \
-              --non-interactive \
-              --auto-submit \
-              --no-wait
-          else
-            eas build \
-              --platform "$PLATFORM" \
-              --profile production \
-              --non-interactive \
-              --no-wait
-          fi
+          eas build \
+            --platform ios \
+            --profile production \
+            --non-interactive \
+            --local \
+            --output build-ios.ipa
+
+      - name: Submit to App Store (ios)
+        working-directory: packages/mobile
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: |
+          eas submit \
+            --platform ios \
+            --profile production \
+            --non-interactive \
+            --path build-ios.ipa

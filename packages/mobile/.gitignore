@@ -4,3 +4,5 @@ android/
 
 # Expo cache
 .expo/
+
+.env.local

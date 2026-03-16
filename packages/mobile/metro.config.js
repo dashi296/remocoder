@@ -1,10 +1,12 @@
-const { getDefaultConfig } = require('expo/metro-config')
 const path = require('path')
+const {
+  getSentryExpoConfig
+} = require("@sentry/react-native/metro");
 
 const projectRoot = __dirname
 const workspaceRoot = path.resolve(projectRoot, '../..')
 
-const config = getDefaultConfig(projectRoot)
+const config = getSentryExpoConfig(projectRoot)
 
 // monorepo: workspace ルートの node_modules も参照する
 config.watchFolders = [workspaceRoot]
@@ -20,6 +22,7 @@ config.resolver.unstable_enableSymlinks = true
 config.resolver.extraNodeModules = {
   'react': path.resolve(projectRoot, 'node_modules/react'),
   'react-native': path.resolve(projectRoot, 'node_modules/react-native'),
+  '@sentry/react-native': path.resolve(projectRoot, 'node_modules/@sentry/react-native'),
 }
 
 module.exports = config

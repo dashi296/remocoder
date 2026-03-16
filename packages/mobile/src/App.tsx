@@ -1,3 +1,4 @@
+import * as Sentry from '@sentry/react-native'
 import React, { useState } from 'react'
 import { ActivityIndicator, View, StyleSheet } from 'react-native'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
@@ -8,6 +9,10 @@ import { TerminalScreen } from './screens/TerminalScreen'
 import { useForceUpdate } from './hooks/useForceUpdate'
 import { useOTAUpdate } from './hooks/useOTAUpdate'
 import { SessionSource } from '@remocoder/shared'
+
+Sentry.init({
+  dsn: process.env.EXPO_PUBLIC_SENTRY_DSN,
+})
 
 type Screen = 'connect' | 'sessionPicker' | 'terminal'
 
@@ -23,7 +28,7 @@ interface AppState {
   source?: SessionSource | null
 }
 
-export default function App() {
+export default Sentry.wrap(function App() {
   const [state, setState] = useState<AppState>({
     screen: 'connect',
     ip: '',
@@ -102,7 +107,7 @@ export default function App() {
       )}
     </SafeAreaProvider>
   )
-}
+});
 
 const styles = StyleSheet.create({
   loading: {

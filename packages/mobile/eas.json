@@ -21,7 +21,8 @@
     "preview": {
       "distribution": "internal",
       "env": {
-        "SENTRY_DISABLE_AUTO_UPLOAD": "true"
+        "SENTRY_DISABLE_AUTO_UPLOAD": "true",
+        "SENTRY_CLI_EXECUTABLE": "/bin/true"
       },
       "ios": {
         "distribution": "store"

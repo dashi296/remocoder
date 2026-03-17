@@ -1,12 +1,58 @@
-name: EAS PR Build
+name: PR Build
 
 on:
   pull_request:
     types: [opened, synchronize, reopened]
 
 jobs:
+  create-release:
+    name: Create PR Release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Delete and recreate GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.number }}
+          COMMIT_SHA: ${{ github.sha }}
+          REPO: ${{ github.repository }}
+        run: |
+          gh release delete "pr-${PR_NUMBER}" --yes --cleanup-tag --repo "${REPO}" 2>/dev/null || true
+          gh release create "pr-${PR_NUMBER}" \
+            --prerelease \
+            --title "PR #${PR_NUMBER} Build" \
+            --notes "Commit: ${COMMIT_SHA}" \
+            --repo "${REPO}"
+
+  build-desktop:
+    name: Build Desktop macOS (DMG)
+    needs: create-release
+    runs-on: macos-latest
+    environment: preview
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/setup
+        with:
+          node-pty-deps: 'true'
+
+      - uses: ./.github/actions/build-desktop
+
+      - name: Upload to GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          mv packages/desktop/dist/*.dmg "remocoder-pr${PR_NUMBER}-mac.dmg"
+          gh release upload "pr-${PR_NUMBER}" "remocoder-pr${PR_NUMBER}-mac.dmg" --clobber --repo "${REPO}"
+
   build-android:
     name: Build Android (EAS Local)
+    needs: create-release
     runs-on: ubuntu-latest
     environment: preview
     permissions:
@@ -28,25 +74,19 @@ jobs:
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
-          SENTRY_DISABLE_AUTO_UPLOAD: 'true'
           PR_NUMBER: ${{ github.event.number }}
         run: eas build --platform android --profile preview --local --non-interactive --output "../../remocoder-pr${PR_NUMBER}-android.apk"
 
-
       - name: Upload to GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: pr-${{ github.event.number }}
-          name: "PR #${{ github.event.number }} Build"
-          prerelease: true
-          body: "Commit: ${{ github.sha }}"
-          files: remocoder-pr${{ github.event.number }}-android.apk
-          overwrite_files: true
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.number }}
+          REPO: ${{ github.repository }}
+        run: gh release upload "pr-${PR_NUMBER}" "remocoder-pr${PR_NUMBER}-android.apk" --clobber --repo "${REPO}"
 
   build-ios:
     name: Build iOS (EAS Local)
+    needs: create-release
     runs-on: macos-26
     environment: preview
     permissions:
@@ -66,21 +106,15 @@ jobs:
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
-          SENTRY_DISABLE_AUTO_UPLOAD: 'true'
           PR_NUMBER: ${{ github.event.number }}
         run: eas build --platform ios --profile preview --local --non-interactive --output "../../remocoder-pr${PR_NUMBER}-ios.ipa"
 
       - name: Upload to GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: pr-${{ github.event.number }}
-          name: "PR #${{ github.event.number }} Build"
-          prerelease: true
-          body: "Commit: ${{ github.sha }}"
-          files: remocoder-pr${{ github.event.number }}-ios.ipa
-          overwrite_files: true
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.number }}
+          REPO: ${{ github.repository }}
+        run: gh release upload "pr-${PR_NUMBER}" "remocoder-pr${PR_NUMBER}-ios.ipa" --clobber --repo "${REPO}"
 
   notify-slack:
     name: Notify Slack

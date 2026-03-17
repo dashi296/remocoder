@@ -82,7 +82,7 @@ export function TerminalScreen({ ip, token, projectPath, sessionId, source, onDi
           setStatus('shell_exit')
           break
         case 'session_not_found':
-          setStatus('shell_exit')
+          setStatus('auth_error')
           closeSwitcher()
           break
         case 'session_list_response':

@@ -11,16 +11,18 @@ jobs:
     permissions:
       contents: write
     steps:
-      - name: Delete and recreate GitHub Release
+      - name: Delete old PR build releases and create new release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_NUMBER: ${{ github.event.number }}
+          RUN_ID: ${{ github.run_id }}
           COMMIT_SHA: ${{ github.sha }}
           REPO: ${{ github.repository }}
         run: |
-          gh release delete "pr-${PR_NUMBER}" --yes --repo "${REPO}" 2>/dev/null || true
-          gh api --method DELETE "repos/${REPO}/git/refs/tags/pr-${PR_NUMBER}" 2>/dev/null || true
-          gh release create "pr-${PR_NUMBER}" \
+          gh release list --repo "${REPO}" --limit 20 --json tagName --jq '.[].tagName' \
+            | grep "^pr-${PR_NUMBER}-" \
+            | xargs -I{} gh release delete "{}" --yes --cleanup-tag --repo "${REPO}" 2>/dev/null || true
+          gh release create "pr-${PR_NUMBER}-${RUN_ID}" \
             --prerelease \
             --title "PR #${PR_NUMBER} Build" \
             --notes "Commit: ${COMMIT_SHA}" \
@@ -46,10 +48,11 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_NUMBER: ${{ github.event.number }}
+          RUN_ID: ${{ github.run_id }}
           REPO: ${{ github.repository }}
         run: |
           mv packages/desktop/dist/*.dmg "remocoder-pr${PR_NUMBER}-mac.dmg"
-          gh release upload "pr-${PR_NUMBER}" "remocoder-pr${PR_NUMBER}-mac.dmg" --clobber --repo "${REPO}"
+          gh release upload "pr-${PR_NUMBER}-${RUN_ID}" "remocoder-pr${PR_NUMBER}-mac.dmg" --clobber --repo "${REPO}"
 
   build-android:
     name: Build Android (EAS Local)
@@ -82,8 +85,9 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_NUMBER: ${{ github.event.number }}
+          RUN_ID: ${{ github.run_id }}
           REPO: ${{ github.repository }}
-        run: gh release upload "pr-${PR_NUMBER}" "remocoder-pr${PR_NUMBER}-android.apk" --clobber --repo "${REPO}"
+        run: gh release upload "pr-${PR_NUMBER}-${RUN_ID}" "remocoder-pr${PR_NUMBER}-android.apk" --clobber --repo "${REPO}"
 
   build-ios:
     name: Build iOS (EAS Local)
@@ -114,8 +118,9 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_NUMBER: ${{ github.event.number }}
+          RUN_ID: ${{ github.run_id }}
           REPO: ${{ github.repository }}
-        run: gh release upload "pr-${PR_NUMBER}" "remocoder-pr${PR_NUMBER}-ios.ipa" --clobber --repo "${REPO}"
+        run: gh release upload "pr-${PR_NUMBER}-${RUN_ID}" "remocoder-pr${PR_NUMBER}-ios.ipa" --clobber --repo "${REPO}"
 
   notify-slack:
     name: Notify Slack
@@ -129,6 +134,7 @@ jobs:
         env:
           REPO: ${{ github.repository }}
           PR: ${{ github.event.number }}
+          RUN_ID: ${{ github.run_id }}
           SHA: ${{ github.sha }}
           PR_URL: ${{ github.event.pull_request.html_url }}
           ANDROID_RESULT: ${{ needs.build-android.result }}
@@ -139,6 +145,7 @@ jobs:
 
           repo    = os.environ['REPO']
           pr      = os.environ['PR']
+          run_id  = os.environ['RUN_ID']
           sha     = os.environ['SHA']
           pr_url  = os.environ['PR_URL']
           results = {
@@ -152,7 +159,8 @@ jobs:
           def qr_url(url):
               return f"https://api.qrserver.com/v1/create-qr-code/?size=200x200&data={urllib.parse.quote(url, safe='')}"
 
-          release_base = f"https://github.com/{repo}/releases/download/pr-{pr}"
+          release_tag = f"pr-{pr}-{run_id}"
+          release_base = f"https://github.com/{repo}/releases/download/{release_tag}"
           artifact_urls = {
               'android': f"{release_base}/remocoder-pr{pr}-android.apk",
               'ios':     f"{release_base}/remocoder-pr{pr}-ios.ipa",
@@ -173,7 +181,7 @@ jobs:
                   title, alt = labels[platform]
                   blocks.append({"type": "image", "title": {"type": "plain_text", "text": title}, "image_url": qr_url(artifact_urls[platform]), "alt_text": alt})
 
-          blocks.append({"type": "actions", "elements": [{"type": "button", "text": {"type": "plain_text", "text": ":arrow_down: 成果物をダウンロード"}, "url": f"https://github.com/{repo}/releases/tag/pr-{pr}", "style": "primary"}]})
+          blocks.append({"type": "actions", "elements": [{"type": "button", "text": {"type": "plain_text", "text": ":arrow_down: 成果物をダウンロード"}, "url": f"https://github.com/{repo}/releases/tag/{release_tag}", "style": "primary"}]})
 
           payload = json.dumps({"blocks": blocks}, ensure_ascii=False)
           with open(os.environ['GITHUB_OUTPUT'], 'a') as f:

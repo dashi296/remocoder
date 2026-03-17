@@ -18,7 +18,8 @@ jobs:
           COMMIT_SHA: ${{ github.sha }}
           REPO: ${{ github.repository }}
         run: |
-          gh release delete "pr-${PR_NUMBER}" --yes --cleanup-tag --repo "${REPO}" 2>/dev/null || true
+          gh release delete "pr-${PR_NUMBER}" --yes --repo "${REPO}" 2>/dev/null || true
+          gh api --method DELETE "repos/${REPO}/git/refs/tags/pr-${PR_NUMBER}" 2>/dev/null || true
           gh release create "pr-${PR_NUMBER}" \
             --prerelease \
             --title "PR #${PR_NUMBER} Build" \

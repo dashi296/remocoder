@@ -28,8 +28,10 @@ jobs:
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_DISABLE_AUTO_UPLOAD: 'true'
           PR_NUMBER: ${{ github.event.number }}
         run: eas build --platform android --profile preview --local --non-interactive --output "../../remocoder-pr${PR_NUMBER}-android.apk"
+
 
       - name: Upload to GitHub Release
         uses: softprops/action-gh-release@v2
@@ -63,6 +65,7 @@ jobs:
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_DISABLE_AUTO_UPLOAD: 'true'
           PR_NUMBER: ${{ github.event.number }}
         run: eas build --platform ios --profile preview --local --non-interactive --output "../../remocoder-pr${PR_NUMBER}-ios.ipa"
 

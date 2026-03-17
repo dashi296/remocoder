@@ -143,7 +143,7 @@ importers:
         specifier: workspace:^
         version: link:../shared
       '@sentry/react-native':
-        specifier: ^7.11.0
+        specifier: ~7.11.0
         version: 7.11.0(encoding@0.1.13)(expo@55.0.6)(react-native@0.83.4(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.2.4))(react@19.2.4)
       '@types/react-native':
         specifier: ^0.73.0

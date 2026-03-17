@@ -41,6 +41,7 @@ jobs:
           prerelease: true
           body: "Commit: ${{ github.sha }}"
           files: remocoder-pr${{ github.event.number }}-android.apk
+          overwrite_files: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -77,6 +78,7 @@ jobs:
           prerelease: true
           body: "Commit: ${{ github.sha }}"
           files: remocoder-pr${{ github.event.number }}-ios.ipa
+          overwrite_files: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

@@ -25,12 +25,6 @@ jobs:
           PR_NUMBER: ${{ github.event.number }}
         run: mv packages/desktop/dist/*.dmg "remocoder-pr${PR_NUMBER}-mac.dmg"
 
-      - name: Delete existing release if exists
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PR_NUMBER: ${{ github.event.number }}
-        run: gh release delete "pr-${PR_NUMBER}" --yes --cleanup-tag || true
-
       - name: Upload to GitHub Release
         uses: softprops/action-gh-release@v2
         with:

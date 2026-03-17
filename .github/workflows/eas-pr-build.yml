@@ -27,6 +27,7 @@ jobs:
         working-directory: packages/mobile
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
           PR_NUMBER: ${{ github.event.number }}
         run: eas build --platform android --profile preview --local --non-interactive --output "../../remocoder-pr${PR_NUMBER}-android.apk"
 
@@ -61,6 +62,7 @@ jobs:
         working-directory: packages/mobile
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
           PR_NUMBER: ${{ github.event.number }}
         run: eas build --platform ios --profile preview --local --non-interactive --output "../../remocoder-pr${PR_NUMBER}-ios.ipa"
 

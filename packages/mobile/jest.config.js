@@ -23,6 +23,7 @@ module.exports = {
       '<rootDir>/src/__mocks__/async-storage.ts',
     '^expo-camera$': '<rootDir>/src/__mocks__/expo-camera.tsx',
     '^expo-constants$': '<rootDir>/src/__mocks__/expo-constants.ts',
+    '^@sentry/react-native$': '<rootDir>/src/__mocks__/sentry-react-native.ts',
     '^expo-updates$': '<rootDir>/src/__mocks__/expo-updates.ts',
     '^react-native-safe-area-context$': '<rootDir>/src/__mocks__/react-native-safe-area-context.tsx',
   },

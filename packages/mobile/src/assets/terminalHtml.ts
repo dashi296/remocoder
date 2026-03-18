@@ -36,16 +36,24 @@ export function buildTerminalHtml(
 <body>
   <div id="terminal"></div>
   <script>
-    // JS エラーをすべて React Native へ転送（デバッグ用）
-    window.onerror = function(msg, src, line, col, err) {
+    // ブリッジ非依存の診断: document.title を変更 (onNavigationStateChange で捕捉)
+    document.title = 'INIT:term=' + typeof Terminal + ',fit=' + typeof FitAddon
+
+    // ブリッジ経由での診断
+    if (window.ReactNativeWebView) {
+      window.ReactNativeWebView.postMessage(JSON.stringify({
+        type: 'debug',
+        msg: 'bridge OK. Terminal=' + typeof Terminal + ' FitAddon=' + typeof FitAddon
+      }))
+    }
+
+    window.onerror = function(msg, src, line) {
+      document.title = 'JSERR:' + String(msg).substring(0, 60)
       window.ReactNativeWebView && window.ReactNativeWebView.postMessage(
         JSON.stringify({ type: 'debug', msg: 'JS ERROR: ' + msg + ' @' + src + ':' + line })
       )
       return false
     }
-    window.ReactNativeWebView && window.ReactNativeWebView.postMessage(
-      JSON.stringify({ type: 'debug', msg: 'HTML loaded. Terminal is typeof: ' + typeof Terminal })
-    )
   </script>
   <script>
     const term = new Terminal({

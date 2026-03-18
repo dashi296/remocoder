@@ -211,6 +211,22 @@ export function TerminalScreen({ ip, token, projectPath, sessionId, source, onDi
         contentMode="mobile"
         // iOS: WebViewプロセスクラッシュ時に自動リロード
         onContentProcessDidTerminate={() => setWebViewKey((k) => k + 1)}
+        onNavigationStateChange={(navState) => {
+          if (navState.title) {
+            console.log('[WebView title]', navState.title)
+          }
+        }}
+        injectedJavaScript={`
+          try {
+            window.ReactNativeWebView.postMessage(JSON.stringify({
+              type: 'debug',
+              msg: 'injected: Bridge=' + !!window.ReactNativeWebView + ' Term=' + typeof Terminal
+            }));
+          } catch(e) {
+            document.title = 'INJECTED_ERROR:' + e.message.substring(0, 50);
+          }
+          true;
+        `}
         onLoadStart={() => console.log('[WebView] onLoadStart, html.length=', html.length)}
         onLoadEnd={() => console.log('[WebView] onLoadEnd')}
         onError={(e) => console.error('[WebView] onError:', JSON.stringify(e.nativeEvent))}

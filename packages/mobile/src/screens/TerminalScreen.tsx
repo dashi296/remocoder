@@ -1,19 +1,11 @@
 import React, { useRef, useCallback, useState, useMemo } from 'react'
-import {
-  View,
-  StyleSheet,
-  TouchableOpacity,
-  Text,
-  Modal,
-  ScrollView,
-  ActivityIndicator,
-} from 'react-native'
+import { View, StyleSheet, TouchableOpacity, Text, ActivityIndicator } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { WebView, WebViewMessageEvent } from 'react-native-webview'
 import { DEFAULT_WS_PORT, SessionInfo, ProjectInfo, SessionSource } from '@remocoder/shared'
 import { buildTerminalHtml } from '../assets/terminalHtml'
-import { formatDate, getSessionDisplayName } from '../utils'
 import { PermissionSheet, PermissionRequest } from '../components/PermissionSheet'
+import { SessionSwitcherModal } from '../components/SessionSwitcherModal'
 
 type ConnectionStatus = 'connecting' | 'connected' | 'reconnecting' | 'auth_error' | 'shell_exit'
 
@@ -218,95 +210,16 @@ export function TerminalScreen({ ip, token, projectPath, sessionId, source, onDi
       <PermissionSheet request={pendingPermission} onDecide={handlePermissionDecide} />
 
       {/* セッション切替モーダル */}
-      <Modal
+      <SessionSwitcherModal
         visible={showSwitcher}
-        animationType="slide"
-        transparent
-        onRequestClose={() => setShowSwitcher(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContainer}>
-            {/* モーダルヘッダー */}
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>セッション切替</Text>
-              <TouchableOpacity onPress={() => setShowSwitcher(false)} style={styles.modalCloseBtn}>
-                <Text style={styles.modalCloseText}>✕</Text>
-              </TouchableOpacity>
-            </View>
-
-            <ScrollView style={styles.modalScroll} showsVerticalScrollIndicator={false}>
-              {/* 実行中のセッション */}
-              {sessionList.length > 0 && (
-                <View style={styles.section}>
-                  <Text style={styles.sectionTitle}>実行中のセッション</Text>
-                  {sessionList.map((session) => {
-                    const isCurrent = session.id === currentSessionId
-                    const name = getSessionDisplayName(session)
-                    return (
-                      <TouchableOpacity
-                        key={session.id}
-                        style={[styles.sessionRow, isCurrent && styles.sessionRowCurrent]}
-                        onPress={() => !isCurrent && handleSwitchToSession(session.id)}
-                        disabled={isCurrent}
-                      >
-                        <View
-                          style={[
-                            styles.statusDot,
-                            session.status === 'active' ? styles.dotActive : styles.dotIdle,
-                          ]}
-                        />
-                        <View style={styles.sessionInfo}>
-                          <Text style={styles.sessionName}>{name}</Text>
-                          {session.projectPath && (
-                            <Text style={styles.sessionPath} numberOfLines={1} ellipsizeMode="middle">
-                              {session.projectPath}
-                            </Text>
-                          )}
-                        </View>
-                        {isCurrent ? (
-                          <Text style={styles.currentBadge}>現在</Text>
-                        ) : (
-                          <Text style={styles.switchArrow}>→</Text>
-                        )}
-                      </TouchableOpacity>
-                    )
-                  })}
-                </View>
-              )}
-
-              {/* 新規セッション作成 */}
-              <View style={styles.section}>
-                <Text style={styles.sectionTitle}>新規セッション</Text>
-                <TouchableOpacity
-                  style={styles.newSessionButton}
-                  onPress={() => handleCreateNewSession(null)}
-                >
-                  <Text style={styles.newSessionIcon}>＋</Text>
-                  <Text style={styles.newSessionText}>プロジェクトなし</Text>
-                </TouchableOpacity>
-                {projectList.map((project) => (
-                  <TouchableOpacity
-                    key={project.path}
-                    style={styles.projectRow}
-                    onPress={() => handleCreateNewSession(project.path)}
-                  >
-                    <View style={styles.projectLeft}>
-                      <Text style={styles.projectName}>{project.name}</Text>
-                      <Text style={styles.projectPath} numberOfLines={1} ellipsizeMode="middle">
-                        {project.path}
-                      </Text>
-                    </View>
-                    <Text style={styles.projectDate}>{formatDate(project.lastUsedAt)}</Text>
-                  </TouchableOpacity>
-                ))}
-                {projectList.length === 0 && (
-                  <Text style={styles.emptyText}>最近使ったプロジェクトはありません</Text>
-                )}
-              </View>
-            </ScrollView>
-          </View>
-        </View>
-      </Modal>
+        loading={switcherLoading}
+        sessions={sessionList}
+        projects={projectList}
+        currentSessionId={currentSessionId}
+        onClose={() => setShowSwitcher(false)}
+        onSwitchSession={handleSwitchToSession}
+        onCreateSession={handleCreateNewSession}
+      />
     </SafeAreaView>
   )
 }
@@ -342,164 +255,5 @@ const styles = StyleSheet.create({
   actionButtonText: {
     color: '#d4d4d4',
     fontSize: 12,
-  },
-  // ── モーダル ──
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.6)',
-    justifyContent: 'flex-end',
-  },
-  modalContainer: {
-    backgroundColor: '#0d1117',
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
-    maxHeight: '80%',
-  },
-  modalHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.08)',
-  },
-  modalTitle: {
-    color: '#c9d1d9',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  modalCloseBtn: {
-    padding: 4,
-  },
-  modalCloseText: {
-    color: '#8b949e',
-    fontSize: 16,
-  },
-  modalScroll: {
-    paddingHorizontal: 16,
-  },
-  section: {
-    paddingVertical: 12,
-  },
-  sectionTitle: {
-    color: '#8b949e',
-    fontSize: 11,
-    fontWeight: '600',
-    textTransform: 'uppercase',
-    letterSpacing: 0.8,
-    marginBottom: 8,
-  },
-  sessionRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#161b22',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    marginBottom: 6,
-    gap: 10,
-  },
-  sessionRowCurrent: {
-    borderColor: 'rgba(78,201,176,0.4)',
-    backgroundColor: 'rgba(78,201,176,0.05)',
-  },
-  statusDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    flexShrink: 0,
-  },
-  dotActive: {
-    backgroundColor: '#4ec9b0',
-  },
-  dotIdle: {
-    backgroundColor: '#dcdcaa',
-  },
-  sessionInfo: {
-    flex: 1,
-    gap: 2,
-  },
-  sessionName: {
-    color: '#c9d1d9',
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  sessionPath: {
-    color: '#8b949e',
-    fontSize: 11,
-    fontFamily: 'monospace',
-  },
-  currentBadge: {
-    color: '#4ec9b0',
-    fontSize: 11,
-    fontWeight: '600',
-  },
-  switchArrow: {
-    color: '#8b949e',
-    fontSize: 14,
-  },
-  newSessionButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    backgroundColor: 'rgba(78,201,176,0.1)',
-    borderWidth: 1,
-    borderColor: 'rgba(78,201,176,0.3)',
-    borderRadius: 8,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    marginBottom: 6,
-  },
-  newSessionIcon: {
-    color: '#4ec9b0',
-    fontSize: 18,
-    lineHeight: 20,
-  },
-  newSessionText: {
-    color: '#4ec9b0',
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  projectRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: '#161b22',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
-    borderRadius: 8,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    marginBottom: 6,
-    gap: 8,
-  },
-  projectLeft: {
-    flex: 1,
-    gap: 3,
-  },
-  projectName: {
-    color: '#c9d1d9',
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  projectPath: {
-    color: '#8b949e',
-    fontSize: 11,
-    fontFamily: 'monospace',
-  },
-  projectDate: {
-    color: '#8b949e',
-    fontSize: 11,
-    flexShrink: 0,
-  },
-  emptyText: {
-    color: '#8b949e',
-    fontSize: 13,
-    textAlign: 'center',
-    marginTop: 4,
-    paddingVertical: 8,
   },
 })

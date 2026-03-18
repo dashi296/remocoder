@@ -197,11 +197,20 @@ export function TerminalScreen({ ip, token, projectPath, sessionId, source, onDi
         ref={webViewRef}
         source={{ html, baseUrl: 'http://localhost/' }}
         style={styles.webview}
+        originWhitelist={['*']}
         scrollEnabled={false}
         keyboardDisplayRequiresUserAction={false}
         javaScriptEnabled
         onMessage={handleMessage}
         allowFileAccess={false}
+        // iOS: テキスト選択・リンクプレビュー・バウンスを無効化
+        textInteractionEnabled={false}
+        allowsLinkPreview={false}
+        bounces={false}
+        pullToRefreshEnabled={false}
+        contentMode="mobile"
+        // iOS: WebViewプロセスクラッシュ時に自動リロード
+        onContentProcessDidTerminate={() => setWebViewKey((k) => k + 1)}
         onError={(e) => console.error('WebView error:', e.nativeEvent)}
         onHttpError={(e) => console.error('WebView HTTP error:', e.nativeEvent.statusCode)}
       />

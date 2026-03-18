@@ -211,8 +211,10 @@ export function TerminalScreen({ ip, token, projectPath, sessionId, source, onDi
         contentMode="mobile"
         // iOS: WebViewプロセスクラッシュ時に自動リロード
         onContentProcessDidTerminate={() => setWebViewKey((k) => k + 1)}
-        onError={(e) => console.error('WebView error:', e.nativeEvent)}
-        onHttpError={(e) => console.error('WebView HTTP error:', e.nativeEvent.statusCode)}
+        onLoadStart={() => console.log('[WebView] onLoadStart, html.length=', html.length)}
+        onLoadEnd={() => console.log('[WebView] onLoadEnd')}
+        onError={(e) => console.error('[WebView] onError:', JSON.stringify(e.nativeEvent))}
+        onHttpError={(e) => console.error('[WebView] onHttpError:', e.nativeEvent.statusCode)}
       />
 
       {/* 承認ボトムシート */}

@@ -36,6 +36,18 @@ export function buildTerminalHtml(
 <body>
   <div id="terminal"></div>
   <script>
+    // JS エラーをすべて React Native へ転送（デバッグ用）
+    window.onerror = function(msg, src, line, col, err) {
+      window.ReactNativeWebView && window.ReactNativeWebView.postMessage(
+        JSON.stringify({ type: 'debug', msg: 'JS ERROR: ' + msg + ' @' + src + ':' + line })
+      )
+      return false
+    }
+    window.ReactNativeWebView && window.ReactNativeWebView.postMessage(
+      JSON.stringify({ type: 'debug', msg: 'HTML loaded. Terminal is typeof: ' + typeof Terminal })
+    )
+  </script>
+  <script>
     const term = new Terminal({
       theme: { background: '#1e1e1e', foreground: '#d4d4d4' },
       fontSize: 13,

@@ -218,14 +218,13 @@ export function TerminalScreen({ ip, token, projectPath, sessionId, source, onDi
         }}
         injectedJavaScript={`
           try {
-            var d = window.__xtermDebug || {};
+            var d = window.__xtermDebug || null;
             window.ReactNativeWebView.postMessage(JSON.stringify({
               type: 'debug',
-              msg: 'injected: Bridge=true Term=' + typeof Terminal
-                + ' | xterm.js: Terminal=' + d.Terminal + ' module=' + d.module_
-                + ' exports=' + d.exports_ + ' err=' + d.earlyError
-                + ' keys=[' + d.xtermKeys + ']'
-                + ' FitAddon=' + d.FitAddonAfter
+              msg: 'injected: Term=' + typeof Terminal
+                + ' | debug=' + (d ? JSON.stringify(d) : 'NOT_SET')
+                + ' earlyErr=' + (window.__earlyError || 'none')
+                + ' debugErr=' + (window.__xtermDebugError || 'none')
             }));
           } catch(e) {
             document.title = 'INJECTED_ERROR:' + e.message.substring(0, 50);

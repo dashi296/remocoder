@@ -33,19 +33,15 @@ export function buildTerminalHtml(
   <style>${XTERM_CSS}</style>
   <script>${XTERM_JS}</script>
   <script>
-    // xterm.js 実行直後の状態を記録（bridge は後で利用可能になるので window 変数に保存）
-    window.__xtermDebug = {
-      Terminal: typeof Terminal,
-      FitAddon: typeof FitAddon,
-      module_: typeof module,
-      exports_: typeof exports,
-      earlyError: window.__earlyError || null,
-      xtermKeys: Object.getOwnPropertyNames(window).filter(function(k) {
-        return k && k.length <= 20 && (
-          k.toLowerCase().indexOf('term') >= 0 ||
-          k.toLowerCase().indexOf('xterm') >= 0
-        )
-      }).join(','),
+    // xterm.js 実行直後の状態を記録
+    try {
+      window.__xtermDebug = {
+        Terminal: typeof Terminal,
+        module_: typeof module,
+        exports_: typeof exports,
+      }
+    } catch(e) {
+      window.__xtermDebugError = String(e)
     }
   </script>
   <script>${XTERM_FIT_ADDON_JS}</script>

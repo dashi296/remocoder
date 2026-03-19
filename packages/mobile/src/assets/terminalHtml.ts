@@ -25,8 +25,18 @@ export function buildTerminalHtml(
 <head>
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
   <style>${XTERM_CSS}</style>
-  <script>${XTERM_JS}</script>
-  <script>${XTERM_FIT_ADDON_JS}</script>
+  <script>
+    // UMD検出を無効化してブラウザグローバル(self=window)へ確実に代入させる
+    // react-native-webview が module/exports を注入している場合の対策
+    ;(function(window, self, globalThis, exports, module, define) {
+      ${XTERM_JS}
+    }.call(window, window, window, window, undefined, undefined, undefined));
+  </script>
+  <script>
+    ;(function(window, self, globalThis, exports, module, define) {
+      ${XTERM_FIT_ADDON_JS}
+    }.call(window, window, window, window, undefined, undefined, undefined));
+  </script>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     html, body { width: 100%; height: 100%; background: #1e1e1e; overflow: hidden; }

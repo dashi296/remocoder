@@ -6,8 +6,20 @@ import { EventEmitter } from 'events'
 const wssState = vi.hoisted(() => ({ instance: null as (EventEmitter & { close: ReturnType<typeof vi.fn> }) | null }))
 const ptyState = vi.hoisted(() => ({ lastShell: null as any }))
 const mockUuidv4 = vi.hoisted(() => vi.fn().mockReturnValue('test-token'))
+/** SDK query の最後の呼び出し引数 */
+const sdkState = vi.hoisted(() => ({ lastPrompt: null as string | null, lastOptions: null as any }))
 
 vi.mock('uuid', () => ({ v4: mockUuidv4 }))
+
+// @anthropic-ai/claude-agent-sdk をモック：query() は空の AsyncGenerator を返す
+vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
+  query: vi.fn((params: any) => {
+    sdkState.lastPrompt = params.prompt
+    sdkState.lastOptions = params.options
+    // 空の AsyncGenerator を返す（結果なし）
+    return (async function* () {})()
+  }),
+}))
 
 vi.mock('ws', async () => {
   const { EventEmitter } = await import('events')
@@ -68,10 +80,18 @@ function connectAndAuth(startPtyServer: any) {
   return { ws }
 }
 
-// Helper: connect + auth + create session (full flow)
+// Helper: connect + auth + create a PTY session (shell source)
 function connectAuthAndCreate(startPtyServer: any) {
   const { ws } = connectAndAuth(startPtyServer)
-  sendMessage(ws, { type: 'session_create' })
+  sendMessage(ws, { type: 'session_create', source: { kind: 'shell' } })
+  ws.send.mockClear()
+  return { ws }
+}
+
+// Helper: connect + auth + create a claude SDK session
+function connectAuthAndCreateSdk(startPtyServer: any) {
+  const { ws } = connectAndAuth(startPtyServer)
+  sendMessage(ws, { type: 'session_create', source: { kind: 'claude' } })
   ws.send.mockClear()
   return { ws }
 }
@@ -83,9 +103,12 @@ describe('startPtyServer', () => {
   beforeEach(async () => {
     vi.resetModules()
     delete process.env.REMOTE_TOKEN
+    delete process.env.ANTHROPIC_API_KEY
     mockUuidv4.mockReturnValue('test-token')
     wssState.instance = null
     ptyState.lastShell = null
+    sdkState.lastPrompt = null
+    sdkState.lastOptions = null
     const mod = await import('../pty-server')
     startPtyServer = mod.startPtyServer
     desktopCreateSession = mod.desktopCreateSession
@@ -203,9 +226,22 @@ describe('startPtyServer', () => {
   })
 
   describe('session_create', () => {
-    it('session_create で PTY をスポーンし session_attached を返す', () => {
+    it('claude session_create は PTY をスポーンせず session_attached を返す（SDK モード）', () => {
       const { ws } = connectAndAuth(startPtyServer)
-      sendMessage(ws, { type: 'session_create' })
+      sendMessage(ws, { type: 'session_create', source: { kind: 'claude' } })
+
+      // claude セッションは SDK を使うため PTY はスポーンしない
+      expect(ptyState.lastShell).toBeNull()
+      const calls = ws.send.mock.calls.map((c: any) => JSON.parse(c[0]))
+      const attached = calls.find((m: any) => m.type === 'session_attached')
+      expect(attached).toBeDefined()
+      expect(attached.scrollback).toBe('')
+      expect(attached.source?.kind).toBe('claude')
+    })
+
+    it('shell session_create で PTY をスポーンし session_attached を返す', () => {
+      const { ws } = connectAndAuth(startPtyServer)
+      sendMessage(ws, { type: 'session_create', source: { kind: 'shell' } })
 
       expect(ptyState.lastShell).not.toBeNull()
       const calls = ws.send.mock.calls.map((c: any) => JSON.parse(c[0]))
@@ -254,11 +290,11 @@ describe('startPtyServer', () => {
     it('session_attach 成功後に scrollback が含まれる session_attached を返す', () => {
       startPtyServer()
 
-      // セッション作成 + PTY 出力を積む
+      // shell セッション作成 + PTY 出力を積む
       const ws1 = createMockWs()
       wssState.instance!.emit('connection', ws1)
       sendMessage(ws1, { type: 'auth', token: 'test-token' })
-      sendMessage(ws1, { type: 'session_create' })
+      sendMessage(ws1, { type: 'session_create', source: { kind: 'shell' } })
       const sessionId = JSON.parse(
         ws1.send.mock.calls.find((c: any) => JSON.parse(c[0]).type === 'session_attached')[0],
       ).sessionId
@@ -351,13 +387,41 @@ describe('startPtyServer', () => {
   })
 
   describe('セッション操作（session_create 後）', () => {
-    it('input メッセージが shell.write() を呼ぶ', () => {
+    it('shell セッション: input メッセージが shell.write() を呼ぶ', () => {
       const { ws } = connectAuthAndCreate(startPtyServer)
       sendMessage(ws, { type: 'input', data: 'hello\n' })
       expect(ptyState.lastShell.write).toHaveBeenCalledWith('hello\n')
     })
 
-    it('resize メッセージが shell.resize() を呼ぶ', () => {
+    it('claude SDK セッション: input メッセージは無視される（chat_user_message を使う）', () => {
+      const { ws } = connectAuthAndCreateSdk(startPtyServer)
+      sendMessage(ws, { type: 'input', data: 'hello\n' })
+      // claude SDK セッションでは PTY がないため write は呼ばれない
+      expect(ptyState.lastShell).toBeNull()
+    })
+
+    it('claude SDK セッション: chat_user_message を受信すると SDK query が呼ばれる', async () => {
+      process.env.ANTHROPIC_API_KEY = 'test-key'
+      const { ws } = connectAuthAndCreateSdk(startPtyServer)
+      sdkState.lastPrompt = null
+      sendMessage(ws, { type: 'chat_user_message', content: 'こんにちは' })
+      // 非同期処理のため少し待つ
+      await new Promise((r) => setTimeout(r, 10))
+      expect(sdkState.lastPrompt).toBe('こんにちは')
+      delete process.env.ANTHROPIC_API_KEY
+    })
+
+    it('claude SDK セッション: ANTHROPIC_API_KEY がない場合は chat_status error を返す', () => {
+      delete process.env.ANTHROPIC_API_KEY
+      const { ws } = connectAuthAndCreateSdk(startPtyServer)
+      sendMessage(ws, { type: 'chat_user_message', content: 'test' })
+      const calls = ws.send.mock.calls.map((c: any) => JSON.parse(c[0]))
+      const errMsg = calls.find((m: any) => m.type === 'chat_status' && m.status === 'error')
+      expect(errMsg).toBeDefined()
+      expect(errMsg.errorMessage).toContain('ANTHROPIC_API_KEY')
+    })
+
+    it('shell セッション: resize メッセージが shell.resize() を呼ぶ', () => {
       const { ws } = connectAuthAndCreate(startPtyServer)
       sendMessage(ws, { type: 'resize', cols: 120, rows: 40 })
       expect(ptyState.lastShell.resize).toHaveBeenCalledWith(120, 40)
@@ -409,7 +473,7 @@ describe('startPtyServer', () => {
       const ws = createMockWs()
       wssState.instance!.emit('connection', ws)
       sendMessage(ws, { type: 'auth', token: 'test-token' })
-      sendMessage(ws, { type: 'session_create' })
+      sendMessage(ws, { type: 'session_create', source: { kind: 'shell' } })
 
       ptyState.lastShell._onDataCb('hello')
       expect(onPtyOutput).toHaveBeenCalledWith(expect.any(String), 'hello')
@@ -423,7 +487,7 @@ describe('startPtyServer', () => {
       const ws = createMockWs()
       wssState.instance!.emit('connection', ws)
       sendMessage(ws, { type: 'auth', token: 'test-token' })
-      sendMessage(ws, { type: 'session_create' })
+      sendMessage(ws, { type: 'session_create', source: { kind: 'shell' } })
 
       const beforeClose = onSessionsChange.mock.calls.at(-1)![0]
       expect(beforeClose.length).toBe(1)

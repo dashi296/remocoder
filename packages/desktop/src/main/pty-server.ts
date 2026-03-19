@@ -9,6 +9,7 @@ import { promisify } from 'util'
 import { WsMessage, SessionInfo, ProjectInfo, MultiplexerSessionInfo, SessionSource, DEFAULT_WS_PORT } from '@remocoder/shared'
 import { v4 as uuidv4 } from 'uuid'
 import { tryParsePermission, stripAnsi } from './permission-parser'
+import { query, type SDKMessage, type PermissionResult } from '@anthropic-ai/claude-agent-sdk'
 
 const execAsync = promisify(exec)
 
@@ -144,6 +145,13 @@ interface PtySession {
   permissionBuffer: string
   /** 承認待ちリクエスト（存在する間は重複検出しない） */
   pendingPermission: { requestId: string; timeoutId: ReturnType<typeof setTimeout>; style: 'numbered' | 'legacy'; requiresAlways: boolean } | null
+  // ─── SDK claude セッション専用フィールド ─────────────────────────────────
+  /** claude SDK のセッション ID（リジューム用）。PTYセッションでは null */
+  sdkClaudeSessionId: string | null
+  /** 実行中の SDK クエリを中断する AbortController */
+  sdkAbortController: AbortController | null
+  /** SDK canUseTool コールバックの応答待ち resolve 関数 */
+  sdkPermissionResolve: ((result: PermissionResult) => void) | null
 }
 
 /** 永続PTYセッションマップ（WS切断後も保持） */
@@ -302,7 +310,9 @@ function setSessionActive(session: PtySession) {
 
 function createPtySession(source: SessionSource = { kind: 'claude' }, clientIP?: string): PtySession {
   const id = uuidv4()
-  const ptyProc = spawnSource(source)
+  const isClaudeSession = source.kind === 'claude'
+  // claude セッションは SDK を使うため PTY をスポーンしない
+  const ptyProc = isClaudeSession ? null : spawnSource(source)
   const projectPath = source.kind === 'claude' ? source.projectPath : undefined
 
   const session: PtySession = {
@@ -321,34 +331,39 @@ function createPtySession(source: SessionSource = { kind: 'claude' }, clientIP?:
     source,
     permissionBuffer: '',
     pendingPermission: null,
+    sdkClaudeSessionId: null,
+    sdkAbortController: null,
+    sdkPermissionResolve: null,
   }
 
-  ptyProc.onData((data) => {
-    appendScrollback(session, data)
-    if (session.wsClient?.readyState === WebSocket.OPEN) {
-      session.wsClient.send(JSON.stringify({ type: 'output', data } satisfies WsMessage))
-    }
-    serverCallbacks.onPtyOutput?.(id, data)
-    detectAndSendPermission(session, data)
-  })
+  if (ptyProc) {
+    ptyProc.onData((data) => {
+      appendScrollback(session, data)
+      if (session.wsClient?.readyState === WebSocket.OPEN) {
+        session.wsClient.send(JSON.stringify({ type: 'output', data } satisfies WsMessage))
+      }
+      serverCallbacks.onPtyOutput?.(id, data)
+      detectAndSendPermission(session, data)
+    })
 
-  ptyProc.onExit(({ exitCode }) => {
-    if (session.idleTimeoutId) clearTimeout(session.idleTimeoutId)
-    if (session.pendingPermission) clearTimeout(session.pendingPermission.timeoutId)
-    if (session.wsClient?.readyState === WebSocket.OPEN) {
-      session.wsClient.send(JSON.stringify({ type: 'shell_exit', exitCode } satisfies WsMessage))
-      session.wsClient.close()
-    }
-    serverCallbacks.onPtyExit?.(id, exitCode)
-    console.log(`[pty-server] Session ${id.slice(0, 8)} exited (code: ${exitCode}). Remaining: ${ptySessions.size - 1}`)
-    ptySessions.delete(id)
-    notifySessions()
-  })
+    ptyProc.onExit(({ exitCode }) => {
+      if (session.idleTimeoutId) clearTimeout(session.idleTimeoutId)
+      if (session.pendingPermission) clearTimeout(session.pendingPermission.timeoutId)
+      if (session.wsClient?.readyState === WebSocket.OPEN) {
+        session.wsClient.send(JSON.stringify({ type: 'shell_exit', exitCode } satisfies WsMessage))
+        session.wsClient.close()
+      }
+      serverCallbacks.onPtyExit?.(id, exitCode)
+      console.log(`[pty-server] Session ${id.slice(0, 8)} exited (code: ${exitCode}). Remaining: ${ptySessions.size - 1}`)
+      ptySessions.delete(id)
+      notifySessions()
+    })
+  }
 
   ptySessions.set(id, session)
   setSessionActive(session)
   notifySessions()
-  console.log(`Created PTY session: ${id}`)
+  console.log(`${isClaudeSession ? 'Created SDK' : 'Created PTY'} session: ${id}`)
   return session
 }
 
@@ -371,6 +386,9 @@ function createExternalSession(providerWs: WebSocket): PtySession {
     lastActiveAt: 0,
     permissionBuffer: '',
     pendingPermission: null,
+    sdkClaudeSessionId: null,
+    sdkAbortController: null,
+    sdkPermissionResolve: null,
   }
 
   ptySessions.set(id, session)
@@ -475,8 +493,15 @@ export function startPtyServer(port = DEFAULT_WS_PORT, callbacks: PtyServerCallb
         if (session && session.wsClient === ws) {
           if (session.pendingPermission) {
             clearTimeout(session.pendingPermission.timeoutId)
-            const p = session.pendingPermission
-            sessionWrite(session, p.style === 'numbered' ? (p.requiresAlways ? '3' : '2') : 'n\n')
+            if (session.sdkPermissionResolve) {
+              // SDK セッション: 拒否を返してクエリを継続させる
+              session.sdkPermissionResolve({ behavior: 'deny', message: 'Client disconnected' } satisfies PermissionResult)
+              session.sdkPermissionResolve = null
+            } else {
+              // PTY セッション: 拒否キーを送信
+              const p = session.pendingPermission
+              sessionWrite(session, p.style === 'numbered' ? (p.requiresAlways ? '3' : '2') : 'n\n')
+            }
             session.pendingPermission = null
             session.permissionBuffer = ''
           }
@@ -709,15 +734,36 @@ export function startPtyServer(port = DEFAULT_WS_PORT, callbacks: PtyServerCallb
           clearTimeout(pending.timeoutId)
           session.pendingPermission = null
           session.permissionBuffer = ''
-          const keys: Record<typeof pending.style, Record<typeof msg.decision, string>> = {
-            numbered: { approve: '1', always: '2', reject: pending.requiresAlways ? '3' : '2' },
-            legacy:   { approve: 'y\n', always: 'a\n', reject: 'n\n' },
+          if (session.sdkPermissionResolve) {
+            // SDK セッション: resolve コールバックで応答する
+            const resolve = session.sdkPermissionResolve
+            session.sdkPermissionResolve = null
+            if (msg.decision === 'approve' || msg.decision === 'always') {
+              resolve({ behavior: 'allow' } satisfies PermissionResult)
+            } else {
+              resolve({ behavior: 'deny', message: 'User denied' } satisfies PermissionResult)
+            }
+          } else {
+            // PTY セッション: 対応するキーを送信する
+            const keys: Record<typeof pending.style, Record<typeof msg.decision, string>> = {
+              numbered: { approve: '1', always: '2', reject: pending.requiresAlways ? '3' : '2' },
+              legacy:   { approve: 'y\n', always: 'a\n', reject: 'n\n' },
+            }
+            sessionWrite(session, keys[pending.style][msg.decision])
           }
-          sessionWrite(session, keys[pending.style][msg.decision])
+        }
+        return
+      }
+      if (msg.type === 'chat_user_message') {
+        // claude SDK セッション専用: モバイルからの会話メッセージ
+        if (session.source?.kind === 'claude') {
+          runSdkQuery(session, msg.content)
         }
         return
       }
       if (msg.type === 'input') {
+        // claude SDK セッションは chat_user_message を使うため raw input は無視する
+        if (session.source?.kind === 'claude') return
         sessionWrite(session, msg.data)
         setSessionActive(session)
       }
@@ -775,15 +821,9 @@ function assertSafeSessionName(name: string, tool: string): void {
   }
 }
 
-function spawnSource(source: SessionSource): pty.IPty {
+function spawnSource(source: Exclude<SessionSource, { kind: 'claude' }>): pty.IPty {
   const baseOpts = { name: 'xterm-color', cols: 80, rows: 30, env: { ...process.env } }
   switch (source.kind) {
-    case 'claude': {
-      const loginShell = resolveShell()
-      const cwd = source.projectPath && existsSync(source.projectPath) ? source.projectPath : undefined
-      console.log(`[pty-server] Spawning claude via shell: ${loginShell}${cwd ? ` (cwd: ${cwd})` : ''}`)
-      return pty.spawn(loginShell, ['-lc', 'exec claude'], { ...baseOpts, ...(cwd ? { cwd } : {}) })
-    }
     case 'tmux': {
       assertSafeSessionName(source.sessionName, 'tmux')
       console.log(`[pty-server] Attaching to tmux session: ${source.sessionName}`)
@@ -807,6 +847,197 @@ function spawnSource(source: SessionSource): pty.IPty {
     }
     default:
       throw new Error(`[pty-server] Unknown session source kind: ${(source as { kind: string }).kind}`)
+  }
+}
+
+// ─── SDK Claude セッション ──────────────────────────────────────────────────
+
+/**
+ * SDKの `canUseTool` コールバック。ツール実行前にモバイルクライアントへ承認リクエストを送り、
+ * ユーザーの応答（approve / reject）を待つ。クライアント未接続時は自動許可する。
+ */
+function createSdkCanUseTool(session: PtySession) {
+  return async (toolName: string, input: Record<string, unknown>): Promise<PermissionResult> => {
+    if (session.wsClient?.readyState !== WebSocket.OPEN) {
+      return { behavior: 'allow' }
+    }
+
+    return new Promise<PermissionResult>((resolve) => {
+      const requestId = uuidv4()
+      const details = Object.entries(input)
+        .slice(0, 4)
+        .map(([k, v]) => {
+          const val = typeof v === 'string' ? v.slice(0, 120) : JSON.stringify(v).slice(0, 120)
+          return `${k}: ${val}`
+        })
+
+      const timeoutId = setTimeout(() => {
+        session.sdkPermissionResolve = null
+        session.pendingPermission = null
+        resolve({ behavior: 'deny', message: 'Permission timeout' })
+      }, PERMISSION_TIMEOUT)
+
+      session.sdkPermissionResolve = resolve
+      session.pendingPermission = { requestId, timeoutId, style: 'numbered', requiresAlways: false }
+
+      session.wsClient!.send(
+        JSON.stringify({
+          type: 'permission_request',
+          requestId,
+          toolName,
+          details,
+          requiresAlways: false,
+        } satisfies WsMessage),
+      )
+    })
+  }
+}
+
+/**
+ * SDK の SDKMessage を WsMessage[] に変換する。
+ * 変換対象外のメッセージは空配列を返す。
+ */
+function sdkMessageToWsMessages(msg: SDKMessage): WsMessage[] {
+  switch (msg.type) {
+    case 'system': {
+      if (msg.subtype === 'init') {
+        return [{ type: 'chat_ready', sessionId: msg.session_id ?? '', cwd: msg.cwd }]
+      }
+      return []
+    }
+
+    case 'assistant': {
+      const results: WsMessage[] = []
+      let textAccum = ''
+      const content = msg.message.content as Array<{ type: string; text?: string; name?: string; input?: unknown }>
+      for (const part of content) {
+        if (part.type === 'text' && part.text) {
+          textAccum += part.text
+        } else if (part.type === 'tool_use') {
+          if (textAccum) {
+            results.push({ type: 'chat_assistant_message', content: textAccum })
+            textAccum = ''
+          }
+          results.push({
+            type: 'chat_tool_use',
+            toolName: part.name ?? '',
+            toolInput: JSON.stringify(part.input ?? {}, null, 2),
+          })
+        }
+      }
+      if (textAccum) {
+        results.push({ type: 'chat_assistant_message', content: textAccum })
+      }
+      return results
+    }
+
+    case 'user': {
+      const results: WsMessage[] = []
+      const content = msg.message.content
+      if (Array.isArray(content)) {
+        for (const part of content as Array<Record<string, unknown>>) {
+          if (part.type === 'tool_result') {
+            const raw = part.content
+            const text = Array.isArray(raw)
+              ? (raw as Array<{ type: string; text?: string }>)
+                  .filter((c) => c.type === 'text')
+                  .map((c) => c.text ?? '')
+                  .join('')
+              : String(raw ?? '')
+            results.push({
+              type: 'chat_tool_result',
+              toolName: String(part.tool_use_id ?? ''),
+              content: text.slice(0, 2000),
+              isError: Boolean(part.is_error),
+            })
+          }
+        }
+      }
+      return results
+    }
+
+    case 'result': {
+      if (msg.subtype === 'success') {
+        return [{ type: 'chat_status', status: 'idle' }]
+      }
+      const errorMessage = 'errors' in msg ? (msg.errors as string[]).join(', ') : 'Unknown error'
+      return [{ type: 'chat_status', status: 'error', errorMessage }]
+    }
+
+    default:
+      return []
+  }
+}
+
+/**
+ * モバイルから受け取ったメッセージで claude SDK クエリを実行し、
+ * 結果を WsMessage としてクライアントへストリーミング送信する。
+ * 実行中のクエリがある場合は中断してから新しいクエリを開始する。
+ */
+async function runSdkQuery(session: PtySession, userMessage: string): Promise<void> {
+  if (session.sdkAbortController) {
+    session.sdkAbortController.abort()
+  }
+
+  if (!process.env.ANTHROPIC_API_KEY) {
+    session.wsClient?.send(
+      JSON.stringify({
+        type: 'chat_status',
+        status: 'error',
+        errorMessage: 'ANTHROPIC_API_KEY が設定されていません。デスクトップアプリの環境変数を確認してください。',
+      } satisfies WsMessage),
+    )
+    return
+  }
+
+  const abortController = new AbortController()
+  session.sdkAbortController = abortController
+  setSessionActive(session)
+
+  session.wsClient?.send(JSON.stringify({ type: 'chat_status', status: 'thinking' } satisfies WsMessage))
+
+  const source = session.source as { kind: 'claude'; projectPath?: string }
+  const cwd = source.projectPath && existsSync(source.projectPath) ? source.projectPath : homedir()
+
+  console.log(`[pty-server] SDK query start (session ${session.id.slice(0, 8)}, cwd: ${cwd}, resume: ${session.sdkClaudeSessionId ?? 'none'})`)
+
+  try {
+    const q = query({
+      prompt: userMessage,
+      options: {
+        cwd,
+        resume: session.sdkClaudeSessionId ?? undefined,
+        permissionMode: 'default',
+        abortController,
+        canUseTool: createSdkCanUseTool(session),
+      },
+    })
+
+    for await (const sdkMsg of q) {
+      // session_id を追跡（リジューム用）
+      if ('session_id' in sdkMsg && typeof sdkMsg.session_id === 'string') {
+        session.sdkClaudeSessionId = sdkMsg.session_id
+      }
+
+      if (session.wsClient?.readyState !== WebSocket.OPEN) break
+
+      const wsMessages = sdkMessageToWsMessages(sdkMsg)
+      for (const wsMsg of wsMessages) {
+        session.wsClient.send(JSON.stringify(wsMsg))
+      }
+    }
+  } catch (err) {
+    if (!abortController.signal.aborted) {
+      const errorMessage = err instanceof Error ? err.message : String(err)
+      console.error(`[pty-server] SDK query error (session ${session.id.slice(0, 8)}):`, errorMessage)
+      session.wsClient?.send(
+        JSON.stringify({ type: 'chat_status', status: 'error', errorMessage } satisfies WsMessage),
+      )
+    }
+  } finally {
+    if (session.sdkAbortController === abortController) {
+      session.sdkAbortController = null
+    }
   }
 }
 

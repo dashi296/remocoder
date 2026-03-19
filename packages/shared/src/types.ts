@@ -45,6 +45,19 @@ export type WsMessage =
   | { type: 'permission_request'; requestId: string; toolName: string; details: string[]; requiresAlways: boolean }
   /** モバイルがデスクトップへ承認結果を返す */
   | { type: 'permission_response'; requestId: string; decision: 'approve' | 'reject' | 'always' }
+  // ─── Chat mode messages (SDK-based claude sessions) ───────────────────────
+  /** モバイルからの会話メッセージ（claudeセッション専用） */
+  | { type: 'chat_user_message'; content: string }
+  /** SDK セッション初期化完了（cwd と claude session ID を通知） */
+  | { type: 'chat_ready'; sessionId: string; cwd: string }
+  /** アシスタントのテキスト応答 */
+  | { type: 'chat_assistant_message'; content: string }
+  /** ツール実行通知 */
+  | { type: 'chat_tool_use'; toolName: string; toolInput: string }
+  /** ツール実行結果 */
+  | { type: 'chat_tool_result'; toolName: string; content: string; isError: boolean }
+  /** チャットセッションの状態変化 */
+  | { type: 'chat_status'; status: 'thinking' | 'idle' | 'error'; errorMessage?: string }
 
 export interface ProjectInfo {
   /** プロジェクトのフルパス */

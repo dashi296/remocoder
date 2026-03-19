@@ -218,13 +218,12 @@ export function TerminalScreen({ ip, token, projectPath, sessionId, source, onDi
         }}
         injectedJavaScript={`
           try {
-            var d = window.__xtermDebug || null;
             window.ReactNativeWebView.postMessage(JSON.stringify({
               type: 'debug',
-              msg: 'injected: Term=' + typeof Terminal
-                + ' | debug=' + (d ? JSON.stringify(d) : 'NOT_SET')
-                + ' earlyErr=' + (window.__earlyError || 'none')
-                + ' debugErr=' + (window.__xtermDebugError || 'none')
+              msg: 's1=' + !!window.__s1 + ' s2=' + !!window.__s2
+                 + ' s3=' + !!window.__s3 + ' s4=' + !!window.__s4
+                 + ' Term=' + window.__Terminal
+                 + ' Fit=' + window.__FitAddon
             }));
           } catch(e) {
             document.title = 'INJECTED_ERROR:' + e.message.substring(0, 50);

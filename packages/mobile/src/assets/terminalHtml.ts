@@ -24,30 +24,13 @@ export function buildTerminalHtml(
 <html>
 <head>
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-  <script>
-    // xterm.js 実行前にエラーハンドラーを設置
-    window.onerror = function(msg, src, line) {
-      window.__earlyError = String(msg).substring(0, 100)
-    }
-  </script>
+  <script>window.__s1 = 1</script>
   <style>${XTERM_CSS}</style>
+  <script>window.__s2 = 1</script>
   <script>${XTERM_JS}</script>
-  <script>
-    // xterm.js 実行直後の状態を記録
-    try {
-      window.__xtermDebug = {
-        Terminal: typeof Terminal,
-        module_: typeof module,
-        exports_: typeof exports,
-      }
-    } catch(e) {
-      window.__xtermDebugError = String(e)
-    }
-  </script>
+  <script>window.__s3 = 1; window.__Terminal = typeof Terminal</script>
   <script>${XTERM_FIT_ADDON_JS}</script>
-  <script>
-    window.__xtermDebug.FitAddonAfter = typeof FitAddon
-  </script>
+  <script>window.__s4 = 1; window.__FitAddon = typeof FitAddon</script>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     html, body { width: 100%; height: 100%; background: #1e1e1e; overflow: hidden; }

@@ -24,18 +24,33 @@ export function buildTerminalHtml(
 <html>
 <head>
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-  <style>${XTERM_CSS}</style>
   <script>
-    // UMD検出を無効化してブラウザグローバル(self=window)へ確実に代入させる
-    // react-native-webview が module/exports を注入している場合の対策
-    ;(function(window, self, globalThis, exports, module, define) {
-      ${XTERM_JS}
-    }.call(window, window, window, window, undefined, undefined, undefined));
+    // xterm.js 実行前にエラーハンドラーを設置
+    window.onerror = function(msg, src, line) {
+      window.__earlyError = String(msg).substring(0, 100)
+    }
   </script>
+  <style>${XTERM_CSS}</style>
+  <script>${XTERM_JS}</script>
   <script>
-    ;(function(window, self, globalThis, exports, module, define) {
-      ${XTERM_FIT_ADDON_JS}
-    }.call(window, window, window, window, undefined, undefined, undefined));
+    // xterm.js 実行直後の状態を記録（bridge は後で利用可能になるので window 変数に保存）
+    window.__xtermDebug = {
+      Terminal: typeof Terminal,
+      FitAddon: typeof FitAddon,
+      module_: typeof module,
+      exports_: typeof exports,
+      earlyError: window.__earlyError || null,
+      xtermKeys: Object.getOwnPropertyNames(window).filter(function(k) {
+        return k && k.length <= 20 && (
+          k.toLowerCase().indexOf('term') >= 0 ||
+          k.toLowerCase().indexOf('xterm') >= 0
+        )
+      }).join(','),
+    }
+  </script>
+  <script>${XTERM_FIT_ADDON_JS}</script>
+  <script>
+    window.__xtermDebug.FitAddonAfter = typeof FitAddon
   </script>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }

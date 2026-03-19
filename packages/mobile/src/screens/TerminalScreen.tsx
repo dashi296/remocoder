@@ -195,7 +195,7 @@ export function TerminalScreen({ ip, token, projectPath, sessionId, source, onDi
       <WebView
         key={webViewKey}
         ref={webViewRef}
-        source={{ html, baseUrl: 'http://localhost/' }}
+        source={{ html }}
         style={styles.webview}
         originWhitelist={['*']}
         scrollEnabled={false}

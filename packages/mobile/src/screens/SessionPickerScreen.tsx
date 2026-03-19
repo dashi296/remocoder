@@ -46,7 +46,10 @@ export function SessionPickerScreen({ ip, token, onSelectProject, onAttachSessio
     const ws = new WebSocket(`ws://${ip}:${DEFAULT_WS_PORT}`)
     wsRef.current = ws
 
+    console.log('[SessionPicker] WebSocket connecting to:', `ws://${ip}:${DEFAULT_WS_PORT}`)
+
     ws.onopen = () => {
+      console.log('[SessionPicker] WebSocket opened, sending auth...')
       const msg: WsMessage = { type: 'auth', token }
       ws.send(JSON.stringify(msg))
     }
@@ -54,26 +57,35 @@ export function SessionPickerScreen({ ip, token, onSelectProject, onAttachSessio
     ws.onmessage = (e) => {
       try {
         const msg: WsMessage = JSON.parse(e.data)
+        console.log('[SessionPicker] received:', msg.type)
         if (msg.type === 'auth_ok') {
+          console.log('[SessionPicker] auth_ok received, status -> connected')
           setStatus('connected')
         } else if (msg.type === 'project_list') {
+          console.log('[SessionPicker] project_list:', msg.projects.length, 'projects')
           setProjects(msg.projects)
         } else if (msg.type === 'session_list') {
+          console.log('[SessionPicker] session_list:', msg.sessions.length, 'sessions')
           setSessions(msg.sessions)
           setMultiplexerSessions(msg.multiplexerSessions ?? [])
         } else if (msg.type === 'auth_error') {
+          console.log('[SessionPicker] auth_error:', (msg as { reason?: string }).reason)
           setStatus('error')
           ws.close()
         } else if (msg.type === 'ping') {
           ws.send(JSON.stringify({ type: 'pong' }))
         }
-      } catch {
-        // ignore parse errors
+      } catch (err) {
+        console.warn('[SessionPicker] message parse error:', err)
       }
     }
 
-    ws.onerror = () => setStatus('error')
-    ws.onclose = () => {
+    ws.onerror = (e) => {
+      console.error('[SessionPicker] WebSocket error:', e)
+      setStatus('error')
+    }
+    ws.onclose = (e) => {
+      console.log('[SessionPicker] WebSocket closed, code:', e.code, 'reason:', e.reason, 'selected:', selectedRef.current)
       if (isMountedRef.current && !selectedRef.current) {
         setStatus((s) => (s === 'connected' ? 'error' : s))
       }

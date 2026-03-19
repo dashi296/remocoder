@@ -58,6 +58,7 @@ export function TerminalScreen({ ip, token, projectPath, sessionId, source, onDi
         return
       }
 
+      console.log('[TerminalScreen] WebView message:', msg.type)
       switch (msg.type) {
         case 'debug':
           console.log('[WebView debug]', msg.msg)
@@ -202,8 +203,10 @@ export function TerminalScreen({ ip, token, projectPath, sessionId, source, onDi
         javaScriptEnabled
         onMessage={handleMessage}
         allowFileAccess={false}
-        onError={(e) => console.error('WebView error:', e.nativeEvent)}
-        onHttpError={(e) => console.error('WebView HTTP error:', e.nativeEvent.statusCode)}
+        onLoadStart={() => console.log('[TerminalScreen] WebView loadStart')}
+        onLoad={() => console.log('[TerminalScreen] WebView loaded')}
+        onError={(e) => console.error('[TerminalScreen] WebView error:', e.nativeEvent)}
+        onHttpError={(e) => console.error('[TerminalScreen] WebView HTTP error:', e.nativeEvent.statusCode)}
       />
 
       {/* 承認ボトムシート */}

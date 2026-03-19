@@ -23,8 +23,22 @@ export function buildTerminalHtml(
 <html>
 <head>
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-  <script src="https://cdn.jsdelivr.net/npm/xterm@5/lib/xterm.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8/lib/xterm-addon-fit.js"></script>
+  <script>
+    // CDN読み込み前に動作するデバッグ用のヘルパー
+    function postToNative(data) {
+      window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify(data))
+    }
+    postToNative({ type: 'debug', msg: '[HTML] head script started, loading CDN resources...' })
+    window.onerror = function(msg, src, line, col, err) {
+      postToNative({ type: 'debug', msg: '[HTML] window.onerror: ' + msg + ' at ' + src + ':' + line })
+    }
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/xterm@5/lib/xterm.js"
+    onload="postToNative({type:'debug',msg:'[HTML] xterm.js loaded'})"
+    onerror="postToNative({type:'debug',msg:'[HTML] xterm.js FAILED to load (CDN issue?)'})"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8/lib/xterm-addon-fit.js"
+    onload="postToNative({type:'debug',msg:'[HTML] xterm-addon-fit loaded'})"
+    onerror="postToNative({type:'debug',msg:'[HTML] xterm-addon-fit FAILED to load'})"></script>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5/css/xterm.css"/>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -35,6 +49,7 @@ export function buildTerminalHtml(
 <body>
   <div id="terminal"></div>
   <script>
+    postToNative({ type: 'debug', msg: '[HTML] body script started, Terminal=' + typeof Terminal + ', FitAddon=' + (typeof FitAddon) })
     const term = new Terminal({
       theme: { background: '#1e1e1e', foreground: '#d4d4d4' },
       fontSize: 13,

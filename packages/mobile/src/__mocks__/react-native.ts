@@ -32,6 +32,8 @@ const Button = ({ title, onPress, disabled, testID }: any) =>
   )
 
 // FlatList renders each item via renderItem
+const KeyboardAvoidingView = (props: any) => React.createElement('View', props)
+
 const FlatList = ({ data, renderItem, keyExtractor }: any) =>
   React.createElement(
     'View',
@@ -100,6 +102,7 @@ export {
   Modal,
   Button,
   FlatList,
+  KeyboardAvoidingView,
   Alert,
   Linking,
   StyleSheet,

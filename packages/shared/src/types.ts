@@ -45,6 +45,19 @@ export type WsMessage =
   | { type: 'permission_request'; requestId: string; toolName: string; details: string[]; requiresAlways: boolean }
   /** モバイルがデスクトップへ承認結果を返す */
   | { type: 'permission_response'; requestId: string; decision: 'approve' | 'reject' | 'always' }
+  // ── チャットUI用（--output-format stream-json パース結果） ──────────────────
+  /** claudeセッションが stream-json モードで起動完了した */
+  | { type: 'chat_ready'; sessionId: string; cwd: string }
+  /** ユーザー入力のエコーバック */
+  | { type: 'chat_user_message'; content: string }
+  /** アシスタントのテキスト応答 */
+  | { type: 'chat_assistant_message'; content: string }
+  /** ツール呼び出し */
+  | { type: 'chat_tool_use'; toolName: string; toolInput: string }
+  /** ツール実行結果 */
+  | { type: 'chat_tool_result'; toolName: string; content: string; isError: boolean }
+  /** claudeの処理状態変化 */
+  | { type: 'chat_status'; status: 'thinking' | 'idle' }
 
 export interface ProjectInfo {
   /** プロジェクトのフルパス */

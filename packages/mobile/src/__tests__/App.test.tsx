@@ -3,6 +3,9 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react-nativ
 import App from '../App'
 import AsyncStorage from '../__mocks__/async-storage'
 
+// useForceUpdate の fetch をモック（ネットワーク失敗 → isChecking: false になる）
+;(globalThis as Record<string, unknown>).fetch = jest.fn().mockRejectedValue(new TypeError('Network request failed'))
+
 // SessionPickerScreen が使う WebSocket をモック
 const mockWs = {
   send: jest.fn(),
@@ -63,7 +66,7 @@ describe('App', () => {
     expect(screen.getByText('MacBook')).toBeTruthy()
   })
 
-  it('onSelectProject(path) → TerminalScreen が projectPath 付きでレンダーされる', async () => {
+  it('onSelectProject(path) → ChatScreen が projectPath 付きでレンダーされる', async () => {
     const profiles = [{ id: '1', name: 'MacBook', ip: '100.64.0.1', token: 'tok' }]
     AsyncStorage.getItem.mockResolvedValue(JSON.stringify(profiles))
     AsyncStorage.setItem.mockResolvedValue(undefined)
@@ -95,7 +98,7 @@ describe('App', () => {
     expect(screen.getByText('接続中...')).toBeTruthy()
   })
 
-  it('onAttachSession(sessionId) → TerminalScreen に sessionId が渡される', async () => {
+  it('onAttachSession(sessionId) → source なし(claude扱い)なので ChatScreen が表示される', async () => {
     const profiles = [{ id: '1', name: 'MacBook', ip: '100.64.0.1', token: 'tok' }]
     AsyncStorage.getItem.mockResolvedValue(JSON.stringify(profiles))
     AsyncStorage.setItem.mockResolvedValue(undefined)

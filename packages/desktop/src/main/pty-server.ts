@@ -144,6 +144,8 @@ interface PtySession {
   permissionBuffer: string
   /** 承認待ちリクエスト（存在する間は重複検出しない） */
   pendingPermission: { requestId: string; timeoutId: ReturnType<typeof setTimeout>; style: 'numbered' | 'legacy'; requiresAlways: boolean } | null
+  /** stream-json改行バッファ（claudeセッションのみ使用） */
+  jsonLineBuffer: string
 }
 
 /** 永続PTYセッションマップ（WS切断後も保持） */
@@ -321,7 +323,10 @@ function createPtySession(source: SessionSource = { kind: 'claude' }, clientIP?:
     source,
     permissionBuffer: '',
     pendingPermission: null,
+    jsonLineBuffer: '',
   }
+
+  const isClaudeSession = source.kind === 'claude'
 
   ptyProc.onData((data) => {
     appendScrollback(session, data)
@@ -330,6 +335,9 @@ function createPtySession(source: SessionSource = { kind: 'claude' }, clientIP?:
     }
     serverCallbacks.onPtyOutput?.(id, data)
     detectAndSendPermission(session, data)
+    if (isClaudeSession) {
+      parseAndSendChatMessages(session, data)
+    }
   })
 
   ptyProc.onExit(({ exitCode }) => {
@@ -371,6 +379,7 @@ function createExternalSession(providerWs: WebSocket): PtySession {
     lastActiveAt: 0,
     permissionBuffer: '',
     pendingPermission: null,
+    jsonLineBuffer: '',
   }
 
   ptySessions.set(id, session)
@@ -775,14 +784,137 @@ function assertSafeSessionName(name: string, tool: string): void {
   }
 }
 
+// ─── stream-json チャットメッセージパーサー ───────────────────────────────────
+
+/**
+ * PTY出力チャンクから NDJSON 行を切り出し、チャットメッセージに変換して送信する。
+ * claudeセッション（--output-format stream-json）専用。
+ */
+function parseAndSendChatMessages(session: PtySession, data: string): void {
+  if (session.wsClient?.readyState !== WebSocket.OPEN) {
+    // バッファだけ消費して返す
+    session.jsonLineBuffer += data
+    const lines = session.jsonLineBuffer.split('\n')
+    session.jsonLineBuffer = lines.pop() ?? ''
+    return
+  }
+
+  session.jsonLineBuffer += data
+  const lines = session.jsonLineBuffer.split('\n')
+  session.jsonLineBuffer = lines.pop() ?? ''
+
+  for (const line of lines) {
+    const clean = stripAnsi(line).trim()
+    if (!clean.startsWith('{')) continue
+    let event: Record<string, unknown>
+    try {
+      event = JSON.parse(clean)
+    } catch {
+      continue
+    }
+    const msgs = streamJsonEventToWsMessages(event)
+    for (const msg of msgs) {
+      session.wsClient.send(JSON.stringify(msg))
+    }
+  }
+}
+
+/**
+ * claude --output-format stream-json の1イベントを WsMessage[] に変換する。
+ * 不明なイベントは空配列を返す。
+ */
+export function streamJsonEventToWsMessages(event: Record<string, unknown>): WsMessage[] {
+  if (!event || typeof event.type !== 'string') return []
+
+  switch (event.type) {
+    case 'system': {
+      if ((event.subtype as string | undefined) === 'init') {
+        return [{
+          type: 'chat_ready',
+          sessionId: String(event.session_id ?? ''),
+          cwd: String(event.cwd ?? ''),
+        }]
+      }
+      return []
+    }
+
+    case 'assistant': {
+      const msg = event.message as { content?: unknown[] } | undefined
+      if (!Array.isArray(msg?.content)) return []
+      const results: WsMessage[] = []
+      let textAccum = ''
+
+      for (const part of msg.content as Record<string, unknown>[]) {
+        if (part.type === 'text' && part.text) {
+          textAccum += String(part.text)
+        } else if (part.type === 'tool_use') {
+          if (textAccum) {
+            results.push({ type: 'chat_assistant_message', content: textAccum })
+            textAccum = ''
+          }
+          results.push({
+            type: 'chat_tool_use',
+            toolName: String(part.name ?? ''),
+            toolInput: JSON.stringify(part.input ?? {}, null, 2),
+          })
+        }
+      }
+      if (textAccum) {
+        results.push({ type: 'chat_assistant_message', content: textAccum })
+      }
+      return results
+    }
+
+    case 'user': {
+      // ツール結果はユーザーメッセージ内の tool_result コンテンツとして届く
+      const msg = event.message as { content?: unknown[] } | undefined
+      if (!Array.isArray(msg?.content)) return []
+      const results: WsMessage[] = []
+
+      for (const part of msg.content as Record<string, unknown>[]) {
+        if (part.type === 'tool_result') {
+          const raw = part.content
+          const content = Array.isArray(raw)
+            ? (raw as Record<string, unknown>[])
+                .filter((c) => c.type === 'text')
+                .map((c) => String(c.text ?? ''))
+                .join('')
+            : String(raw ?? '')
+          results.push({
+            type: 'chat_tool_result',
+            toolName: String(part.tool_use_id ?? ''),
+            content: content.slice(0, 2000),
+            isError: Boolean(part.is_error),
+          })
+        }
+      }
+      return results
+    }
+
+    case 'result': {
+      return [{ type: 'chat_status', status: 'idle' }]
+    }
+
+    default:
+      return []
+  }
+}
+
+// ─── PTY スポーン ─────────────────────────────────────────────────────────────
+
 function spawnSource(source: SessionSource): pty.IPty {
   const baseOpts = { name: 'xterm-color', cols: 80, rows: 30, env: { ...process.env } }
   switch (source.kind) {
     case 'claude': {
       const loginShell = resolveShell()
       const cwd = source.projectPath && existsSync(source.projectPath) ? source.projectPath : undefined
-      console.log(`[pty-server] Spawning claude via shell: ${loginShell}${cwd ? ` (cwd: ${cwd})` : ''}`)
-      return pty.spawn(loginShell, ['-lc', 'exec claude'], { ...baseOpts, ...(cwd ? { cwd } : {}) })
+      console.log(`[pty-server] Spawning claude (stream-json) via shell: ${loginShell}${cwd ? ` (cwd: ${cwd})` : ''}`)
+      // --output-format stream-json: 構造化JSONを出力。cols=220でJSON行の折り返しを防ぐ
+      return pty.spawn(loginShell, ['-lc', 'exec claude --output-format stream-json'], {
+        ...baseOpts,
+        cols: 220,
+        ...(cwd ? { cwd } : {}),
+      })
     }
     case 'tmux': {
       assertSafeSessionName(source.sessionName, 'tmux')

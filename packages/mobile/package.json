@@ -4,6 +4,8 @@
   "private": true,
   "main": "index.js",
   "scripts": {
+    "build:xterm": "node scripts/build-xterm-bundle.js",
+    "prestart": "node scripts/build-xterm-bundle.js",
     "start": "expo start",
     "android": "expo run:android",
     "ios": "expo run:ios",
@@ -24,7 +26,9 @@
     "react-dom": "19.2.4",
     "react-native": "0.83.4",
     "react-native-safe-area-context": "^5.7.0",
-    "react-native-webview": "~13.13.5"
+    "react-native-webview": "~13.13.5",
+    "xterm": "5",
+    "xterm-addon-fit": "0.8"
   },
   "devDependencies": {
     "@expo/config-plugins": "^55.0.6",

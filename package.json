@@ -2,7 +2,7 @@
   "name": "remocoder",
   "private": true,
   "scripts": {
-"dev": "pnpm --filter @remocoder/desktop dev",
+    "dev": "pnpm --filter @remocoder/desktop dev",
     "mobile": "pnpm --filter @remocoder/mobile start",
     "mobile:ios": "pnpm --filter @remocoder/mobile ios",
     "mobile:android": "pnpm --filter @remocoder/mobile android",
@@ -10,10 +10,15 @@
     "test:watch": "turbo test:watch"
   },
   "devDependencies": {
-    "turbo": "^2.0.0",
+    "@types/jest": "^29.0.0",
     "jest": "^29.0.0",
     "ts-jest": "^29.0.0",
-    "@types/jest": "^29.0.0"
+    "turbo": "^2.0.0"
   },
-  "packageManager": "pnpm@9.15.4"
+  "packageManager": "pnpm@9.15.4",
+  "pnpm": {
+    "patchedDependencies": {
+      "react-native-webview@13.13.5": "patches/react-native-webview@13.13.5.patch"
+    }
+  }
 }

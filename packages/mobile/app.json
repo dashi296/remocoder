@@ -36,6 +36,9 @@
         {
           "android": {
             "usesCleartextTraffic": true
+          },
+          "ios": {
+            "newArchEnabled": false
           }
         }
       ]

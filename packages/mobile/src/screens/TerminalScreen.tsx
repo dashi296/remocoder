@@ -195,15 +195,15 @@ export function TerminalScreen({ ip, token, projectPath, sessionId, source, onDi
       <WebView
         key={webViewKey}
         ref={webViewRef}
-        source={{ html, baseUrl: 'http://localhost/' }}
+        source={{ html }}
         style={styles.webview}
         scrollEnabled={false}
         keyboardDisplayRequiresUserAction={false}
         javaScriptEnabled
         onMessage={handleMessage}
         allowFileAccess={false}
-        onError={(e) => console.error('WebView error:', e.nativeEvent)}
-        onHttpError={(e) => console.error('WebView HTTP error:', e.nativeEvent.statusCode)}
+        onError={(e) => console.error('[WebView] onError', e.nativeEvent)}
+        onHttpError={(e) => console.error('[WebView] onHttpError', e.nativeEvent.statusCode)}
       />
 
       {/* 承認ボトムシート */}

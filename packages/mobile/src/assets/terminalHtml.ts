@@ -1,4 +1,5 @@
 import type { SessionSource } from '@remocoder/shared'
+import { xtermJs, xtermCss, xtermFitJs } from './xtermBundle.generated'
 
 /**
  * @param wsUrl WebSocket URL
@@ -23,9 +24,9 @@ export function buildTerminalHtml(
 <html>
 <head>
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-  <script src="https://cdn.jsdelivr.net/npm/xterm@5/lib/xterm.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8/lib/xterm-addon-fit.js"></script>
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5/css/xterm.css"/>
+  <script>${xtermJs}</script>
+  <script>${xtermFitJs}</script>
+  <style>${xtermCss}</style>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     html, body { width: 100%; height: 100%; background: #1e1e1e; overflow: hidden; }

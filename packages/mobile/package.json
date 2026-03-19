@@ -24,7 +24,7 @@
     "react-dom": "19.2.4",
     "react-native": "0.83.4",
     "react-native-safe-area-context": "^5.7.0",
-    "react-native-webview": "13.16.1"
+    "react-native-webview": "13.16.0"
   },
   "devDependencies": {
     "@expo/config-plugins": "^55.0.6",

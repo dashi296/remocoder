@@ -5,8 +5,10 @@ import { SafeAreaProvider } from 'react-native-safe-area-context'
 import { ForceUpdateScreen } from '../src/screens/ForceUpdateScreen'
 import { useForceUpdate } from '../src/hooks/useForceUpdate'
 import { useOTAUpdate } from '../src/hooks/useOTAUpdate'
+import { useNetworkActivityDevTools } from '@rozenite/network-activity-plugin'
 
 export default function RootLayout() {
+  useNetworkActivityDevTools()
   const { needsUpdate, storeUrl, message, isChecking } = useForceUpdate()
   useOTAUpdate()
 

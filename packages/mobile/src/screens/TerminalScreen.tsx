@@ -2,24 +2,13 @@ import React, { useRef, useCallback, useState, useMemo } from 'react'
 import { View, StyleSheet, TouchableOpacity, Text, ActivityIndicator } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { WebView, WebViewMessageEvent } from 'react-native-webview'
+import { useLocalSearchParams, useRouter } from 'expo-router'
 import { DEFAULT_WS_PORT, SessionInfo, ProjectInfo, SessionSource } from '@remocoder/shared'
 import { buildTerminalHtml } from '../assets/terminalHtml'
 import { PermissionSheet, PermissionRequest } from '../components/PermissionSheet'
 import { SessionSwitcherModal } from '../components/SessionSwitcherModal'
 
 type ConnectionStatus = 'connecting' | 'connected' | 'reconnecting' | 'auth_error' | 'shell_exit'
-
-interface Props {
-  ip: string
-  token: string
-  /** セッションを起動するプロジェクトパス。null または未指定でプロジェクトなし */
-  projectPath?: string | null
-  /** アタッチする既存セッションID。指定時は projectPath より優先される */
-  sessionId?: string | null
-  /** セッション起動元。指定時は projectPath より優先して session_create の source に使用 */
-  source?: SessionSource | null
-  onDisconnect: () => void
-}
 
 const STATUS_CONFIG: Record<
   ConnectionStatus,
@@ -32,7 +21,17 @@ const STATUS_CONFIG: Record<
   shell_exit: { label: 'セッション終了', color: '#d4d4d4', bgColor: 'rgba(50,50,50,0.8)' },
 }
 
-export function TerminalScreen({ ip, token, projectPath, sessionId, source, onDisconnect }: Props) {
+export function TerminalScreen() {
+  const { ip, token, projectPath, sessionId, source: sourceJson } = useLocalSearchParams<{
+    ip: string
+    token: string
+    projectPath?: string
+    sessionId?: string
+    source?: string
+  }>()
+  const router = useRouter()
+
+  const source: SessionSource | null = sourceJson ? (JSON.parse(sourceJson) as SessionSource) : null
   const wsUrl = `ws://${ip}:${DEFAULT_WS_PORT}`
   const [status, setStatus] = useState<ConnectionStatus>('connecting')
   const [webViewKey, setWebViewKey] = useState(0)
@@ -140,7 +139,7 @@ export function TerminalScreen({ ip, token, projectPath, sessionId, source, onDi
   }, [])
 
   const html = useMemo(
-    () => buildTerminalHtml(wsUrl, token, projectPath ?? null, sessionId ?? null, source ?? null),
+    () => buildTerminalHtml(wsUrl, token, projectPath || null, sessionId || null, source),
     [wsUrl, token, projectPath, sessionId, source],
   )
   const statusCfg = STATUS_CONFIG[status]
@@ -186,7 +185,7 @@ export function TerminalScreen({ ip, token, projectPath, sessionId, source, onDi
               <Text style={styles.actionButtonText}>再試行</Text>
             </TouchableOpacity>
           )}
-          <TouchableOpacity style={styles.actionButton} onPress={onDisconnect}>
+          <TouchableOpacity style={styles.actionButton} onPress={() => router.replace('/')}>
             <Text style={styles.actionButtonText}>切断</Text>
           </TouchableOpacity>
         </View>

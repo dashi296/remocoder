@@ -11,6 +11,13 @@ export function formatDate(iso: string): string {
   })
 }
 
+/** useLocalSearchParams の値は string | string[] になりうるため先頭要素を返す */
+export function firstParam(v: string | string[]): string
+export function firstParam(v: string | string[] | undefined): string | undefined
+export function firstParam(v: string | string[] | undefined): string | undefined {
+  return Array.isArray(v) ? v[0] : v
+}
+
 /** セッションの表示名を返す（projectPath のベース名、なければ 'セッション'） */
 export function getSessionDisplayName(session: Pick<SessionInfo, 'projectPath'>): string {
   return session.projectPath

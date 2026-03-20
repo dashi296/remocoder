@@ -12,6 +12,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { CameraView, useCameraPermissions } from 'expo-camera'
+import { useRouter } from 'expo-router'
 import { formatDate } from '../utils'
 
 const PROFILES_KEY = 'connectionProfiles'
@@ -24,17 +25,14 @@ interface ConnectionProfile {
   lastConnectedAt?: string
 }
 
-interface Props {
-  onConnect: (ip: string, token: string) => void
-}
-
 type Screen = 'list' | 'form' | 'scan'
 
 function generateId(): string {
   return Math.random().toString(36).slice(2) + Date.now().toString(36)
 }
 
-export function ConnectScreen({ onConnect }: Props) {
+export function ConnectScreen() {
+  const router = useRouter()
   const [profiles, setProfiles] = useState<ConnectionProfile[]>([])
   const [loading, setLoading] = useState(true)
   const [screen, setScreen] = useState<Screen>('list')
@@ -77,9 +75,9 @@ export function ConnectScreen({ onConnect }: Props) {
         p.id === profile.id ? { ...p, lastConnectedAt: new Date().toISOString() } : p,
       )
       await saveProfiles(next)
-      onConnect(profile.ip, profile.token)
+      router.push({ pathname: '/session-picker', params: { ip: profile.ip, token: profile.token } })
     },
-    [profiles, saveProfiles, onConnect],
+    [profiles, saveProfiles, router],
   )
 
   const openNewForm = useCallback(() => {

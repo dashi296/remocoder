@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   View,
   Text,
@@ -8,20 +8,9 @@ import {
   ActivityIndicator,
 } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
+import { useLocalSearchParams, useRouter } from 'expo-router'
 import { DEFAULT_WS_PORT, MultiplexerSessionInfo, ProjectInfo, SessionInfo, SessionSource, WsMessage } from '@remocoder/shared'
-import { formatDate, getSessionDisplayName } from '../utils'
-
-interface Props {
-  ip: string
-  token: string
-  /** プロジェクト選択時に呼ばれる。null は新規セッション（プロジェクトなし） */
-  onSelectProject: (projectPath: string | null) => void
-  /** 実行中セッションを選択したときに呼ばれる */
-  onAttachSession: (sessionId: string) => void
-  /** マルチプレクサセッション（tmux/screen/zellij）を選択したときに呼ばれる */
-  onAttachMultiplexer: (source: SessionSource) => void
-  onBack: () => void
-}
+import { firstParam, formatDate, getSessionDisplayName } from '../utils'
 
 type Status = 'connecting' | 'connected' | 'error'
 
@@ -32,7 +21,11 @@ type ListItem =
   | { kind: 'multiplexer'; mux: MultiplexerSessionInfo }
   | { kind: 'project'; project: ProjectInfo }
 
-export function SessionPickerScreen({ ip, token, onSelectProject, onAttachSession, onAttachMultiplexer, onBack }: Props) {
+export function SessionPickerScreen() {
+  const raw = useLocalSearchParams<{ ip: string; token: string }>()
+  const router = useRouter()
+  const ip = firstParam(raw.ip)
+  const token = firstParam(raw.token)
   const [status, setStatus] = useState<Status>('connecting')
   const [projects, setProjects] = useState<ProjectInfo[]>([])
   const [sessions, setSessions] = useState<SessionInfo[]>([])
@@ -52,23 +45,25 @@ export function SessionPickerScreen({ ip, token, onSelectProject, onAttachSessio
     }
 
     ws.onmessage = (e) => {
+      let msg: WsMessage
       try {
-        const msg: WsMessage = JSON.parse(e.data)
-        if (msg.type === 'auth_ok') {
-          setStatus('connected')
-        } else if (msg.type === 'project_list') {
-          setProjects(msg.projects)
-        } else if (msg.type === 'session_list') {
-          setSessions(msg.sessions)
-          setMultiplexerSessions(msg.multiplexerSessions ?? [])
-        } else if (msg.type === 'auth_error') {
-          setStatus('error')
-          ws.close()
-        } else if (msg.type === 'ping') {
-          ws.send(JSON.stringify({ type: 'pong' }))
-        }
-      } catch {
-        // ignore parse errors
+        msg = JSON.parse(e.data)
+      } catch (err) {
+        console.error('[SessionPickerScreen] WebSocket メッセージのパースに失敗しました:', err)
+        return
+      }
+      if (msg.type === 'auth_ok') {
+        setStatus('connected')
+      } else if (msg.type === 'project_list') {
+        setProjects(msg.projects)
+      } else if (msg.type === 'session_list') {
+        setSessions(msg.sessions)
+        setMultiplexerSessions(msg.multiplexerSessions ?? [])
+      } else if (msg.type === 'auth_error') {
+        setStatus('error')
+        ws.close()
+      } else if (msg.type === 'ping') {
+        ws.send(JSON.stringify({ type: 'pong' }))
       }
     }
 
@@ -85,22 +80,24 @@ export function SessionPickerScreen({ ip, token, onSelectProject, onAttachSessio
     }
   }, [ip, token])
 
-  const handleSelectProject = (projectPath: string | null) => {
-    selectedRef.current = true
-    wsRef.current?.close()
-    onSelectProject(projectPath)
-  }
+  const navigateToTerminal = useCallback(
+    (params: Record<string, string>) => {
+      selectedRef.current = true
+      wsRef.current?.close()
+      router.push({ pathname: '/terminal', params: { ip, token, ...params } })
+    },
+    [router, ip, token],
+  )
 
-  const handleAttachSession = (sessionId: string) => {
-    selectedRef.current = true
-    wsRef.current?.close()
-    onAttachSession(sessionId)
-  }
+  const handleSelectProject = (projectPath: string | null) =>
+    navigateToTerminal({ projectPath: projectPath ?? '' })
+
+  const handleAttachSession = (sessionId: string) =>
+    navigateToTerminal({ sessionId })
 
   const handleAttachMultiplexer = (mux: MultiplexerSessionInfo) => {
-    selectedRef.current = true
-    wsRef.current?.close()
-    onAttachMultiplexer({ kind: mux.tool, sessionName: mux.sessionName } as SessionSource)
+    const source: SessionSource = { kind: mux.tool, sessionName: mux.sessionName }
+    navigateToTerminal({ source: JSON.stringify(source) })
   }
 
   const listData = useMemo<ListItem[]>(() => {
@@ -123,7 +120,7 @@ export function SessionPickerScreen({ ip, token, onSelectProject, onAttachSessio
     <SafeAreaView style={styles.container}>
       {/* ヘッダー */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={onBack} style={styles.backButton}>
+        <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
           <Text style={styles.backButtonText}>← 戻る</Text>
         </TouchableOpacity>
         <Text style={styles.title}>セッションを選択</Text>
@@ -140,7 +137,7 @@ export function SessionPickerScreen({ ip, token, onSelectProject, onAttachSessio
       {status === 'error' && (
         <View style={styles.center}>
           <Text style={styles.errorText}>接続エラーが発生しました</Text>
-          <TouchableOpacity style={styles.backBtn} onPress={onBack}>
+          <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
             <Text style={styles.backBtnText}>戻る</Text>
           </TouchableOpacity>
         </View>

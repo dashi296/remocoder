@@ -2,6 +2,7 @@
   "expo": {
     "name": "Remocoder",
     "slug": "remocoder",
+    "scheme": "remocoder",
     "version": "0.0.4",
     "orientation": "portrait",
     "userInterfaceStyle": "dark",
@@ -24,6 +25,7 @@
       ]
     },
     "plugins": [
+      "expo-router",
       "./plugins/withGradleJvmArgs",
       [
         "expo-camera",

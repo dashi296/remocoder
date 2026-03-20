@@ -1,25 +1,14 @@
 import React, { useRef, useCallback, useState, useMemo } from 'react'
-import { View, StyleSheet, TouchableOpacity, Text, ActivityIndicator } from 'react-native'
+import { View, StyleSheet, TouchableOpacity, Text } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { WebView, WebViewMessageEvent } from 'react-native-webview'
-import { DEFAULT_WS_PORT, SessionInfo, ProjectInfo, SessionSource } from '@remocoder/shared'
+import { useLocalSearchParams, useRouter } from 'expo-router'
+import { DEFAULT_WS_PORT, SessionSource } from '@remocoder/shared'
 import { buildTerminalHtml } from '../assets/terminalHtml'
 import { PermissionSheet, PermissionRequest } from '../components/PermissionSheet'
-import { SessionSwitcherModal } from '../components/SessionSwitcherModal'
+import { firstParam } from '../utils'
 
 type ConnectionStatus = 'connecting' | 'connected' | 'reconnecting' | 'auth_error' | 'shell_exit'
-
-interface Props {
-  ip: string
-  token: string
-  /** セッションを起動するプロジェクトパス。null または未指定でプロジェクトなし */
-  projectPath?: string | null
-  /** アタッチする既存セッションID。指定時は projectPath より優先される */
-  sessionId?: string | null
-  /** セッション起動元。指定時は projectPath より優先して session_create の source に使用 */
-  source?: SessionSource | null
-  onDisconnect: () => void
-}
 
 const STATUS_CONFIG: Record<
   ConnectionStatus,
@@ -32,29 +21,45 @@ const STATUS_CONFIG: Record<
   shell_exit: { label: 'セッション終了', color: '#d4d4d4', bgColor: 'rgba(50,50,50,0.8)' },
 }
 
-export function TerminalScreen({ ip, token, projectPath, sessionId, source, onDisconnect }: Props) {
-  const wsUrl = `ws://${ip}:${DEFAULT_WS_PORT}`
+export function TerminalScreen() {
+  const raw = useLocalSearchParams<{
+    ip: string
+    token: string
+    projectPath?: string
+    sessionId?: string
+    source?: string
+  }>()
+  const router = useRouter()
+
+  const ip = firstParam(raw.ip)
+  const token = firstParam(raw.token)
+  const projectPath = firstParam(raw.projectPath)
+  const sessionId = firstParam(raw.sessionId)
+  const sourceJson = firstParam(raw.source)
+
+  const source = useMemo<SessionSource | null>(() => {
+    if (!sourceJson) return null
+    try {
+      return JSON.parse(sourceJson) as SessionSource
+    } catch (err) {
+      console.error('[TerminalScreen] source パラメータのパースに失敗しました:', err)
+      return null
+    }
+  }, [sourceJson])
+
+  const wsUrl = useMemo(() => `ws://${ip}:${DEFAULT_WS_PORT}`, [ip])
   const [status, setStatus] = useState<ConnectionStatus>('connecting')
   const [webViewKey, setWebViewKey] = useState(0)
-  const [currentSessionId, setCurrentSessionId] = useState<string | null>(null)
-  const [showSwitcher, setShowSwitcher] = useState(false)
-  const [sessionList, setSessionList] = useState<SessionInfo[]>([])
-  const [projectList, setProjectList] = useState<ProjectInfo[]>([])
-  const [switcherLoading, setSwitcherLoading] = useState(false)
   const [pendingPermission, setPendingPermission] = useState<PermissionRequest | null>(null)
   const webViewRef = useRef<WebView>(null)
-
-  const closeSwitcher = useCallback(() => {
-    setSwitcherLoading(false)
-    setShowSwitcher(false)
-  }, [])
 
   const handleMessage = useCallback(
     (event: WebViewMessageEvent) => {
       let msg: Record<string, unknown>
       try {
         msg = JSON.parse(event.nativeEvent.data)
-      } catch {
+      } catch (err) {
+        console.error('[TerminalScreen] WebView メッセージのパースに失敗しました:', err)
         return
       }
 
@@ -66,10 +71,8 @@ export function TerminalScreen({ ip, token, projectPath, sessionId, source, onDi
           setStatus('auth_error')
           break
         case 'session_attached':
-          setCurrentSessionId(msg.sessionId as string)
           setStatus('connected')
           setPendingPermission(null)
-          closeSwitcher()
           break
         case 'connected':
           setStatus('connected')
@@ -83,13 +86,6 @@ export function TerminalScreen({ ip, token, projectPath, sessionId, source, onDi
           break
         case 'session_not_found':
           setStatus('auth_error')
-          closeSwitcher()
-          break
-        case 'session_list_response':
-          setSessionList(msg.sessions as SessionInfo[])
-          setProjectList(msg.projects as ProjectInfo[])
-          setSwitcherLoading(false)
-          setShowSwitcher(true)
           break
         case 'permission_request':
           setPendingPermission({
@@ -99,9 +95,11 @@ export function TerminalScreen({ ip, token, projectPath, sessionId, source, onDi
             requiresAlways: msg.requiresAlways as boolean,
           })
           break
+        default:
+          console.warn('[TerminalScreen] 未処理の WebView メッセージタイプ:', msg.type)
       }
     },
-    [closeSwitcher],
+    [],
   )
 
   const handlePermissionDecide = useCallback(
@@ -116,31 +114,11 @@ export function TerminalScreen({ ip, token, projectPath, sessionId, source, onDi
 
   const handleRetry = useCallback(() => {
     setStatus('connecting')
-    setCurrentSessionId(null)
     setWebViewKey((k) => k + 1)
   }, [])
 
-  const handleOpenSwitcher = useCallback(() => {
-    setSwitcherLoading(true)
-    webViewRef.current?.injectJavaScript('window.requestSessionList(); true;')
-  }, [])
-
-  const handleSwitchToSession = useCallback((sessionId: string) => {
-    setSwitcherLoading(true)
-    webViewRef.current?.injectJavaScript(
-      `window.switchToSession(${JSON.stringify(sessionId)}); true;`,
-    )
-  }, [])
-
-  const handleCreateNewSession = useCallback((newProjectPath: string | null) => {
-    setSwitcherLoading(true)
-    webViewRef.current?.injectJavaScript(
-      `window.createNewSession(${JSON.stringify(newProjectPath)}); true;`,
-    )
-  }, [])
-
   const html = useMemo(
-    () => buildTerminalHtml(wsUrl, token, projectPath ?? null, sessionId ?? null, source ?? null),
+    () => buildTerminalHtml(wsUrl, token, projectPath || null, sessionId || null, source),
     [wsUrl, token, projectPath, sessionId, source],
   )
   const statusCfg = STATUS_CONFIG[status]
@@ -152,41 +130,12 @@ export function TerminalScreen({ ip, token, projectPath, sessionId, source, onDi
       <View style={[styles.statusBar, { backgroundColor: statusCfg.bgColor }]}>
         <Text style={[styles.statusText, { color: statusCfg.color }]}>{statusCfg.label}</Text>
         <View style={styles.statusActions}>
-          {/* DEBUG: PermissionSheet動作確認（開発ビルドのみ） */}
-          {__DEV__ && (
-            <TouchableOpacity
-              style={[styles.actionButton, { backgroundColor: 'rgba(220,180,0,0.3)' }]}
-              onPress={() =>
-                setPendingPermission({
-                  requestId: 'debug-001',
-                  toolName: 'Bash',
-                  details: ['rm -rf /tmp/test', 'ls -la /Users/user/projects'],
-                  requiresAlways: true,
-                })
-              }
-            >
-              <Text style={styles.actionButtonText}>TEST</Text>
-            </TouchableOpacity>
-          )}
-          {status === 'connected' && (
-            <TouchableOpacity
-              style={styles.actionButton}
-              onPress={handleOpenSwitcher}
-              disabled={switcherLoading}
-            >
-              {switcherLoading ? (
-                <ActivityIndicator size="small" color="#d4d4d4" />
-              ) : (
-                <Text style={styles.actionButtonText}>切替</Text>
-              )}
-            </TouchableOpacity>
-          )}
           {showRetry && (
             <TouchableOpacity style={styles.actionButton} onPress={handleRetry}>
               <Text style={styles.actionButtonText}>再試行</Text>
             </TouchableOpacity>
           )}
-          <TouchableOpacity style={styles.actionButton} onPress={onDisconnect}>
+          <TouchableOpacity style={styles.actionButton} onPress={() => router.back()}>
             <Text style={styles.actionButtonText}>切断</Text>
           </TouchableOpacity>
         </View>
@@ -208,18 +157,6 @@ export function TerminalScreen({ ip, token, projectPath, sessionId, source, onDi
 
       {/* 承認ボトムシート */}
       <PermissionSheet request={pendingPermission} onDecide={handlePermissionDecide} />
-
-      {/* セッション切替モーダル */}
-      <SessionSwitcherModal
-        visible={showSwitcher}
-        loading={switcherLoading}
-        sessions={sessionList}
-        projects={projectList}
-        currentSessionId={currentSessionId}
-        onClose={() => setShowSwitcher(false)}
-        onSwitchSession={handleSwitchToSession}
-        onCreateSession={handleCreateNewSession}
-      />
     </SafeAreaView>
   )
 }

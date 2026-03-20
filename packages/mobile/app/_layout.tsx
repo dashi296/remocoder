@@ -7,14 +7,19 @@ import { useForceUpdate } from '../src/hooks/useForceUpdate'
 import { useOTAUpdate } from '../src/hooks/useOTAUpdate'
 import { useNetworkActivityDevTools } from '@rozenite/network-activity-plugin'
 
-export default function RootLayout() {
+function NetworkActivityDevTools() {
   useNetworkActivityDevTools()
+  return null
+}
+
+export default function RootLayout() {
   const { needsUpdate, storeUrl, message, isChecking } = useForceUpdate()
   useOTAUpdate()
 
   if (isChecking) {
     return (
       <SafeAreaProvider>
+        {__DEV__ && <NetworkActivityDevTools />}
         <View style={styles.loading}>
           <ActivityIndicator size="large" color="#0e7afb" />
         </View>
@@ -25,6 +30,7 @@ export default function RootLayout() {
   if (needsUpdate) {
     return (
       <SafeAreaProvider>
+        {__DEV__ && <NetworkActivityDevTools />}
         <ForceUpdateScreen message={message} storeUrl={storeUrl} />
       </SafeAreaProvider>
     )
@@ -32,6 +38,7 @@ export default function RootLayout() {
 
   return (
     <SafeAreaProvider>
+      {__DEV__ && <NetworkActivityDevTools />}
       <Stack screenOptions={{ headerShown: false }} />
     </SafeAreaProvider>
   )

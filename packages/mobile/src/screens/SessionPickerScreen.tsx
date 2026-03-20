@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   View,
   Text,
@@ -76,23 +76,24 @@ export function SessionPickerScreen() {
     }
   }, [ip, token])
 
-  const handleSelectProject = (projectPath: string | null) => {
-    selectedRef.current = true
-    wsRef.current?.close()
-    router.push({ pathname: '/terminal', params: { ip, token, projectPath: projectPath ?? '' } })
-  }
+  const navigateToTerminal = useCallback(
+    (params: Record<string, string>) => {
+      selectedRef.current = true
+      wsRef.current?.close()
+      router.push({ pathname: '/terminal', params: { ip, token, ...params } })
+    },
+    [router, ip, token],
+  )
 
-  const handleAttachSession = (sessionId: string) => {
-    selectedRef.current = true
-    wsRef.current?.close()
-    router.push({ pathname: '/terminal', params: { ip, token, sessionId } })
-  }
+  const handleSelectProject = (projectPath: string | null) =>
+    navigateToTerminal({ projectPath: projectPath ?? '' })
+
+  const handleAttachSession = (sessionId: string) =>
+    navigateToTerminal({ sessionId })
 
   const handleAttachMultiplexer = (mux: MultiplexerSessionInfo) => {
-    selectedRef.current = true
-    wsRef.current?.close()
     const source: SessionSource = { kind: mux.tool, sessionName: mux.sessionName }
-    router.push({ pathname: '/terminal', params: { ip, token, source: JSON.stringify(source) } })
+    navigateToTerminal({ source: JSON.stringify(source) })
   }
 
   const listData = useMemo<ListItem[]>(() => {

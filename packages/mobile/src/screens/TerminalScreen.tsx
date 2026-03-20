@@ -31,8 +31,11 @@ export function TerminalScreen() {
   }>()
   const router = useRouter()
 
-  const source: SessionSource | null = sourceJson ? (JSON.parse(sourceJson) as SessionSource) : null
-  const wsUrl = `ws://${ip}:${DEFAULT_WS_PORT}`
+  const source = useMemo<SessionSource | null>(
+    () => (sourceJson ? (JSON.parse(sourceJson) as SessionSource) : null),
+    [sourceJson],
+  )
+  const wsUrl = useMemo(() => `ws://${ip}:${DEFAULT_WS_PORT}`, [ip])
   const [status, setStatus] = useState<ConnectionStatus>('connecting')
   const [webViewKey, setWebViewKey] = useState(0)
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null)

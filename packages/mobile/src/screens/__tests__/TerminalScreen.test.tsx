@@ -2,11 +2,9 @@ import React from 'react'
 import { render, screen, fireEvent, act } from '@testing-library/react-native'
 import { TerminalScreen } from '../TerminalScreen'
 import { injectJavaScriptMock } from '../../__mocks__/react-native-webview'
+import { useLocalSearchParams, mockRouterReplace } from '../../__mocks__/expo-router'
 
 describe('TerminalScreen', () => {
-  const onDisconnect = jest.fn()
-  const defaultProps = { ip: '100.64.0.1', token: 'test-token', onDisconnect }
-
   // WebView から onMessage を発火するヘルパー
   function sendFromWebView(msg: object) {
     const webViewEl = screen.getByTestId('webview')
@@ -18,48 +16,51 @@ describe('TerminalScreen', () => {
   beforeEach(() => {
     jest.clearAllMocks()
     injectJavaScriptMock.mockClear()
+    ;(useLocalSearchParams as jest.Mock).mockReturnValue({
+      ip: '100.64.0.1',
+      token: 'test-token',
+    })
   })
 
   it('WebView が render される', () => {
-    render(<TerminalScreen {...defaultProps} />)
+    render(<TerminalScreen />)
     expect(screen.getByTestId('webview')).toBeTruthy()
   })
 
   it('初期状態で「接続中...」ステータスが表示される', () => {
-    render(<TerminalScreen {...defaultProps} />)
+    render(<TerminalScreen />)
     expect(screen.getByText('接続中...')).toBeTruthy()
   })
 
   it('session_attached メッセージ → 「接続済み」ステータスに変わる', () => {
-    render(<TerminalScreen {...defaultProps} />)
+    render(<TerminalScreen />)
     sendFromWebView({ type: 'session_attached', sessionId: 'test-session', scrollback: '' })
     expect(screen.getByText('接続済み')).toBeTruthy()
   })
 
   it('disconnected メッセージ → 「再接続中...」ステータスに変わる', () => {
-    render(<TerminalScreen {...defaultProps} />)
+    render(<TerminalScreen />)
     sendFromWebView({ type: 'disconnected' })
     expect(screen.getByText('再接続中...')).toBeTruthy()
   })
 
   it('auth_error メッセージ → 「認証エラー」ステータスと「再試行」ボタンが表示される', () => {
-    render(<TerminalScreen {...defaultProps} />)
+    render(<TerminalScreen />)
     sendFromWebView({ type: 'auth_error', reason: 'invalid token' })
     expect(screen.getByText('認証エラー')).toBeTruthy()
     expect(screen.getByText('再試行')).toBeTruthy()
-    // auth_error だけでは onDisconnect を呼ばない
-    expect(onDisconnect).not.toHaveBeenCalled()
+    expect(mockRouterReplace).not.toHaveBeenCalled()
   })
 
   it('shell_exit メッセージ → 「セッション終了」ステータスと「再試行」ボタンが表示される', () => {
-    render(<TerminalScreen {...defaultProps} />)
+    render(<TerminalScreen />)
     sendFromWebView({ type: 'shell_exit', exitCode: 0 })
     expect(screen.getByText('セッション終了')).toBeTruthy()
     expect(screen.getByText('再試行')).toBeTruthy()
   })
 
   it('不正な JSON でも throw しない', () => {
-    render(<TerminalScreen {...defaultProps} />)
+    render(<TerminalScreen />)
     const webViewEl = screen.getByTestId('webview')
     expect(() => {
       act(() => {
@@ -68,24 +69,32 @@ describe('TerminalScreen', () => {
     }).not.toThrow()
   })
 
-  it('切断ボタン押下で onDisconnect が呼ばれる', () => {
-    render(<TerminalScreen {...defaultProps} />)
-    fireEvent.press(screen.getByText('切断'))
-    expect(onDisconnect).toHaveBeenCalled()
+  it('source パラメータが不正な JSON でも throw しない', () => {
+    ;(useLocalSearchParams as jest.Mock).mockReturnValue({
+      ip: '100.64.0.1',
+      token: 'test-token',
+      source: 'invalid-json{',
+    })
+    expect(() => render(<TerminalScreen />)).not.toThrow()
   })
 
-  it('再試行ボタン押下で ステータスが「接続中...」に戻る', () => {
-    render(<TerminalScreen {...defaultProps} />)
+  it('切断ボタン押下で router.replace("/") が呼ばれる', () => {
+    render(<TerminalScreen />)
+    fireEvent.press(screen.getByText('切断'))
+    expect(mockRouterReplace).toHaveBeenCalledWith('/')
+  })
+
+  it('再試行ボタン押下でステータスが「接続中...」に戻る', () => {
+    render(<TerminalScreen />)
     sendFromWebView({ type: 'auth_error', reason: 'invalid token' })
     fireEvent.press(screen.getByText('再試行'))
     expect(screen.getByText('接続中...')).toBeTruthy()
-    expect(onDisconnect).not.toHaveBeenCalled()
+    expect(mockRouterReplace).not.toHaveBeenCalled()
   })
 
   describe('セッション切替', () => {
     it('接続済み状態でのみ「切替」ボタンが表示される', () => {
-      render(<TerminalScreen {...defaultProps} />)
-      // 初期状態（connecting）では表示されない
+      render(<TerminalScreen />)
       expect(screen.queryByText('切替')).toBeNull()
 
       sendFromWebView({ type: 'session_attached', sessionId: 'sid-1', scrollback: '' })
@@ -93,7 +102,7 @@ describe('TerminalScreen', () => {
     })
 
     it('「切替」ボタン押下で injectJavaScript が requestSessionList を呼ぶ', () => {
-      render(<TerminalScreen {...defaultProps} />)
+      render(<TerminalScreen />)
       sendFromWebView({ type: 'session_attached', sessionId: 'sid-1', scrollback: '' })
 
       fireEvent.press(screen.getByText('切替'))
@@ -103,7 +112,7 @@ describe('TerminalScreen', () => {
     })
 
     it('session_list_response を受信するとモーダルが開く', () => {
-      render(<TerminalScreen {...defaultProps} />)
+      render(<TerminalScreen />)
       sendFromWebView({ type: 'session_attached', sessionId: 'sid-1', scrollback: '' })
 
       sendFromWebView({
@@ -122,7 +131,7 @@ describe('TerminalScreen', () => {
     })
 
     it('モーダルのセッション行をタップすると switchToSession が呼ばれる', () => {
-      render(<TerminalScreen {...defaultProps} />)
+      render(<TerminalScreen />)
       sendFromWebView({ type: 'session_attached', sessionId: 'sid-current', scrollback: '' })
       sendFromWebView({
         type: 'session_list_response',
@@ -139,7 +148,7 @@ describe('TerminalScreen', () => {
     })
 
     it('現在のセッション行はタップ不可（disabled）', () => {
-      render(<TerminalScreen {...defaultProps} />)
+      render(<TerminalScreen />)
       sendFromWebView({ type: 'session_attached', sessionId: 'sid-1', scrollback: '' })
       sendFromWebView({
         type: 'session_list_response',
@@ -149,12 +158,11 @@ describe('TerminalScreen', () => {
         projects: [],
       })
 
-      // 「現在」バッジが表示される
       expect(screen.getByText('現在')).toBeTruthy()
     })
 
     it('モーダルの「プロジェクトなし」をタップすると createNewSession(null) が呼ばれる', () => {
-      render(<TerminalScreen {...defaultProps} />)
+      render(<TerminalScreen />)
       sendFromWebView({ type: 'session_attached', sessionId: 'sid-1', scrollback: '' })
       sendFromWebView({ type: 'session_list_response', sessions: [], projects: [] })
 
@@ -165,7 +173,7 @@ describe('TerminalScreen', () => {
     })
 
     it('モーダルのプロジェクト行をタップすると createNewSession(path) が呼ばれる', () => {
-      render(<TerminalScreen {...defaultProps} />)
+      render(<TerminalScreen />)
       sendFromWebView({ type: 'session_attached', sessionId: 'sid-1', scrollback: '' })
       sendFromWebView({
         type: 'session_list_response',
@@ -180,20 +188,18 @@ describe('TerminalScreen', () => {
     })
 
     it('session_attached 受信後にモーダルが閉じる', () => {
-      render(<TerminalScreen {...defaultProps} />)
+      render(<TerminalScreen />)
       sendFromWebView({ type: 'session_attached', sessionId: 'sid-1', scrollback: '' })
       sendFromWebView({ type: 'session_list_response', sessions: [], projects: [] })
 
-      // モーダルが開いた状態を確認
       expect(screen.getByText('セッション切替')).toBeTruthy()
 
-      // session_attached を受信するとモーダルが閉じる
       sendFromWebView({ type: 'session_attached', sessionId: 'sid-2', scrollback: '' })
       expect(screen.queryByText('セッション切替')).toBeNull()
     })
 
     it('session_not_found 受信後に auth_error ステータスになりスイッチャーが閉じる', () => {
-      render(<TerminalScreen {...defaultProps} />)
+      render(<TerminalScreen />)
       sendFromWebView({ type: 'session_attached', sessionId: 'sid-1', scrollback: '' })
       sendFromWebView({ type: 'session_list_response', sessions: [], projects: [] })
       sendFromWebView({ type: 'session_not_found', sessionId: 'sid-gone' })
@@ -205,7 +211,7 @@ describe('TerminalScreen', () => {
 
   describe('PermissionSheet', () => {
     it('permission_request を受信すると PermissionSheet が表示される', () => {
-      render(<TerminalScreen {...defaultProps} />)
+      render(<TerminalScreen />)
       sendFromWebView({
         type: 'permission_request',
         requestId: 'req-001',
@@ -223,7 +229,7 @@ describe('TerminalScreen', () => {
     })
 
     it('requiresAlways=false のとき「常に許可」ボタンが表示されない', () => {
-      render(<TerminalScreen {...defaultProps} />)
+      render(<TerminalScreen />)
       sendFromWebView({
         type: 'permission_request',
         requestId: 'req-002',
@@ -238,7 +244,7 @@ describe('TerminalScreen', () => {
     })
 
     it('「許可」を押すと sendPermissionResponse が injectJavaScript で呼ばれ、シートが閉じる', () => {
-      render(<TerminalScreen {...defaultProps} />)
+      render(<TerminalScreen />)
       sendFromWebView({
         type: 'permission_request',
         requestId: 'req-003',
@@ -256,7 +262,7 @@ describe('TerminalScreen', () => {
     })
 
     it('「拒否」を押すと reject decision が送られ、シートが閉じる', () => {
-      render(<TerminalScreen {...defaultProps} />)
+      render(<TerminalScreen />)
       sendFromWebView({
         type: 'permission_request',
         requestId: 'req-004',
@@ -274,7 +280,7 @@ describe('TerminalScreen', () => {
     })
 
     it('「常に許可」を押すと always decision が送られる', () => {
-      render(<TerminalScreen {...defaultProps} />)
+      render(<TerminalScreen />)
       sendFromWebView({
         type: 'permission_request',
         requestId: 'req-005',

@@ -1,6 +1,7 @@
 import React from 'react'
 import { render, screen, fireEvent, act, waitFor } from '@testing-library/react-native'
 import { SessionPickerScreen } from '../SessionPickerScreen'
+import { useLocalSearchParams, mockRouterPush, mockRouterBack } from '../../__mocks__/expo-router'
 
 const mockWs = {
   send: jest.fn(),
@@ -13,15 +14,6 @@ const mockWs = {
 }
 
 ;(globalThis as Record<string, unknown>).WebSocket = jest.fn().mockImplementation(() => mockWs)
-
-const defaultProps = {
-  ip: '100.64.0.1',
-  token: 'test-token',
-  onSelectProject: jest.fn(),
-  onAttachSession: jest.fn(),
-  onAttachMultiplexer: jest.fn(),
-  onBack: jest.fn(),
-}
 
 function triggerOpen() {
   act(() => { mockWs.onopen?.() })
@@ -36,6 +28,7 @@ function triggerMessage(msg: object) {
 describe('SessionPickerScreen', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    ;(useLocalSearchParams as jest.Mock).mockReturnValue({ ip: '100.64.0.1', token: 'test-token' })
     mockWs.send.mockClear()
     mockWs.close.mockClear()
     mockWs.onopen = null
@@ -45,12 +38,12 @@ describe('SessionPickerScreen', () => {
   })
 
   it('マウント時に「接続中...」が表示される', () => {
-    render(<SessionPickerScreen {...defaultProps} />)
+    render(<SessionPickerScreen />)
     expect(screen.getByText('接続中...')).toBeTruthy()
   })
 
   it('WebSocket を開いたとき auth メッセージを送信する', () => {
-    render(<SessionPickerScreen {...defaultProps} />)
+    render(<SessionPickerScreen />)
     triggerOpen()
     expect(mockWs.send).toHaveBeenCalledWith(
       JSON.stringify({ type: 'auth', token: 'test-token' }),
@@ -58,7 +51,7 @@ describe('SessionPickerScreen', () => {
   })
 
   it('auth_ok 受信後に「接続中...」が消えセッション一覧が表示される', async () => {
-    render(<SessionPickerScreen {...defaultProps} />)
+    render(<SessionPickerScreen />)
     triggerOpen()
     triggerMessage({ type: 'auth_ok' })
     triggerMessage({ type: 'project_list', projects: [] })
@@ -69,7 +62,7 @@ describe('SessionPickerScreen', () => {
   })
 
   it('session_list を受信すると実行中セッションセクションが表示される', async () => {
-    render(<SessionPickerScreen {...defaultProps} />)
+    render(<SessionPickerScreen />)
     triggerOpen()
     triggerMessage({ type: 'auth_ok' })
     triggerMessage({
@@ -85,7 +78,7 @@ describe('SessionPickerScreen', () => {
   })
 
   it('project_list を受信すると「新規セッション」セクションにプロジェクトが表示される', async () => {
-    render(<SessionPickerScreen {...defaultProps} />)
+    render(<SessionPickerScreen />)
     triggerOpen()
     triggerMessage({ type: 'auth_ok' })
     triggerMessage({ type: 'session_list', sessions: [] })
@@ -97,8 +90,8 @@ describe('SessionPickerScreen', () => {
     await waitFor(() => expect(screen.getByText('proj')).toBeTruthy())
   })
 
-  it('セッション行をタップすると onAttachSession が正しい sessionId で呼ばれる', async () => {
-    render(<SessionPickerScreen {...defaultProps} />)
+  it('セッション行をタップすると /terminal に sessionId で push ナビゲートする', async () => {
+    render(<SessionPickerScreen />)
     triggerOpen()
     triggerMessage({ type: 'auth_ok' })
     triggerMessage({
@@ -112,30 +105,15 @@ describe('SessionPickerScreen', () => {
     await waitFor(() => expect(screen.getByText('myapp')).toBeTruthy())
     fireEvent.press(screen.getByText('myapp'))
 
-    expect(defaultProps.onAttachSession).toHaveBeenCalledWith('sid-abc')
+    expect(mockRouterPush).toHaveBeenCalledWith({
+      pathname: '/terminal',
+      params: expect.objectContaining({ sessionId: 'sid-abc' }),
+    })
     expect(mockWs.close).toHaveBeenCalled()
   })
 
-  it('セッション行タップ後に onSelectProject は呼ばれない', async () => {
-    render(<SessionPickerScreen {...defaultProps} />)
-    triggerOpen()
-    triggerMessage({ type: 'auth_ok' })
-    triggerMessage({
-      type: 'session_list',
-      sessions: [
-        { id: 'sid-abc', status: 'active', createdAt: new Date().toISOString(), projectPath: '/home/user/app' },
-      ],
-    })
-    triggerMessage({ type: 'project_list', projects: [] })
-
-    await waitFor(() => expect(screen.getByText('app')).toBeTruthy())
-    fireEvent.press(screen.getByText('app'))
-
-    expect(defaultProps.onSelectProject).not.toHaveBeenCalled()
-  })
-
-  it('「プロジェクトなし」をタップすると onSelectProject(null) が呼ばれる', async () => {
-    render(<SessionPickerScreen {...defaultProps} />)
+  it('「プロジェクトなし」をタップすると projectPath: "" で push ナビゲートする', async () => {
+    render(<SessionPickerScreen />)
     triggerOpen()
     triggerMessage({ type: 'auth_ok' })
     triggerMessage({ type: 'session_list', sessions: [] })
@@ -144,12 +122,15 @@ describe('SessionPickerScreen', () => {
     await waitFor(() => expect(screen.getByText('プロジェクトなし')).toBeTruthy())
     fireEvent.press(screen.getByText('プロジェクトなし'))
 
-    expect(defaultProps.onSelectProject).toHaveBeenCalledWith(null)
+    expect(mockRouterPush).toHaveBeenCalledWith({
+      pathname: '/terminal',
+      params: expect.objectContaining({ projectPath: '' }),
+    })
     expect(mockWs.close).toHaveBeenCalled()
   })
 
-  it('プロジェクト行をタップすると onSelectProject(path) が呼ばれる', async () => {
-    render(<SessionPickerScreen {...defaultProps} />)
+  it('プロジェクト行をタップすると projectPath で push ナビゲートする', async () => {
+    render(<SessionPickerScreen />)
     triggerOpen()
     triggerMessage({ type: 'auth_ok' })
     triggerMessage({ type: 'session_list', sessions: [] })
@@ -161,12 +142,15 @@ describe('SessionPickerScreen', () => {
     await waitFor(() => expect(screen.getByText('proj')).toBeTruthy())
     fireEvent.press(screen.getByText('proj'))
 
-    expect(defaultProps.onSelectProject).toHaveBeenCalledWith('/home/user/proj')
+    expect(mockRouterPush).toHaveBeenCalledWith({
+      pathname: '/terminal',
+      params: expect.objectContaining({ projectPath: '/home/user/proj' }),
+    })
     expect(mockWs.close).toHaveBeenCalled()
   })
 
   it('auth_error 受信でエラー画面が表示される', async () => {
-    render(<SessionPickerScreen {...defaultProps} />)
+    render(<SessionPickerScreen />)
     triggerOpen()
     triggerMessage({ type: 'auth_error', reason: 'invalid token' })
 
@@ -174,7 +158,7 @@ describe('SessionPickerScreen', () => {
   })
 
   it('接続済み状態でWSが切断されるとエラー画面が表示される', async () => {
-    render(<SessionPickerScreen {...defaultProps} />)
+    render(<SessionPickerScreen />)
     triggerOpen()
     triggerMessage({ type: 'auth_ok' })
     triggerMessage({ type: 'session_list', sessions: [] })
@@ -187,7 +171,7 @@ describe('SessionPickerScreen', () => {
   })
 
   it('選択後に WS が切断してもエラー画面にならない', async () => {
-    render(<SessionPickerScreen {...defaultProps} />)
+    render(<SessionPickerScreen />)
     triggerOpen()
     triggerMessage({ type: 'auth_ok' })
     triggerMessage({ type: 'session_list', sessions: [] })
@@ -197,13 +181,12 @@ describe('SessionPickerScreen', () => {
     fireEvent.press(screen.getByText('プロジェクトなし'))
     act(() => { mockWs.onclose?.() })
 
-    // onSelectProject が呼ばれ、エラー画面にはならない
-    expect(defaultProps.onSelectProject).toHaveBeenCalled()
+    expect(mockRouterPush).toHaveBeenCalled()
     expect(screen.queryByText('接続エラーが発生しました')).toBeNull()
   })
 
   it('ping 受信で pong を返す', async () => {
-    render(<SessionPickerScreen {...defaultProps} />)
+    render(<SessionPickerScreen />)
     triggerOpen()
     triggerMessage({ type: 'auth_ok' })
     mockWs.send.mockClear()
@@ -213,13 +196,23 @@ describe('SessionPickerScreen', () => {
   })
 
   it('アンマウント時に WebSocket が閉じられる', () => {
-    const { unmount } = render(<SessionPickerScreen {...defaultProps} />)
+    const { unmount } = render(<SessionPickerScreen />)
     unmount()
     expect(mockWs.close).toHaveBeenCalled()
   })
 
+  it('エラー画面の「戻る」ボタンで router.back() が呼ばれる', async () => {
+    render(<SessionPickerScreen />)
+    triggerOpen()
+    triggerMessage({ type: 'auth_error', reason: 'invalid token' })
+
+    await waitFor(() => expect(screen.getByText('接続エラーが発生しました')).toBeTruthy())
+    fireEvent.press(screen.getByText('戻る'))
+    expect(mockRouterBack).toHaveBeenCalled()
+  })
+
   it('セッションのステータスが active のとき「アクティブ」と表示される', async () => {
-    render(<SessionPickerScreen {...defaultProps} />)
+    render(<SessionPickerScreen />)
     triggerOpen()
     triggerMessage({ type: 'auth_ok' })
     triggerMessage({
@@ -234,7 +227,7 @@ describe('SessionPickerScreen', () => {
   })
 
   it('セッションの hasClient が true のとき「· 接続中」と表示される', async () => {
-    render(<SessionPickerScreen {...defaultProps} />)
+    render(<SessionPickerScreen />)
     triggerOpen()
     triggerMessage({ type: 'auth_ok' })
     triggerMessage({

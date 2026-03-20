@@ -22,8 +22,11 @@ type ListItem =
   | { kind: 'project'; project: ProjectInfo }
 
 export function SessionPickerScreen() {
-  const { ip, token } = useLocalSearchParams<{ ip: string; token: string }>()
+  const raw = useLocalSearchParams<{ ip: string; token: string }>()
   const router = useRouter()
+  // useLocalSearchParams の値は string | string[] になりうるため先頭要素を取り出す
+  const ip = Array.isArray(raw.ip) ? raw.ip[0] : raw.ip
+  const token = Array.isArray(raw.token) ? raw.token[0] : raw.token
   const [status, setStatus] = useState<Status>('connecting')
   const [projects, setProjects] = useState<ProjectInfo[]>([])
   const [sessions, setSessions] = useState<SessionInfo[]>([])
@@ -43,23 +46,25 @@ export function SessionPickerScreen() {
     }
 
     ws.onmessage = (e) => {
+      let msg: WsMessage
       try {
-        const msg: WsMessage = JSON.parse(e.data)
-        if (msg.type === 'auth_ok') {
-          setStatus('connected')
-        } else if (msg.type === 'project_list') {
-          setProjects(msg.projects)
-        } else if (msg.type === 'session_list') {
-          setSessions(msg.sessions)
-          setMultiplexerSessions(msg.multiplexerSessions ?? [])
-        } else if (msg.type === 'auth_error') {
-          setStatus('error')
-          ws.close()
-        } else if (msg.type === 'ping') {
-          ws.send(JSON.stringify({ type: 'pong' }))
-        }
-      } catch {
-        // ignore parse errors
+        msg = JSON.parse(e.data)
+      } catch (err) {
+        console.error('[SessionPickerScreen] WebSocket メッセージのパースに失敗しました:', err)
+        return
+      }
+      if (msg.type === 'auth_ok') {
+        setStatus('connected')
+      } else if (msg.type === 'project_list') {
+        setProjects(msg.projects)
+      } else if (msg.type === 'session_list') {
+        setSessions(msg.sessions)
+        setMultiplexerSessions(msg.multiplexerSessions ?? [])
+      } else if (msg.type === 'auth_error') {
+        setStatus('error')
+        ws.close()
+      } else if (msg.type === 'ping') {
+        ws.send(JSON.stringify({ type: 'pong' }))
       }
     }
 

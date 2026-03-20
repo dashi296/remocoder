@@ -22,7 +22,7 @@ const STATUS_CONFIG: Record<
 }
 
 export function TerminalScreen() {
-  const { ip, token, projectPath, sessionId, source: sourceJson } = useLocalSearchParams<{
+  const raw = useLocalSearchParams<{
     ip: string
     token: string
     projectPath?: string
@@ -31,10 +31,23 @@ export function TerminalScreen() {
   }>()
   const router = useRouter()
 
-  const source = useMemo<SessionSource | null>(
-    () => (sourceJson ? (JSON.parse(sourceJson) as SessionSource) : null),
-    [sourceJson],
-  )
+  // useLocalSearchParams の値は string | string[] になりうるため先頭要素を取り出す
+  const ip = Array.isArray(raw.ip) ? raw.ip[0] : raw.ip
+  const token = Array.isArray(raw.token) ? raw.token[0] : raw.token
+  const projectPath = Array.isArray(raw.projectPath) ? raw.projectPath[0] : raw.projectPath
+  const sessionId = Array.isArray(raw.sessionId) ? raw.sessionId[0] : raw.sessionId
+  const sourceJson = Array.isArray(raw.source) ? raw.source[0] : raw.source
+
+  const source = useMemo<SessionSource | null>(() => {
+    if (!sourceJson) return null
+    try {
+      return JSON.parse(sourceJson) as SessionSource
+    } catch (err) {
+      console.error('[TerminalScreen] source パラメータのパースに失敗しました:', err)
+      return null
+    }
+  }, [sourceJson])
+
   const wsUrl = useMemo(() => `ws://${ip}:${DEFAULT_WS_PORT}`, [ip])
   const [status, setStatus] = useState<ConnectionStatus>('connecting')
   const [webViewKey, setWebViewKey] = useState(0)
@@ -56,7 +69,8 @@ export function TerminalScreen() {
       let msg: Record<string, unknown>
       try {
         msg = JSON.parse(event.nativeEvent.data)
-      } catch {
+      } catch (err) {
+        console.error('[TerminalScreen] WebView メッセージのパースに失敗しました:', err)
         return
       }
 
@@ -101,6 +115,8 @@ export function TerminalScreen() {
             requiresAlways: msg.requiresAlways as boolean,
           })
           break
+        default:
+          console.warn('[TerminalScreen] 未処理の WebView メッセージタイプ:', msg.type)
       }
     },
     [closeSwitcher],

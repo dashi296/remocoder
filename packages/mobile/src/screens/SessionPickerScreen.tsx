@@ -10,7 +10,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { DEFAULT_WS_PORT, MultiplexerSessionInfo, ProjectInfo, SessionInfo, SessionSource, WsMessage } from '@remocoder/shared'
-import { formatDate, getSessionDisplayName } from '../utils'
+import { firstParam, formatDate, getSessionDisplayName } from '../utils'
 
 type Status = 'connecting' | 'connected' | 'error'
 
@@ -24,9 +24,8 @@ type ListItem =
 export function SessionPickerScreen() {
   const raw = useLocalSearchParams<{ ip: string; token: string }>()
   const router = useRouter()
-  // useLocalSearchParams の値は string | string[] になりうるため先頭要素を取り出す
-  const ip = Array.isArray(raw.ip) ? raw.ip[0] : raw.ip
-  const token = Array.isArray(raw.token) ? raw.token[0] : raw.token
+  const ip = firstParam(raw.ip)
+  const token = firstParam(raw.token)
   const [status, setStatus] = useState<Status>('connecting')
   const [projects, setProjects] = useState<ProjectInfo[]>([])
   const [sessions, setSessions] = useState<SessionInfo[]>([])

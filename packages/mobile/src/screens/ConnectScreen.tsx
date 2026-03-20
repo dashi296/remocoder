@@ -75,7 +75,7 @@ export function ConnectScreen() {
         p.id === profile.id ? { ...p, lastConnectedAt: new Date().toISOString() } : p,
       )
       await saveProfiles(next)
-      router.replace({ pathname: '/session-picker', params: { ip: profile.ip, token: profile.token } })
+      router.push({ pathname: '/session-picker', params: { ip: profile.ip, token: profile.token } })
     },
     [profiles, saveProfiles, router],
   )

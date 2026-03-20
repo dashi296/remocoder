@@ -2,7 +2,7 @@ import React from 'react'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react-native'
 import { ConnectScreen } from '../ConnectScreen'
 import AsyncStorage from '../../__mocks__/async-storage'
-import { mockRouterReplace } from '../../__mocks__/expo-router'
+import { mockRouterPush, mockRouterReplace } from '../../__mocks__/expo-router'
 
 describe('ConnectScreen', () => {
   beforeEach(() => {
@@ -44,7 +44,7 @@ describe('ConnectScreen', () => {
     await waitFor(() => screen.getByText('MacBook'))
     fireEvent.press(screen.getByText('MacBook'))
     await waitFor(() =>
-      expect(mockRouterReplace).toHaveBeenCalledWith({
+      expect(mockRouterPush).toHaveBeenCalledWith({
         pathname: '/session-picker',
         params: { ip: '100.64.0.1', token: 'tok1' },
       }),
@@ -77,7 +77,7 @@ describe('ConnectScreen', () => {
     fireEvent.press(screen.getByText('+ 接続先を追加'))
     await waitFor(() => screen.getByText('保存'))
     fireEvent.press(screen.getByText('保存'))
-    expect(mockRouterReplace).not.toHaveBeenCalled()
+    expect(mockRouterPush).not.toHaveBeenCalled()
   })
 
   it('キャンセルボタンで一覧画面に戻る', async () => {

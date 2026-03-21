@@ -1,5 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import AsyncStorage from '@react-native-async-storage/async-storage'
+import React, { useCallback, useMemo } from 'react'
 import {
   View,
   Text,
@@ -11,10 +10,9 @@ import {
 } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { useLocalSearchParams, useRouter } from 'expo-router'
-import { DEFAULT_WS_PORT, MultiplexerSessionInfo, ProjectInfo, SessionInfo, SessionSource, WsMessage } from '@remocoder/shared'
-import { firstParam, formatDate, getSessionDisplayName, PROFILES_KEY, ConnectionProfile } from '../utils'
-
-type Status = 'connecting' | 'connected' | 'error'
+import { MultiplexerSessionInfo, ProjectInfo, SessionInfo, SessionSource } from '@remocoder/shared'
+import { firstParam, formatDate, getSessionDisplayName } from '../utils'
+import { useSessionPickerWs } from '../hooks/useSessionPickerWs'
 
 type ListItem =
   | { kind: 'header'; label: string }
@@ -29,82 +27,18 @@ export function SessionPickerScreen() {
   const ip = firstParam(raw.ip)
   const token = firstParam(raw.token)
   const profileId = firstParam(raw.profileId)
-  const [status, setStatus] = useState<Status>('connecting')
-  const [projects, setProjects] = useState<ProjectInfo[]>([])
-  const [sessions, setSessions] = useState<SessionInfo[]>([])
-  const [multiplexerSessions, setMultiplexerSessions] = useState<MultiplexerSessionInfo[]>([])
-  const [deletingId, setDeletingId] = useState<string | null>(null)
-  const wsRef = useRef<WebSocket | null>(null)
-  const selectedRef = useRef(false)
-  const isMountedRef = useRef(true)
 
-  useEffect(() => {
-    isMountedRef.current = true
-    const ws = new WebSocket(`ws://${ip}:${DEFAULT_WS_PORT}`)
-    wsRef.current = ws
-
-    ws.onopen = () => {
-      const msg: WsMessage = { type: 'auth', token }
-      ws.send(JSON.stringify(msg))
-    }
-
-    ws.onmessage = (e) => {
-      let msg: WsMessage
-      try {
-        msg = JSON.parse(e.data)
-      } catch (err) {
-        console.error('[SessionPickerScreen] WebSocket メッセージのパースに失敗しました:', err)
-        return
-      }
-      if (msg.type === 'auth_ok') {
-        setStatus('connected')
-        if (profileId && msg.serverName) {
-          AsyncStorage.getItem(PROFILES_KEY).then((stored) => {
-            if (!stored) return
-            try {
-              const profiles: ConnectionProfile[] = JSON.parse(stored)
-              const profile = profiles.find((p) => p.id === profileId)
-              // 名前がIPのまま（未命名）の場合のみ上書きする
-              if (profile && profile.name === ip) {
-                const updated = profiles.map((p) =>
-                  p.id === profileId ? { ...p, name: msg.serverName } : p,
-                )
-                AsyncStorage.setItem(PROFILES_KEY, JSON.stringify(updated))
-              }
-            } catch {
-              // パース失敗は無視
-            }
-          })
-        }
-      } else if (msg.type === 'project_list') {
-        setProjects(msg.projects)
-      } else if (msg.type === 'session_list') {
-        setSessions(msg.sessions)
-        setMultiplexerSessions(msg.multiplexerSessions ?? [])
-      } else if (msg.type === 'session_deleted') {
-        setSessions((prev) => prev.filter((s) => s.id !== msg.sessionId))
-        setDeletingId((prev) => (prev === msg.sessionId ? null : prev))
-      } else if (msg.type === 'auth_error') {
-        setStatus('error')
-        ws.close()
-      } else if (msg.type === 'ping') {
-        ws.send(JSON.stringify({ type: 'pong' }))
-      }
-    }
-
-    ws.onerror = () => setStatus('error')
-    ws.onclose = () => {
-      if (isMountedRef.current && !selectedRef.current) {
-        setStatus((s) => (s === 'connected' ? 'error' : s))
-        setDeletingId(null)
-      }
-    }
-
-    return () => {
-      isMountedRef.current = false
-      ws.close()
-    }
-  }, [ip, token])
+  const {
+    connectionStatus,
+    sessions,
+    multiplexerSessions,
+    projects,
+    deleteSession,
+    isDeletingSession,
+    deletingSessionId,
+    wsRef,
+    selectedRef,
+  } = useSessionPickerWs(ip, token, profileId ?? null)
 
   const navigateToTerminal = useCallback(
     (params: Record<string, string>) => {
@@ -112,14 +46,18 @@ export function SessionPickerScreen() {
       wsRef.current?.close()
       router.push({ pathname: '/terminal', params: { ip, token, ...params } })
     },
-    [router, ip, token],
+    [router, ip, token, wsRef, selectedRef],
   )
 
-  const handleSelectProject = (projectPath: string | null) =>
-    navigateToTerminal({ projectPath: projectPath ?? '' })
+  const handleSelectProject = useCallback(
+    (projectPath: string | null) => navigateToTerminal({ projectPath: projectPath ?? '' }),
+    [navigateToTerminal],
+  )
 
-  const handleAttachSession = (sessionId: string) =>
-    navigateToTerminal({ sessionId })
+  const handleAttachSession = useCallback(
+    (sessionId: string) => navigateToTerminal({ sessionId }),
+    [navigateToTerminal],
+  )
 
   const handleDeleteSession = useCallback(
     (session: SessionInfo) => {
@@ -132,16 +70,12 @@ export function SessionPickerScreen() {
           {
             text: '削除',
             style: 'destructive',
-            onPress: () => {
-              setDeletingId(session.id)
-              const msg: WsMessage = { type: 'session_delete', sessionId: session.id }
-              wsRef.current?.send(JSON.stringify(msg))
-            },
+            onPress: () => deleteSession(session.id),
           },
         ],
       )
     },
-    [],
+    [deleteSession],
   )
 
   const handleAttachMultiplexer = (mux: MultiplexerSessionInfo) => {
@@ -176,14 +110,14 @@ export function SessionPickerScreen() {
         <View style={styles.headerRight} />
       </View>
 
-      {status === 'connecting' && (
+      {connectionStatus === 'connecting' && (
         <View style={styles.center}>
           <ActivityIndicator color="#4ec9b0" size="large" />
           <Text style={styles.statusText}>接続中...</Text>
         </View>
       )}
 
-      {status === 'error' && (
+      {connectionStatus === 'error' && (
         <View style={styles.center}>
           <Text style={styles.errorText}>接続エラーが発生しました</Text>
           <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
@@ -192,7 +126,7 @@ export function SessionPickerScreen() {
         </View>
       )}
 
-      {status === 'connected' && (
+      {connectionStatus === 'connected' && (
         <FlatList
           data={listData}
           keyExtractor={(item, i) => {
@@ -222,7 +156,7 @@ export function SessionPickerScreen() {
             if (item.kind === 'session') {
               const { session } = item
               const name = getSessionDisplayName(session)
-              const isDeleting = deletingId === session.id
+              const isDeleting = isDeletingSession && deletingSessionId === session.id
               return (
                 <TouchableOpacity
                   style={[styles.sessionRow, isDeleting && styles.sessionRowDeleting]}

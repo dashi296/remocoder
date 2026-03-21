@@ -5,6 +5,12 @@ import { SafeAreaProvider } from 'react-native-safe-area-context'
 import { ForceUpdateScreen } from '../src/screens/ForceUpdateScreen'
 import { useForceUpdate } from '../src/hooks/useForceUpdate'
 import { useOTAUpdate } from '../src/hooks/useOTAUpdate'
+import { useNetworkActivityDevTools } from '@rozenite/network-activity-plugin'
+
+function NetworkActivityDevTools() {
+  useNetworkActivityDevTools()
+  return null
+}
 
 export default function RootLayout() {
   const { needsUpdate, storeUrl, message, isChecking } = useForceUpdate()
@@ -13,6 +19,7 @@ export default function RootLayout() {
   if (isChecking) {
     return (
       <SafeAreaProvider>
+        {__DEV__ && <NetworkActivityDevTools />}
         <View style={styles.loading}>
           <ActivityIndicator size="large" color="#0e7afb" />
         </View>
@@ -23,6 +30,7 @@ export default function RootLayout() {
   if (needsUpdate) {
     return (
       <SafeAreaProvider>
+        {__DEV__ && <NetworkActivityDevTools />}
         <ForceUpdateScreen message={message} storeUrl={storeUrl} />
       </SafeAreaProvider>
     )
@@ -30,6 +38,7 @@ export default function RootLayout() {
 
   return (
     <SafeAreaProvider>
+      {__DEV__ && <NetworkActivityDevTools />}
       <Stack screenOptions={{ headerShown: false }} />
     </SafeAreaProvider>
   )

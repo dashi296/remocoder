@@ -1,4 +1,5 @@
 const { getDefaultConfig } = require('expo/metro-config')
+const { withRozenite } = require('@rozenite/metro')
 const path = require('path')
 
 const projectRoot = __dirname
@@ -22,4 +23,6 @@ config.resolver.extraNodeModules = {
   'react-native': path.resolve(projectRoot, 'node_modules/react-native'),
 }
 
-module.exports = config
+module.exports = withRozenite(config, {
+  enabled: process.env.WITH_ROZENITE === 'true',
+})

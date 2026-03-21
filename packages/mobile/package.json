@@ -5,6 +5,7 @@
   "main": "index.js",
   "scripts": {
     "start": "expo start",
+    "start:debug": "WITH_ROZENITE=true expo start",
     "android": "expo run:android",
     "ios": "expo run:ios",
     "test": "jest --passWithNoTests"
@@ -31,6 +32,8 @@
   },
   "devDependencies": {
     "@expo/config-plugins": "^55.0.6",
+    "@rozenite/metro": "^1.5.1",
+    "@rozenite/network-activity-plugin": "^1.5.1",
     "@testing-library/react-native": "^12.4.0",
     "@types/jest": "^29.0.0",
     "@types/react": "19.2.14",

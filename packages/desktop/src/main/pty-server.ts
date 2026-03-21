@@ -178,6 +178,22 @@ function getSessionInfos(): SessionInfo[] {
   }))
 }
 
+/**
+ * セッションのタイムアウト・承認待ちをクリアし、接続中のモバイルクライアントへ終了を通知した上で
+ * ptySessions から削除する。PTY プロセス自体の kill は呼び出し元の責任で行うこと。
+ */
+function closeSession(session: PtySession, exitCode: number): void {
+  if (session.idleTimeoutId) clearTimeout(session.idleTimeoutId)
+  if (session.pendingPermission) clearTimeout(session.pendingPermission.timeoutId)
+  if (session.wsClient?.readyState === WebSocket.OPEN) {
+    session.wsClient.send(JSON.stringify({ type: 'shell_exit', exitCode } satisfies WsMessage))
+    session.wsClient.close()
+  }
+  serverCallbacks.onPtyExit?.(session.id, exitCode)
+  ptySessions.delete(session.id)
+  notifySessions()
+}
+
 /** スクロールバックにデータを追記し、上限を超えた場合は先頭チャンクから切り捨てる */
 function appendScrollback(session: PtySession, data: string): void {
   session.scrollbackChunks.push(data)
@@ -334,16 +350,8 @@ function createPtySession(source: SessionSource = { kind: 'claude' }, clientIP?:
   })
 
   ptyProc.onExit(({ exitCode }) => {
-    if (session.idleTimeoutId) clearTimeout(session.idleTimeoutId)
-    if (session.pendingPermission) clearTimeout(session.pendingPermission.timeoutId)
-    if (session.wsClient?.readyState === WebSocket.OPEN) {
-      session.wsClient.send(JSON.stringify({ type: 'shell_exit', exitCode } satisfies WsMessage))
-      session.wsClient.close()
-    }
-    serverCallbacks.onPtyExit?.(id, exitCode)
     console.log(`[pty-server] Session ${id.slice(0, 8)} exited (code: ${exitCode}). Remaining: ${ptySessions.size - 1}`)
-    ptySessions.delete(id)
-    notifySessions()
+    closeSession(session, exitCode)
   })
 
   ptySessions.set(id, session)
@@ -560,15 +568,8 @@ export function startPtyServer(port = DEFAULT_WS_PORT, callbacks: PtyServerCallb
           setSessionActive(provSession)
           detectAndSendPermission(provSession, msg.data)
         } else if (msg.type === 'shell_exit') {
-          if (provSession.idleTimeoutId) clearTimeout(provSession.idleTimeoutId)
-          if (provSession.wsClient?.readyState === WebSocket.OPEN) {
-            provSession.wsClient.send(JSON.stringify({ type: 'shell_exit', exitCode: msg.exitCode } satisfies WsMessage))
-            provSession.wsClient.close()
-          }
-          serverCallbacks.onPtyExit?.(providerSessionId, msg.exitCode)
           console.log(`[pty-server] External session ${providerSessionId.slice(0, 8)} exited (code: ${msg.exitCode})`)
-          ptySessions.delete(providerSessionId)
-          notifySessions()
+          closeSession(provSession, msg.exitCode)
           providerSessionId = null
         }
         return
@@ -685,23 +686,13 @@ export function startPtyServer(port = DEFAULT_WS_PORT, callbacks: PtyServerCallb
         return
       }
 
-      // ── セッション削除（アタッチ不要） ────────────────────────────────────
       if (msg.type === 'session_delete') {
         const target = ptySessions.get(msg.sessionId)
         if (target) {
-          if (target.idleTimeoutId) clearTimeout(target.idleTimeoutId)
-          if (target.pendingPermission) clearTimeout(target.pendingPermission.timeoutId)
-          // アタッチ中のモバイルクライアントに終了を通知
-          if (target.wsClient && target.wsClient !== ws && target.wsClient.readyState === WebSocket.OPEN) {
-            target.wsClient.send(JSON.stringify({ type: 'shell_exit', exitCode: -1 } satisfies WsMessage))
-            target.wsClient.close()
-          }
           target.pty?.kill()
           if (target.providerWs?.readyState === WebSocket.OPEN) target.providerWs.close()
-          serverCallbacks.onPtyExit?.(msg.sessionId, -1)
-          ptySessions.delete(msg.sessionId)
-          notifySessions()
           console.log(`[pty-server] Session ${msg.sessionId.slice(0, 8)} deleted by mobile client`)
+          closeSession(target, -1)
         }
         ws.send(JSON.stringify({ type: 'session_deleted', sessionId: msg.sessionId } satisfies WsMessage))
         return
@@ -755,16 +746,7 @@ export function startPtyServer(port = DEFAULT_WS_PORT, callbacks: PtyServerCallb
       // 外部プロバイダーが切断された場合はセッションを終了する
       if (isProvider && providerSessionId) {
         const provSession = ptySessions.get(providerSessionId)
-        if (provSession) {
-          if (provSession.idleTimeoutId) clearTimeout(provSession.idleTimeoutId)
-          if (provSession.wsClient?.readyState === WebSocket.OPEN) {
-            provSession.wsClient.send(JSON.stringify({ type: 'shell_exit', exitCode: -1 } satisfies WsMessage))
-            provSession.wsClient.close()
-          }
-          serverCallbacks.onPtyExit?.(providerSessionId, -1)
-          ptySessions.delete(providerSessionId)
-          notifySessions()
-        }
+        if (provSession) closeSession(provSession, -1)
         return
       }
 

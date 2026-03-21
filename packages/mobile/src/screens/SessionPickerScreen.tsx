@@ -83,7 +83,7 @@ export function SessionPickerScreen() {
         setMultiplexerSessions(msg.multiplexerSessions ?? [])
       } else if (msg.type === 'session_deleted') {
         setSessions((prev) => prev.filter((s) => s.id !== msg.sessionId))
-        setDeletingId(null)
+        setDeletingId((prev) => (prev === msg.sessionId ? null : prev))
       } else if (msg.type === 'auth_error') {
         setStatus('error')
         ws.close()
@@ -96,6 +96,7 @@ export function SessionPickerScreen() {
     ws.onclose = () => {
       if (isMountedRef.current && !selectedRef.current) {
         setStatus((s) => (s === 'connected' ? 'error' : s))
+        setDeletingId(null)
       }
     }
 

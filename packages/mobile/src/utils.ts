@@ -1,5 +1,15 @@
 import type { SessionInfo } from '@remocoder/shared'
 
+export const PROFILES_KEY = 'connectionProfiles'
+
+export interface ConnectionProfile {
+  id: string
+  name: string
+  ip: string
+  token: string
+  lastConnectedAt?: string
+}
+
 /** ISO日付文字列を日本語表示用の短い形式にフォーマットする */
 export function formatDate(iso: string): string {
   const d = new Date(iso)

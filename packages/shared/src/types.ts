@@ -22,7 +22,7 @@ export type WsMessage =
   | { type: 'ping' }
   | { type: 'pong' }
   | { type: 'auth'; token: string }
-  | { type: 'auth_ok' }
+  | { type: 'auth_ok'; serverName: string }
   | { type: 'auth_error'; reason: string }
   | { type: 'shell_exit'; exitCode: number }
   | { type: 'session_list'; sessions: SessionInfo[]; multiplexerSessions?: MultiplexerSessionInfo[] }

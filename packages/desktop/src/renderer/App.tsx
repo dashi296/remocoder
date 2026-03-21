@@ -28,6 +28,7 @@ const mockAPI = {
     },
   ],
   onSessionsUpdate: (_cb: (sessions: SessionInfo[]) => void) => () => { /* mock no-op */ },
+  getServerName: async () => 'My Mac',
   rotateToken: async () => 'new-token',
   ptyCreate: async (_source?: SessionSource) => 'mock-session-id',
   ptyGetScrollback: async (_sessionId: string) => null as string | null,
@@ -62,6 +63,7 @@ const api = MOCK_MODE ? mockAPI : (window as any).electronAPI
 export default function App() {
   const [tailscaleIP, setTailscaleIP] = useState<string | null>(null)
   const [token, setToken] = useState<string>('')
+  const [serverName, setServerName] = useState<string>('')
   const [sessions, setSessions] = useState<SessionInfo[]>([])
   const [activeTerminalSessionId, setActiveTerminalSessionId] = useState<string | null>(null)
   const [multiplexerSessions, setMultiplexerSessions] = useState<MultiplexerSessionInfo[]>([])
@@ -84,6 +86,7 @@ export default function App() {
   useEffect(() => {
     api.getTailscaleIP().then(setTailscaleIP)
     api.getToken().then(setToken)
+    api.getServerName().then(setServerName).catch(() => {})
     api.getSessions().then(setSessions)
     loadMultiplexerSessions()
 
@@ -213,6 +216,7 @@ export default function App() {
           <TokenDisplay
             token={token}
             tailscaleIP={tailscaleIP}
+            serverName={serverName}
             onRotate={api.rotateToken ? async () => setToken(await api.rotateToken()) : undefined}
           />
         )}

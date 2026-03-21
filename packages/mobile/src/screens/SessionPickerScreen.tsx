@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import AsyncStorage from '@react-native-async-storage/async-storage'
 import {
   View,
   Text,
@@ -10,7 +11,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { DEFAULT_WS_PORT, MultiplexerSessionInfo, ProjectInfo, SessionInfo, SessionSource, WsMessage } from '@remocoder/shared'
-import { firstParam, formatDate, getSessionDisplayName } from '../utils'
+import { firstParam, formatDate, getSessionDisplayName, PROFILES_KEY, ConnectionProfile } from '../utils'
 
 type Status = 'connecting' | 'connected' | 'error'
 
@@ -22,10 +23,11 @@ type ListItem =
   | { kind: 'project'; project: ProjectInfo }
 
 export function SessionPickerScreen() {
-  const raw = useLocalSearchParams<{ ip: string; token: string }>()
+  const raw = useLocalSearchParams<{ ip: string; token: string; profileId?: string }>()
   const router = useRouter()
   const ip = firstParam(raw.ip)
   const token = firstParam(raw.token)
+  const profileId = firstParam(raw.profileId)
   const [status, setStatus] = useState<Status>('connecting')
   const [projects, setProjects] = useState<ProjectInfo[]>([])
   const [sessions, setSessions] = useState<SessionInfo[]>([])
@@ -54,6 +56,24 @@ export function SessionPickerScreen() {
       }
       if (msg.type === 'auth_ok') {
         setStatus('connected')
+        if (profileId && msg.serverName) {
+          AsyncStorage.getItem(PROFILES_KEY).then((stored) => {
+            if (!stored) return
+            try {
+              const profiles: ConnectionProfile[] = JSON.parse(stored)
+              const profile = profiles.find((p) => p.id === profileId)
+              // 名前がIPのまま（未命名）の場合のみ上書きする
+              if (profile && profile.name === ip) {
+                const updated = profiles.map((p) =>
+                  p.id === profileId ? { ...p, name: msg.serverName } : p,
+                )
+                AsyncStorage.setItem(PROFILES_KEY, JSON.stringify(updated))
+              }
+            } catch {
+              // パース失敗は無視
+            }
+          })
+        }
       } else if (msg.type === 'project_list') {
         setProjects(msg.projects)
       } else if (msg.type === 'session_list') {

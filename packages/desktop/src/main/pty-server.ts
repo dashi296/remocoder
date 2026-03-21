@@ -3,7 +3,7 @@ import { WebSocketServer, WebSocket } from 'ws'
 import type { IncomingMessage } from 'http'
 import { existsSync, readdirSync, statSync } from 'fs'
 import { join } from 'path'
-import { homedir } from 'os'
+import { homedir, hostname as osHostname } from 'os'
 import { exec } from 'child_process'
 import { promisify } from 'util'
 import { WsMessage, SessionInfo, ProjectInfo, MultiplexerSessionInfo, SessionSource, DEFAULT_WS_PORT } from '@remocoder/shared'
@@ -13,6 +13,7 @@ import { tryParsePermission, stripAnsi } from './permission-parser'
 const execAsync = promisify(exec)
 
 let AUTH_TOKEN = process.env.REMOTE_TOKEN ?? uuidv4()
+const SERVER_NAME = osHostname()
 
 // ─── Claude プロジェクト一覧取得 ───────────────────────────────────────────────
 
@@ -505,7 +506,7 @@ export function startPtyServer(port = DEFAULT_WS_PORT, callbacks: PtyServerCallb
           startPingInterval()
           const projects = getRecentProjects()
           console.log(`[pty-server] Auth OK from ${clientIP ?? 'unknown'}. Sessions: ${ptySessions.size}, Projects: ${projects.length}`)
-          ws.send(JSON.stringify({ type: 'auth_ok' } satisfies WsMessage))
+          ws.send(JSON.stringify({ type: 'auth_ok', serverName: SERVER_NAME } satisfies WsMessage))
           ws.send(JSON.stringify({ type: 'project_list', projects } satisfies WsMessage))
           ws.send(
             JSON.stringify({

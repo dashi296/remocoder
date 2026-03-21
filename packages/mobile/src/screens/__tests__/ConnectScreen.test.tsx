@@ -46,7 +46,7 @@ describe('ConnectScreen', () => {
     await waitFor(() =>
       expect(mockRouterPush).toHaveBeenCalledWith({
         pathname: '/session-picker',
-        params: { ip: '100.64.0.1', token: 'tok1' },
+        params: { ip: '100.64.0.1', token: 'tok1', profileId: '1' },
       }),
     )
   })

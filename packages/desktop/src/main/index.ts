@@ -1,6 +1,7 @@
 import { app, BrowserWindow, Tray, Menu, nativeImage, ipcMain } from 'electron'
 import { join } from 'path'
 import { readFileSync, writeFileSync } from 'fs'
+import { hostname } from 'os'
 import {
   startPtyServer,
   rotateToken,
@@ -124,6 +125,7 @@ function setupIpc(getToken: () => string) {
   // ── 既存ハンドラ ──────────────────────────────────────────────────────────
   ipcMain.handle('get-tailscale-ip', () => tailscaleIp)
   ipcMain.handle('get-token', () => getToken())
+  ipcMain.handle('get-server-name', () => hostname())
   ipcMain.handle('get-sessions', () => currentSessions)
   ipcMain.handle('rotate-token', () => {
     const newToken = rotateToken()

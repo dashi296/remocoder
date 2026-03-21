@@ -52,7 +52,7 @@ describe('WsMessage', () => {
   })
 
   it('auth_ok メッセージを組み立てられる', () => {
-    const msg: WsMessage = { type: 'auth_ok' }
+    const msg: WsMessage = { type: 'auth_ok', serverName: 'MyServer' }
     expect(msg.type).toBe('auth_ok')
   })
 })

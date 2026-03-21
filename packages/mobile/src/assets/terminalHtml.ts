@@ -320,8 +320,9 @@ export function buildTerminalHtml(
     // 両イベントが同時に発火して二重リサイズになるのを防ぐため、
     // visualViewport が使える環境では window.resize 側をスキップする。
     if (window.visualViewport) {
+      const terminalEl = document.getElementById('terminal')
       window.visualViewport.addEventListener('resize', () => {
-        document.getElementById('terminal').style.height = window.visualViewport.height + 'px'
+        terminalEl.style.height = window.visualViewport.height + 'px'
         fitAndResize()
       })
     }

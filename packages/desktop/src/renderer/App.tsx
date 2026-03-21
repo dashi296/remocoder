@@ -86,7 +86,7 @@ export default function App() {
   useEffect(() => {
     api.getTailscaleIP().then(setTailscaleIP)
     api.getToken().then(setToken)
-    api.getServerName?.().then(setServerName).catch(() => {})
+    api.getServerName().then(setServerName).catch(() => {})
     api.getSessions().then(setSessions)
     loadMultiplexerSessions()
 

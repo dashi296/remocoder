@@ -11,7 +11,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { DEFAULT_WS_PORT, MultiplexerSessionInfo, ProjectInfo, SessionInfo, SessionSource, WsMessage } from '@remocoder/shared'
-import { firstParam, formatDate, getSessionDisplayName } from '../utils'
+import { firstParam, formatDate, getSessionDisplayName, PROFILES_KEY, ConnectionProfile } from '../utils'
 
 type Status = 'connecting' | 'connected' | 'error'
 
@@ -57,18 +57,17 @@ export function SessionPickerScreen() {
       if (msg.type === 'auth_ok') {
         setStatus('connected')
         if (profileId && msg.serverName) {
-          const serverName = msg.serverName
-          AsyncStorage.getItem('connectionProfiles').then((raw) => {
-            if (!raw) return
+          AsyncStorage.getItem(PROFILES_KEY).then((stored) => {
+            if (!stored) return
             try {
-              const profiles = JSON.parse(raw)
-              const profile = profiles.find((p: { id: string }) => p.id === profileId)
+              const profiles: ConnectionProfile[] = JSON.parse(stored)
+              const profile = profiles.find((p) => p.id === profileId)
               // 名前がIPのまま（未命名）の場合のみ上書きする
               if (profile && profile.name === ip) {
-                const updated = profiles.map((p: { id: string }) =>
-                  p.id === profileId ? { ...p, name: serverName } : p,
+                const updated = profiles.map((p) =>
+                  p.id === profileId ? { ...p, name: msg.serverName } : p,
                 )
-                AsyncStorage.setItem('connectionProfiles', JSON.stringify(updated))
+                AsyncStorage.setItem(PROFILES_KEY, JSON.stringify(updated))
               }
             } catch {
               // パース失敗は無視

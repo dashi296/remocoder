@@ -13,17 +13,7 @@ import { SafeAreaView } from 'react-native-safe-area-context'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { CameraView, useCameraPermissions } from 'expo-camera'
 import { useRouter } from 'expo-router'
-import { formatDate } from '../utils'
-
-const PROFILES_KEY = 'connectionProfiles'
-
-interface ConnectionProfile {
-  id: string
-  name: string
-  ip: string
-  token: string
-  lastConnectedAt?: string
-}
+import { formatDate, PROFILES_KEY, ConnectionProfile } from '../utils'
 
 type Screen = 'list' | 'form' | 'scan'
 

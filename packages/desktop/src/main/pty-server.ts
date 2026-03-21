@@ -3,7 +3,7 @@ import { WebSocketServer, WebSocket } from 'ws'
 import type { IncomingMessage } from 'http'
 import { existsSync, readdirSync, statSync } from 'fs'
 import { join } from 'path'
-import { homedir } from 'os'
+import { homedir, hostname } from 'os'
 import { exec } from 'child_process'
 import { promisify } from 'util'
 import { WsMessage, SessionInfo, ProjectInfo, MultiplexerSessionInfo, SessionSource, DEFAULT_WS_PORT } from '@remocoder/shared'
@@ -505,7 +505,7 @@ export function startPtyServer(port = DEFAULT_WS_PORT, callbacks: PtyServerCallb
           startPingInterval()
           const projects = getRecentProjects()
           console.log(`[pty-server] Auth OK from ${clientIP ?? 'unknown'}. Sessions: ${ptySessions.size}, Projects: ${projects.length}`)
-          ws.send(JSON.stringify({ type: 'auth_ok' } satisfies WsMessage))
+          ws.send(JSON.stringify({ type: 'auth_ok', serverName: hostname() } satisfies WsMessage))
           ws.send(JSON.stringify({ type: 'project_list', projects } satisfies WsMessage))
           ws.send(
             JSON.stringify({

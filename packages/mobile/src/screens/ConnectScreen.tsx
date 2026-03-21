@@ -75,7 +75,7 @@ export function ConnectScreen() {
         p.id === profile.id ? { ...p, lastConnectedAt: new Date().toISOString() } : p,
       )
       await saveProfiles(next)
-      router.push({ pathname: '/session-picker', params: { ip: profile.ip, token: profile.token } })
+      router.push({ pathname: '/session-picker', params: { ip: profile.ip, token: profile.token, profileId: profile.id } })
     },
     [profiles, saveProfiles, router],
   )
@@ -140,7 +140,7 @@ export function ConnectScreen() {
       if (scannedIp && scannedToken) {
         setIp(scannedIp)
         setToken(scannedToken)
-        setName(scannedIp)
+        setName(url.searchParams.get('name') ?? scannedIp)
         setScreen('form')
       }
     } catch {

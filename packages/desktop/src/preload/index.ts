@@ -12,6 +12,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // ── 既存API ──────────────────────────────────────────────────────────────
   getTailscaleIP: (): Promise<string | null> => ipcRenderer.invoke('get-tailscale-ip'),
   getToken: (): Promise<string> => ipcRenderer.invoke('get-token'),
+  getServerName: (): Promise<string> => ipcRenderer.invoke('get-server-name'),
   getSessions: (): Promise<SessionInfo[]> => ipcRenderer.invoke('get-sessions'),
   rotateToken: (): Promise<string> => ipcRenderer.invoke('rotate-token'),
   onSessionsUpdate: (cb: (sessions: SessionInfo[]) => void): (() => void) =>

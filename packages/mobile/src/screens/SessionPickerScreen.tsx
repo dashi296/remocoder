@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import AsyncStorage from '@react-native-async-storage/async-storage'
 import {
   View,
   Text,
@@ -22,10 +23,11 @@ type ListItem =
   | { kind: 'project'; project: ProjectInfo }
 
 export function SessionPickerScreen() {
-  const raw = useLocalSearchParams<{ ip: string; token: string }>()
+  const raw = useLocalSearchParams<{ ip: string; token: string; profileId?: string }>()
   const router = useRouter()
   const ip = firstParam(raw.ip)
   const token = firstParam(raw.token)
+  const profileId = firstParam(raw.profileId)
   const [status, setStatus] = useState<Status>('connecting')
   const [projects, setProjects] = useState<ProjectInfo[]>([])
   const [sessions, setSessions] = useState<SessionInfo[]>([])
@@ -54,6 +56,25 @@ export function SessionPickerScreen() {
       }
       if (msg.type === 'auth_ok') {
         setStatus('connected')
+        if (profileId && msg.serverName) {
+          const serverName = msg.serverName
+          AsyncStorage.getItem('connectionProfiles').then((raw) => {
+            if (!raw) return
+            try {
+              const profiles = JSON.parse(raw)
+              const profile = profiles.find((p: { id: string }) => p.id === profileId)
+              // 名前がIPのまま（未命名）の場合のみ上書きする
+              if (profile && profile.name === ip) {
+                const updated = profiles.map((p: { id: string }) =>
+                  p.id === profileId ? { ...p, name: serverName } : p,
+                )
+                AsyncStorage.setItem('connectionProfiles', JSON.stringify(updated))
+              }
+            } catch {
+              // パース失敗は無視
+            }
+          })
+        }
       } else if (msg.type === 'project_list') {
         setProjects(msg.projects)
       } else if (msg.type === 'session_list') {

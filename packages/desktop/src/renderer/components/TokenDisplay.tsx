@@ -4,10 +4,11 @@ import QRCode from 'qrcode'
 interface TokenDisplayProps {
   token: string
   tailscaleIP?: string | null
+  serverName?: string
   onRotate?: () => Promise<void>
 }
 
-export function TokenDisplay({ token, tailscaleIP, onRotate }: TokenDisplayProps) {
+export function TokenDisplay({ token, tailscaleIP, serverName, onRotate }: TokenDisplayProps) {
   const [revealed, setRevealed] = useState(false)
   const [copied, setCopied] = useState(false)
   const [showQr, setShowQr] = useState(false)
@@ -27,13 +28,14 @@ export function TokenDisplay({ token, tailscaleIP, onRotate }: TokenDisplayProps
 
   useEffect(() => {
     if (!showQr || !tailscaleIP) return
-    const url = `remocoder://connect?ip=${tailscaleIP}&token=${token}`
+    const nameParam = serverName ? `&name=${encodeURIComponent(serverName)}` : ''
+    const url = `remocoder://connect?ip=${tailscaleIP}&token=${token}${nameParam}`
     QRCode.toDataURL(url, {
       width: 180,
       margin: 2,
       color: { dark: '#d4d4d4', light: '#0d0d0d' },
     }).then(setQrDataUrl)
-  }, [showQr, tailscaleIP, token])
+  }, [showQr, tailscaleIP, token, serverName])
 
   const masked = token.replace(/./g, (_, i) =>
     i < 8 ? token[i] : i < token.length - 4 ? '•' : token[i]

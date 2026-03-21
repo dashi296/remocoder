@@ -307,9 +307,27 @@ export function buildTerminalHtml(
 
     term.onData((data) => { sendWs({ type: 'input', data }) })
 
-    window.addEventListener('resize', () => {
+    let lastCols = 0, lastRows = 0
+    function fitAndResize() {
       fitAddon.fit()
-      sendWs({ type: 'resize', cols: term.cols, rows: term.rows })
+      if (term.cols !== lastCols || term.rows !== lastRows) {
+        lastCols = term.cols; lastRows = term.rows
+        sendWs({ type: 'resize', cols: term.cols, rows: term.rows })
+      }
+    }
+
+    // visualViewport はキーボード出現時も実際の可視高さを返す（100vh はキーボードを考慮しない）。
+    // 両イベントが同時に発火して二重リサイズになるのを防ぐため、
+    // visualViewport が使える環境では window.resize 側をスキップする。
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener('resize', () => {
+        document.getElementById('terminal').style.height = window.visualViewport.height + 'px'
+        fitAndResize()
+      })
+    }
+    window.addEventListener('resize', () => {
+      if (window.visualViewport) return
+      fitAndResize()
     })
 
     // クライアント側keepalive

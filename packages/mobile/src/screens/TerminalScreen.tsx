@@ -1,11 +1,13 @@
-import React, { useRef, useCallback, useState, useMemo } from 'react'
-import { View, StyleSheet, TouchableOpacity, Text } from 'react-native'
-import { SafeAreaView } from 'react-native-safe-area-context'
+import React, { useRef, useCallback, useState, useMemo, useEffect } from 'react'
+import { View, StyleSheet, TouchableOpacity, Text, AppState } from 'react-native'
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { WebView, WebViewMessageEvent } from 'react-native-webview'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { DEFAULT_WS_PORT, SessionSource } from '@remocoder/shared'
 import { buildTerminalHtml } from '../assets/terminalHtml'
 import { PermissionSheet, PermissionRequest } from '../components/PermissionSheet'
+import { KeyboardToolbar } from '../components/KeyboardToolbar'
+import { useKeyboardHeight } from '../hooks/useKeyboardHeight'
 import { firstParam } from '../utils'
 
 type ConnectionStatus = 'connecting' | 'connected' | 'reconnecting' | 'auth_error' | 'shell_exit'
@@ -48,10 +50,25 @@ export function TerminalScreen() {
   }, [sourceJson])
 
   const wsUrl = useMemo(() => `ws://${ip}:${DEFAULT_WS_PORT}`, [ip])
+  const keyboardHeight = useKeyboardHeight()
+  const insets = useSafeAreaInsets()
+  const bottomPadding = keyboardHeight > 0 ? keyboardHeight : insets.bottom
   const [status, setStatus] = useState<ConnectionStatus>('connecting')
   const [webViewKey, setWebViewKey] = useState(0)
   const [pendingPermission, setPendingPermission] = useState<PermissionRequest | null>(null)
   const webViewRef = useRef<WebView>(null)
+
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'background' || nextState === 'inactive') {
+        // バックグラウンド移行時に WebSocket を明示的に閉じてサーバー側のデタッチを確実にする
+        webViewRef.current?.injectJavaScript(
+          'if (ws && ws.readyState === WebSocket.OPEN) { ws.close(); } true;',
+        )
+      }
+    })
+    return () => sub.remove()
+  }, [])
 
   const handleMessage = useCallback(
     (event: WebViewMessageEvent) => {
@@ -125,7 +142,7 @@ export function TerminalScreen() {
   const showRetry = status === 'auth_error' || status === 'shell_exit'
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={[styles.container, { paddingBottom: bottomPadding }]} edges={['top', 'left', 'right']}>
       {/* ステータスバー */}
       <View style={[styles.statusBar, { backgroundColor: statusCfg.bgColor }]}>
         <Text style={[styles.statusText, { color: statusCfg.color }]}>{statusCfg.label}</Text>
@@ -154,6 +171,9 @@ export function TerminalScreen() {
         onError={(e) => console.error('WebView error:', e.nativeEvent)}
         onHttpError={(e) => console.error('WebView HTTP error:', e.nativeEvent.statusCode)}
       />
+
+      {/* カスタムキーボードツールバー */}
+      <KeyboardToolbar webViewRef={webViewRef} />
 
       {/* 承認ボトムシート */}
       <PermissionSheet request={pendingPermission} onDecide={handlePermissionDecide} />

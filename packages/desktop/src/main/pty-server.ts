@@ -118,6 +118,8 @@ const IDLE_TIMEOUT = 300000
 const SCROLLBACK_MAX_BYTES = 500_000
 // アイドルタイマーを再スケジュールするまでの最小間隔（ms）
 const IDLE_TIMER_RESET_INTERVAL = 5000
+// クライアントがデタッチ後に再接続しない場合のセッション自動削除までの時間（ms）
+const DETACH_CLEANUP_DELAY = 600_000
 
 /** サーバー内部で管理するPTYセッション */
 interface PtySession {
@@ -145,6 +147,8 @@ interface PtySession {
   permissionBuffer: string
   /** 承認待ちリクエスト（存在する間は重複検出しない） */
   pendingPermission: { requestId: string; timeoutId: ReturnType<typeof setTimeout>; style: 'numbered' | 'legacy'; requiresAlways: boolean } | null
+  /** デタッチ後に再接続がなければセッションを自動削除するタイマー */
+  detachCleanupId: ReturnType<typeof setTimeout> | null
 }
 
 /** 永続PTYセッションマップ（WS切断後も保持） */
@@ -185,6 +189,7 @@ function getSessionInfos(): SessionInfo[] {
 function closeSession(session: PtySession, exitCode: number): void {
   if (session.idleTimeoutId) clearTimeout(session.idleTimeoutId)
   if (session.pendingPermission) clearTimeout(session.pendingPermission.timeoutId)
+  if (session.detachCleanupId) clearTimeout(session.detachCleanupId)
   if (session.wsClient?.readyState === WebSocket.OPEN) {
     session.wsClient.send(JSON.stringify({ type: 'shell_exit', exitCode } satisfies WsMessage))
     session.wsClient.close()
@@ -338,6 +343,7 @@ function createPtySession(source: SessionSource = { kind: 'claude' }, clientIP?:
     source,
     permissionBuffer: '',
     pendingPermission: null,
+    detachCleanupId: null,
   }
 
   ptyProc.onData((data) => {
@@ -380,6 +386,7 @@ function createExternalSession(providerWs: WebSocket): PtySession {
     lastActiveAt: 0,
     permissionBuffer: '',
     pendingPermission: null,
+    detachCleanupId: null,
   }
 
   ptySessions.set(id, session)
@@ -492,6 +499,17 @@ export function startPtyServer(port = DEFAULT_WS_PORT, callbacks: PtyServerCallb
           session.wsClient = null
           session.clientIP = undefined
           notifySessions()
+          // 一定時間内に再接続がなければセッションを自動削除する
+          if (session.detachCleanupId) clearTimeout(session.detachCleanupId)
+          session.detachCleanupId = setTimeout(() => {
+            const s = ptySessions.get(session.id)
+            if (s && s.wsClient === null) {
+              console.log(`[pty-server] Auto-deleting orphaned session ${session.id.slice(0, 8)} (no client for ${DETACH_CLEANUP_DELAY / 60000}min)`)
+              s.pty?.kill()
+              if (s.providerWs?.readyState === WebSocket.OPEN) s.providerWs.close()
+              closeSession(s, -1)
+            }
+          }, DETACH_CLEANUP_DELAY)
         }
         attachedSessionId = null
       }
@@ -618,6 +636,11 @@ export function startPtyServer(port = DEFAULT_WS_PORT, callbacks: PtyServerCallb
             } satisfies WsMessage),
           )
           return
+        }
+        // アタッチ前に自動削除タイマーをキャンセルする
+        if (session.detachCleanupId) {
+          clearTimeout(session.detachCleanupId)
+          session.detachCleanupId = null
         }
         detachFromSession()
         // 既存のモバイルクライアントを切断（上書きアタッチ）

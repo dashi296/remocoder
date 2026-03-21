@@ -66,6 +66,11 @@ const Animated = {
   delay: (_ms: number) => ({ start: jest.fn(), stop: jest.fn() }),
 }
 
+const mockRemove = jest.fn()
+const Keyboard = {
+  addListener: jest.fn(() => ({ remove: mockRemove })),
+}
+
 const Alert = {
   alert: jest.fn((title: string, message: string, buttons: any[]) => {
     // テスト内で手動にボタンを呼び出せるよう最後のボタンの onPress を即時実行しない
@@ -101,6 +106,7 @@ export {
   Button,
   FlatList,
   Alert,
+  Keyboard,
   Linking,
   StyleSheet,
   Platform,

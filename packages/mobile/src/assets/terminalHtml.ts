@@ -152,6 +152,10 @@ export function buildTerminalHtml(
     // セッション起動元（null = projectPath を使用）
     const SESSION_SOURCE = ${sourceJs}
 
+    // 接続間でセッションIDを維持して再接続時に再アタッチする
+    let currentSessionId = ATTACH_SESSION_ID
+    // ユーザーが明示的に選択したセッションかどうか（なければ自動作成）
+    const isUserSelectedSession = !!ATTACH_SESSION_ID
     let ws = null
     let reconnectDelay = 1000
     const MAX_RECONNECT_DELAY = 30000
@@ -234,8 +238,8 @@ export function buildTerminalHtml(
           term.write(msg.data)
         } else if (msg.type === 'auth_ok') {
           // auth_ok を受信後、既存セッションにアタッチするか新規作成する
-          if (ATTACH_SESSION_ID) {
-            currentWs.send(JSON.stringify({ type: 'session_attach', sessionId: ATTACH_SESSION_ID }))
+          if (currentSessionId) {
+            currentWs.send(JSON.stringify({ type: 'session_attach', sessionId: currentSessionId }))
           } else {
             currentWs.send(JSON.stringify(buildSessionCreate(PROJECT_PATH)))
           }
@@ -247,15 +251,23 @@ export function buildTerminalHtml(
           }
           // 現在のセッションソースをスクロール判定用に更新
           currentSource = msg.source || null
+          currentSessionId = msg.sessionId
           // リサイズ通知
           currentWs.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }))
           postToNative({ type: 'session_attached', sessionId: msg.sessionId })
         } else if (msg.type === 'session_not_found') {
-          term.write('\\r\\n[セッションが見つかりません: ' + msg.sessionId + ']\\r\\n')
-          noReconnect = true
-          stopKeepalive()
-          currentWs.close()
-          postToNative({ type: 'session_not_found', sessionId: msg.sessionId })
+          term.write('\\r\\n[セッションが見つかりません: ' + msg.sessionId + '. 新規セッションを作成します...]\\r\\n')
+          if (isUserSelectedSession) {
+            // ユーザーが明示的に選択したセッションが消えた場合はエラーにする
+            noReconnect = true
+            stopKeepalive()
+            currentWs.close()
+            postToNative({ type: 'session_not_found', sessionId: msg.sessionId })
+          } else {
+            // 自動作成セッションが消えた場合（サーバー再起動等）は新規作成する
+            currentSessionId = null
+            currentWs.send(JSON.stringify(buildSessionCreate(PROJECT_PATH)))
+          }
         } else if (msg.type === 'auth_error') {
           term.write('\\r\\n[認証エラー: ' + msg.reason + ']\\r\\n')
           noReconnect = true
@@ -359,6 +371,11 @@ export function buildTerminalHtml(
     /** 承認ダイアログの結果をサーバーへ送信する */
     window.sendPermissionResponse = function(requestId, decision) {
       sendWs({ type: 'permission_response', requestId, decision })
+    }
+
+    /** React Native のカスタムキーボードから直接キー入力を注入する */
+    window.sendInput = function(data) {
+      sendWs({ type: 'input', data })
     }
   </script>
 </body>

@@ -45,6 +45,10 @@ export type WsMessage =
   | { type: 'permission_request'; requestId: string; toolName: string; details: string[]; requiresAlways: boolean }
   /** モバイルがデスクトップへ承認結果を返す */
   | { type: 'permission_response'; requestId: string; decision: 'approve' | 'reject' | 'always' }
+  /** モバイルがデスクトップへセッション削除を要求する */
+  | { type: 'session_delete'; sessionId: string }
+  /** session_delete への応答（削除完了） */
+  | { type: 'session_deleted'; sessionId: string }
 
 export interface ProjectInfo {
   /** プロジェクトのフルパス */

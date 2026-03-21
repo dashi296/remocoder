@@ -1,7 +1,18 @@
 import React from 'react'
 import { render, screen, fireEvent, act, waitFor } from '@testing-library/react-native'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { SessionPickerScreen } from '../SessionPickerScreen'
 import { useLocalSearchParams, mockRouterPush, mockRouterBack } from '../../__mocks__/expo-router'
+
+function createWrapper() {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  })
+  // eslint-disable-next-line react/display-name
+  return ({ children }: { children: React.JSX.Element }) => (
+    <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+  )
+}
 
 const mockWs = {
   send: jest.fn(),
@@ -13,7 +24,11 @@ const mockWs = {
   onclose: null as (() => void) | null,
 }
 
-;(globalThis as Record<string, unknown>).WebSocket = jest.fn().mockImplementation(() => mockWs)
+const MockWebSocket = Object.assign(
+  jest.fn().mockImplementation(() => mockWs),
+  { OPEN: 1 },
+)
+;(globalThis as Record<string, unknown>).WebSocket = MockWebSocket
 
 function triggerOpen() {
   act(() => { mockWs.onopen?.() })
@@ -38,12 +53,12 @@ describe('SessionPickerScreen', () => {
   })
 
   it('マウント時に「接続中...」が表示される', () => {
-    render(<SessionPickerScreen />)
+    render(<SessionPickerScreen />, { wrapper: createWrapper() })
     expect(screen.getByText('接続中...')).toBeTruthy()
   })
 
   it('WebSocket を開いたとき auth メッセージを送信する', () => {
-    render(<SessionPickerScreen />)
+    render(<SessionPickerScreen />, { wrapper: createWrapper() })
     triggerOpen()
     expect(mockWs.send).toHaveBeenCalledWith(
       JSON.stringify({ type: 'auth', token: 'test-token' }),
@@ -51,7 +66,7 @@ describe('SessionPickerScreen', () => {
   })
 
   it('auth_ok 受信後に「接続中...」が消えセッション一覧が表示される', async () => {
-    render(<SessionPickerScreen />)
+    render(<SessionPickerScreen />, { wrapper: createWrapper() })
     triggerOpen()
     triggerMessage({ type: 'auth_ok' })
     triggerMessage({ type: 'project_list', projects: [] })
@@ -62,7 +77,7 @@ describe('SessionPickerScreen', () => {
   })
 
   it('session_list を受信すると実行中セッションセクションが表示される', async () => {
-    render(<SessionPickerScreen />)
+    render(<SessionPickerScreen />, { wrapper: createWrapper() })
     triggerOpen()
     triggerMessage({ type: 'auth_ok' })
     triggerMessage({
@@ -78,7 +93,7 @@ describe('SessionPickerScreen', () => {
   })
 
   it('project_list を受信すると「新規セッション」セクションにプロジェクトが表示される', async () => {
-    render(<SessionPickerScreen />)
+    render(<SessionPickerScreen />, { wrapper: createWrapper() })
     triggerOpen()
     triggerMessage({ type: 'auth_ok' })
     triggerMessage({ type: 'session_list', sessions: [] })
@@ -91,7 +106,7 @@ describe('SessionPickerScreen', () => {
   })
 
   it('セッション行をタップすると /terminal に sessionId で push ナビゲートする', async () => {
-    render(<SessionPickerScreen />)
+    render(<SessionPickerScreen />, { wrapper: createWrapper() })
     triggerOpen()
     triggerMessage({ type: 'auth_ok' })
     triggerMessage({
@@ -113,7 +128,7 @@ describe('SessionPickerScreen', () => {
   })
 
   it('「プロジェクトなし」をタップすると projectPath: "" で push ナビゲートする', async () => {
-    render(<SessionPickerScreen />)
+    render(<SessionPickerScreen />, { wrapper: createWrapper() })
     triggerOpen()
     triggerMessage({ type: 'auth_ok' })
     triggerMessage({ type: 'session_list', sessions: [] })
@@ -130,7 +145,7 @@ describe('SessionPickerScreen', () => {
   })
 
   it('プロジェクト行をタップすると projectPath で push ナビゲートする', async () => {
-    render(<SessionPickerScreen />)
+    render(<SessionPickerScreen />, { wrapper: createWrapper() })
     triggerOpen()
     triggerMessage({ type: 'auth_ok' })
     triggerMessage({ type: 'session_list', sessions: [] })
@@ -150,7 +165,7 @@ describe('SessionPickerScreen', () => {
   })
 
   it('auth_error 受信でエラー画面が表示される', async () => {
-    render(<SessionPickerScreen />)
+    render(<SessionPickerScreen />, { wrapper: createWrapper() })
     triggerOpen()
     triggerMessage({ type: 'auth_error', reason: 'invalid token' })
 
@@ -158,7 +173,7 @@ describe('SessionPickerScreen', () => {
   })
 
   it('接続済み状態でWSが切断されるとエラー画面が表示される', async () => {
-    render(<SessionPickerScreen />)
+    render(<SessionPickerScreen />, { wrapper: createWrapper() })
     triggerOpen()
     triggerMessage({ type: 'auth_ok' })
     triggerMessage({ type: 'session_list', sessions: [] })
@@ -171,7 +186,7 @@ describe('SessionPickerScreen', () => {
   })
 
   it('選択後に WS が切断してもエラー画面にならない', async () => {
-    render(<SessionPickerScreen />)
+    render(<SessionPickerScreen />, { wrapper: createWrapper() })
     triggerOpen()
     triggerMessage({ type: 'auth_ok' })
     triggerMessage({ type: 'session_list', sessions: [] })
@@ -186,7 +201,7 @@ describe('SessionPickerScreen', () => {
   })
 
   it('ping 受信で pong を返す', async () => {
-    render(<SessionPickerScreen />)
+    render(<SessionPickerScreen />, { wrapper: createWrapper() })
     triggerOpen()
     triggerMessage({ type: 'auth_ok' })
     mockWs.send.mockClear()
@@ -196,13 +211,13 @@ describe('SessionPickerScreen', () => {
   })
 
   it('アンマウント時に WebSocket が閉じられる', () => {
-    const { unmount } = render(<SessionPickerScreen />)
+    const { unmount } = render(<SessionPickerScreen />, { wrapper: createWrapper() })
     unmount()
     expect(mockWs.close).toHaveBeenCalled()
   })
 
   it('エラー画面の「戻る」ボタンで router.back() が呼ばれる', async () => {
-    render(<SessionPickerScreen />)
+    render(<SessionPickerScreen />, { wrapper: createWrapper() })
     triggerOpen()
     triggerMessage({ type: 'auth_error', reason: 'invalid token' })
 
@@ -212,7 +227,7 @@ describe('SessionPickerScreen', () => {
   })
 
   it('セッションのステータスが active のとき「アクティブ」と表示される', async () => {
-    render(<SessionPickerScreen />)
+    render(<SessionPickerScreen />, { wrapper: createWrapper() })
     triggerOpen()
     triggerMessage({ type: 'auth_ok' })
     triggerMessage({
@@ -227,7 +242,7 @@ describe('SessionPickerScreen', () => {
   })
 
   it('セッションの hasClient が true のとき「· 接続中」と表示される', async () => {
-    render(<SessionPickerScreen />)
+    render(<SessionPickerScreen />, { wrapper: createWrapper() })
     triggerOpen()
     triggerMessage({ type: 'auth_ok' })
     triggerMessage({
@@ -239,5 +254,68 @@ describe('SessionPickerScreen', () => {
     triggerMessage({ type: 'project_list', projects: [] })
 
     await waitFor(() => expect(screen.getByText('アクティブ · 接続中')).toBeTruthy())
+  })
+
+  describe('セッション削除', () => {
+    const { Alert } = require('react-native')
+    const session = { id: 'sid-del', status: 'active' as const, createdAt: new Date().toISOString(), projectPath: '/home/user/app' }
+
+    async function renderWithSession() {
+      render(<SessionPickerScreen />, { wrapper: createWrapper() })
+      triggerOpen()
+      triggerMessage({ type: 'auth_ok' })
+      triggerMessage({ type: 'session_list', sessions: [session] })
+      triggerMessage({ type: 'project_list', projects: [] })
+      await waitFor(() => expect(screen.getByText('app')).toBeTruthy())
+    }
+
+    function confirmDelete() {
+      // Alert.alert に渡されたボタン定義から「削除」ボタンの onPress を呼ぶ
+      const [, , buttons] = Alert.alert.mock.lastCall
+      buttons.find((b: { text: string; onPress?: () => void }) => b.text === '削除')?.onPress?.()
+    }
+
+    it('ロングプレスで Alert が表示され、確認すると session_delete を送信する', async () => {
+      await renderWithSession()
+      fireEvent(screen.getByText('app'), 'longPress')
+
+      expect(Alert.alert).toHaveBeenCalledWith(
+        'セッションを削除',
+        expect.stringContaining('app'),
+        expect.any(Array),
+      )
+
+      act(() => confirmDelete())
+
+      await waitFor(() =>
+        expect(mockWs.send).toHaveBeenCalledWith(
+          JSON.stringify({ type: 'session_delete', sessionId: 'sid-del' }),
+        ),
+      )
+    })
+
+    it('session_deleted 受信でセッション行がリストから消える', async () => {
+      await renderWithSession()
+      fireEvent(screen.getByText('app'), 'longPress')
+      act(() => confirmDelete())
+
+      triggerMessage({ type: 'session_deleted', sessionId: 'sid-del' })
+
+      await waitFor(() => expect(screen.queryByText('app')).toBeNull())
+    })
+
+    it('キャンセルを選ぶと session_delete は送信されない', async () => {
+      await renderWithSession()
+      mockWs.send.mockClear()
+      fireEvent(screen.getByText('app'), 'longPress')
+
+      // キャンセルボタンの onPress は undefined（style: 'cancel'）なので送信されない
+      const [, , buttons] = Alert.alert.mock.lastCall
+      buttons.find((b: { text: string; onPress?: () => void }) => b.text === 'キャンセル')?.onPress?.()
+
+      expect(mockWs.send).not.toHaveBeenCalledWith(
+        expect.stringContaining('session_delete'),
+      )
+    })
   })
 })

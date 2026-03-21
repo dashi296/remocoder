@@ -8,7 +8,8 @@ function createWrapper() {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   })
-  return ({ children }: { children: React.ReactNode }) => (
+  // eslint-disable-next-line react/display-name
+  return ({ children }: { children: React.JSX.Element }) => (
     <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
   )
 }

@@ -3,12 +3,12 @@ import { Stack } from 'expo-router'
 import { ActivityIndicator, View, StyleSheet } from 'react-native'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { useNetworkActivityDevTools } from '@rozenite/network-activity-plugin'
 import { ForceUpdateScreen } from '../src/screens/ForceUpdateScreen'
 import { useForceUpdate } from '../src/hooks/useForceUpdate'
 import { useOTAUpdate } from '../src/hooks/useOTAUpdate'
 
 const queryClient = new QueryClient()
-import { useNetworkActivityDevTools } from '@rozenite/network-activity-plugin'
 
 function NetworkActivityDevTools() {
   useNetworkActivityDevTools()
@@ -19,35 +19,21 @@ export default function RootLayout() {
   const { needsUpdate, storeUrl, message, isChecking } = useForceUpdate()
   useOTAUpdate()
 
-  if (isChecking) {
-    return (
-      <QueryClientProvider client={queryClient}>
-        <SafeAreaProvider>
-          {__DEV__ && <NetworkActivityDevTools />}
-          <View style={styles.loading}>
-            <ActivityIndicator size="large" color="#0e7afb" />
-          </View>
-        </SafeAreaProvider>
-      </QueryClientProvider>
-    )
-  }
-
-  if (needsUpdate) {
-    return (
-      <QueryClientProvider client={queryClient}>
-        <SafeAreaProvider>
-          {__DEV__ && <NetworkActivityDevTools />}
-          <ForceUpdateScreen message={message} storeUrl={storeUrl} />
-        </SafeAreaProvider>
-      </QueryClientProvider>
-    )
-  }
+  const content = isChecking ? (
+    <View style={styles.loading}>
+      <ActivityIndicator size="large" color="#0e7afb" />
+    </View>
+  ) : needsUpdate ? (
+    <ForceUpdateScreen message={message} storeUrl={storeUrl} />
+  ) : (
+    <Stack screenOptions={{ headerShown: false }} />
+  )
 
   return (
     <QueryClientProvider client={queryClient}>
       <SafeAreaProvider>
         {__DEV__ && <NetworkActivityDevTools />}
-        <Stack screenOptions={{ headerShown: false }} />
+        {content}
       </SafeAreaProvider>
     </QueryClientProvider>
   )

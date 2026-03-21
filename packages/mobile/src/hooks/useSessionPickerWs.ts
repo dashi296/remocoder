@@ -18,6 +18,11 @@ interface SessionsData {
   multiplexerSessions: MultiplexerSessionInfo[]
 }
 
+interface PendingDeletion {
+  resolve: () => void
+  reject: (reason: Error) => void
+}
+
 export const sessionPickerKeys = {
   sessions: (ip: string, token: string) =>
     ['session-picker', ip, token, 'sessions'] as const,
@@ -30,7 +35,7 @@ export function useSessionPickerWs(ip: string, token: string, profileId: string 
   const wsRef = useRef<WebSocket | null>(null)
   const selectedRef = useRef(false)
   const isMountedRef = useRef(true)
-  const pendingDeletions = useRef<Map<string, () => void>>(new Map())
+  const pendingDeletions = useRef<Map<string, PendingDeletion>>(new Map())
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('connecting')
 
   useFocusEffect(
@@ -85,7 +90,7 @@ export function useSessionPickerWs(ip: string, token: string, profileId: string 
         } else if (msg.type === 'project_list') {
           queryClient.setQueryData(sessionPickerKeys.projects(ip, token), msg.projects)
         } else if (msg.type === 'session_deleted') {
-          pendingDeletions.current.get(msg.sessionId)?.()
+          pendingDeletions.current.get(msg.sessionId)?.resolve()
           pendingDeletions.current.delete(msg.sessionId)
           queryClient.setQueryData(
             sessionPickerKeys.sessions(ip, token),
@@ -104,6 +109,8 @@ export function useSessionPickerWs(ip: string, token: string, profileId: string 
 
       ws.onerror = () => setConnectionStatus('error')
       ws.onclose = () => {
+        // 古い接続の close イベントが新しい接続のステータスを上書きしないよう wsRef と照合する
+        if (ws !== wsRef.current) return
         if (isMountedRef.current && !selectedRef.current) {
           setConnectionStatus((s) => (s === 'connected' ? 'error' : s))
         }
@@ -111,6 +118,11 @@ export function useSessionPickerWs(ip: string, token: string, profileId: string 
 
       return () => {
         isMountedRef.current = false
+        // 切断時に未解決の削除 Promise をすべて reject してハングを防ぐ
+        pendingDeletions.current.forEach(({ reject }) => {
+          reject(new Error('WebSocket が切断されました'))
+        })
+        pendingDeletions.current.clear()
         ws.close()
       }
     }, [ip, token, profileId, queryClient]),
@@ -139,8 +151,8 @@ export function useSessionPickerWs(ip: string, token: string, profileId: string 
   const { mutate: deleteSession, isPending: isDeletingSession, variables: deletingSessionId } =
     useMutation({
       mutationFn: (sessionId: string) =>
-        new Promise<void>((resolve) => {
-          pendingDeletions.current.set(sessionId, resolve)
+        new Promise<void>((resolve, reject) => {
+          pendingDeletions.current.set(sessionId, { resolve, reject })
           wsRef.current?.send(
             JSON.stringify({ type: 'session_delete', sessionId } satisfies WsMessage),
           )

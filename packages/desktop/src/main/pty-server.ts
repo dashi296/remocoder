@@ -685,6 +685,28 @@ export function startPtyServer(port = DEFAULT_WS_PORT, callbacks: PtyServerCallb
         return
       }
 
+      // ── セッション削除（アタッチ不要） ────────────────────────────────────
+      if (msg.type === 'session_delete') {
+        const target = ptySessions.get(msg.sessionId)
+        if (target) {
+          if (target.idleTimeoutId) clearTimeout(target.idleTimeoutId)
+          if (target.pendingPermission) clearTimeout(target.pendingPermission.timeoutId)
+          // アタッチ中のモバイルクライアントに終了を通知
+          if (target.wsClient && target.wsClient !== ws && target.wsClient.readyState === WebSocket.OPEN) {
+            target.wsClient.send(JSON.stringify({ type: 'shell_exit', exitCode: -1 } satisfies WsMessage))
+            target.wsClient.close()
+          }
+          target.pty?.kill()
+          if (target.providerWs?.readyState === WebSocket.OPEN) target.providerWs.close()
+          serverCallbacks.onPtyExit?.(msg.sessionId, -1)
+          ptySessions.delete(msg.sessionId)
+          notifySessions()
+          console.log(`[pty-server] Session ${msg.sessionId.slice(0, 8)} deleted by mobile client`)
+        }
+        ws.send(JSON.stringify({ type: 'session_deleted', sessionId: msg.sessionId } satisfies WsMessage))
+        return
+      }
+
       // ── 開発用: 承認プロンプトのモック注入（セッション未アタッチでも動作） ──────
       if ((msg as { type: string }).type === 'debug_trigger_permission' && process.env.NODE_ENV !== 'production') {
         const debugMsg = msg as unknown as { type: string; sessionId?: string }

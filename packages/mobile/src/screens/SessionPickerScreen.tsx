@@ -7,6 +7,7 @@ import {
   FlatList,
   StyleSheet,
   ActivityIndicator,
+  Alert,
 } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { useLocalSearchParams, useRouter } from 'expo-router'
@@ -32,6 +33,7 @@ export function SessionPickerScreen() {
   const [projects, setProjects] = useState<ProjectInfo[]>([])
   const [sessions, setSessions] = useState<SessionInfo[]>([])
   const [multiplexerSessions, setMultiplexerSessions] = useState<MultiplexerSessionInfo[]>([])
+  const [deletingId, setDeletingId] = useState<string | null>(null)
   const wsRef = useRef<WebSocket | null>(null)
   const selectedRef = useRef(false)
   const isMountedRef = useRef(true)
@@ -79,6 +81,9 @@ export function SessionPickerScreen() {
       } else if (msg.type === 'session_list') {
         setSessions(msg.sessions)
         setMultiplexerSessions(msg.multiplexerSessions ?? [])
+      } else if (msg.type === 'session_deleted') {
+        setSessions((prev) => prev.filter((s) => s.id !== msg.sessionId))
+        setDeletingId(null)
       } else if (msg.type === 'auth_error') {
         setStatus('error')
         ws.close()
@@ -114,6 +119,29 @@ export function SessionPickerScreen() {
 
   const handleAttachSession = (sessionId: string) =>
     navigateToTerminal({ sessionId })
+
+  const handleDeleteSession = useCallback(
+    (session: SessionInfo) => {
+      const name = getSessionDisplayName(session)
+      Alert.alert(
+        'セッションを削除',
+        `「${name}」を終了して削除しますか？`,
+        [
+          { text: 'キャンセル', style: 'cancel' },
+          {
+            text: '削除',
+            style: 'destructive',
+            onPress: () => {
+              setDeletingId(session.id)
+              const msg: WsMessage = { type: 'session_delete', sessionId: session.id }
+              wsRef.current?.send(JSON.stringify(msg))
+            },
+          },
+        ],
+      )
+    },
+    [],
+  )
 
   const handleAttachMultiplexer = (mux: MultiplexerSessionInfo) => {
     const source: SessionSource = { kind: mux.tool, sessionName: mux.sessionName }
@@ -193,10 +221,13 @@ export function SessionPickerScreen() {
             if (item.kind === 'session') {
               const { session } = item
               const name = getSessionDisplayName(session)
+              const isDeleting = deletingId === session.id
               return (
                 <TouchableOpacity
-                  style={styles.sessionRow}
-                  onPress={() => handleAttachSession(session.id)}
+                  style={[styles.sessionRow, isDeleting && styles.sessionRowDeleting]}
+                  onPress={() => !isDeleting && handleAttachSession(session.id)}
+                  onLongPress={() => !isDeleting && handleDeleteSession(session)}
+                  delayLongPress={500}
                 >
                   <View
                     style={[
@@ -216,7 +247,10 @@ export function SessionPickerScreen() {
                       {session.hasClient ? ' · 接続中' : ''}
                     </Text>
                   </View>
-                  <Text style={styles.attachArrow}>→</Text>
+                  {isDeleting
+                    ? <ActivityIndicator size="small" color="#f85149" />
+                    : <Text style={styles.attachArrow}>→</Text>
+                  }
                 </TouchableOpacity>
               )
             }
@@ -342,6 +376,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 12,
     gap: 10,
+  },
+  sessionRowDeleting: {
+    opacity: 0.5,
+    borderColor: 'rgba(248,81,73,0.3)',
   },
   statusDot: {
     width: 8,

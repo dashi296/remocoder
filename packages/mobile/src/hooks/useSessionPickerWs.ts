@@ -119,6 +119,7 @@ export function useSessionPickerWs(ip: string, token: string, profileId: string 
       return () => {
         isMountedRef.current = false
         // 切断時に未解決の削除 Promise をすべて reject してハングを防ぐ
+        // onError の pendingDeletions.delete はこの clear() の後に呼ばれるが無害
         pendingDeletions.current.forEach(({ reject }) => {
           reject(new Error('WebSocket が切断されました'))
         })
@@ -130,9 +131,10 @@ export function useSessionPickerWs(ip: string, token: string, profileId: string 
 
   // Data comes exclusively from WebSocket via setQueryData.
   // enabled: false prevents React Query from ever fetching via HTTP.
+  // queryFn は enabled: false が外れた際にデータソースの誤解を防ぐため例外をスローする
   const { data: sessionData } = useQuery<SessionsData | undefined>({
     queryKey: sessionPickerKeys.sessions(ip, token),
-    queryFn: () => Promise.resolve(undefined),
+    queryFn: () => { throw new Error('sessions は WebSocket からのみ提供されます') },
     enabled: false,
     staleTime: Infinity,
     gcTime: 0,
@@ -140,24 +142,32 @@ export function useSessionPickerWs(ip: string, token: string, profileId: string 
 
   const { data: projects = [] } = useQuery<ProjectInfo[]>({
     queryKey: sessionPickerKeys.projects(ip, token),
-    queryFn: () => Promise.resolve([]),
+    queryFn: () => { throw new Error('projects は WebSocket からのみ提供されます') },
     enabled: false,
     staleTime: Infinity,
     gcTime: 0,
   })
 
-  // mutationFn resolves when the server confirms deletion via session_deleted.
-  // isPending stays true until confirmation arrives, allowing per-row loading state.
   const { mutate: deleteSession, isPending: isDeletingSession, variables: deletingSessionId } =
     useMutation({
-      mutationFn: (sessionId: string) =>
-        new Promise<void>((resolve, reject) => {
+      mutationFn: (sessionId: string) => {
+        // WS が未接続の場合は即座に reject してスピナーのハングを防ぐ
+        if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
+          return Promise.reject(new Error('WebSocket が接続されていません'))
+        }
+        // 同一 sessionId の重複削除は Map を上書きして先行 Promise をリークさせるため拒否する
+        if (pendingDeletions.current.has(sessionId)) {
+          return Promise.reject(new Error('削除がすでに進行中です'))
+        }
+        return new Promise<void>((resolve, reject) => {
           pendingDeletions.current.set(sessionId, { resolve, reject })
-          wsRef.current?.send(
+          wsRef.current!.send(
             JSON.stringify({ type: 'session_delete', sessionId } satisfies WsMessage),
           )
-        }),
+        })
+      },
       onError: (_, sessionId) => {
+        // cleanup で clear() 済みの場合は no-op
         pendingDeletions.current.delete(sessionId)
       },
     })

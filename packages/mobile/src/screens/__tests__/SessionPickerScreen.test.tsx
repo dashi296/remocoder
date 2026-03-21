@@ -24,7 +24,11 @@ const mockWs = {
   onclose: null as (() => void) | null,
 }
 
-;(globalThis as Record<string, unknown>).WebSocket = jest.fn().mockImplementation(() => mockWs)
+const MockWebSocket = Object.assign(
+  jest.fn().mockImplementation(() => mockWs),
+  { OPEN: 1 },
+)
+;(globalThis as Record<string, unknown>).WebSocket = MockWebSocket
 
 function triggerOpen() {
   act(() => { mockWs.onopen?.() })
@@ -250,5 +254,68 @@ describe('SessionPickerScreen', () => {
     triggerMessage({ type: 'project_list', projects: [] })
 
     await waitFor(() => expect(screen.getByText('アクティブ · 接続中')).toBeTruthy())
+  })
+
+  describe('セッション削除', () => {
+    const { Alert } = require('react-native')
+    const session = { id: 'sid-del', status: 'active' as const, createdAt: new Date().toISOString(), projectPath: '/home/user/app' }
+
+    async function renderWithSession() {
+      render(<SessionPickerScreen />, { wrapper: createWrapper() })
+      triggerOpen()
+      triggerMessage({ type: 'auth_ok' })
+      triggerMessage({ type: 'session_list', sessions: [session] })
+      triggerMessage({ type: 'project_list', projects: [] })
+      await waitFor(() => expect(screen.getByText('app')).toBeTruthy())
+    }
+
+    function confirmDelete() {
+      // Alert.alert に渡されたボタン定義から「削除」ボタンの onPress を呼ぶ
+      const [, , buttons] = Alert.alert.mock.lastCall
+      buttons.find((b: { text: string; onPress?: () => void }) => b.text === '削除')?.onPress?.()
+    }
+
+    it('ロングプレスで Alert が表示され、確認すると session_delete を送信する', async () => {
+      await renderWithSession()
+      fireEvent(screen.getByText('app'), 'longPress')
+
+      expect(Alert.alert).toHaveBeenCalledWith(
+        'セッションを削除',
+        expect.stringContaining('app'),
+        expect.any(Array),
+      )
+
+      act(() => confirmDelete())
+
+      await waitFor(() =>
+        expect(mockWs.send).toHaveBeenCalledWith(
+          JSON.stringify({ type: 'session_delete', sessionId: 'sid-del' }),
+        ),
+      )
+    })
+
+    it('session_deleted 受信でセッション行がリストから消える', async () => {
+      await renderWithSession()
+      fireEvent(screen.getByText('app'), 'longPress')
+      act(() => confirmDelete())
+
+      triggerMessage({ type: 'session_deleted', sessionId: 'sid-del' })
+
+      await waitFor(() => expect(screen.queryByText('app')).toBeNull())
+    })
+
+    it('キャンセルを選ぶと session_delete は送信されない', async () => {
+      await renderWithSession()
+      mockWs.send.mockClear()
+      fireEvent(screen.getByText('app'), 'longPress')
+
+      // キャンセルボタンの onPress は undefined（style: 'cancel'）なので送信されない
+      const [, , buttons] = Alert.alert.mock.lastCall
+      buttons.find((b: { text: string; onPress?: () => void }) => b.text === 'キャンセル')?.onPress?.()
+
+      expect(mockWs.send).not.toHaveBeenCalledWith(
+        expect.stringContaining('session_delete'),
+      )
+    })
   })
 })

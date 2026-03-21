@@ -256,15 +256,15 @@ export function buildTerminalHtml(
           currentWs.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }))
           postToNative({ type: 'session_attached', sessionId: msg.sessionId })
         } else if (msg.type === 'session_not_found') {
-          term.write('\\r\\n[セッションが見つかりません: ' + msg.sessionId + '. 新規セッションを作成します...]\\r\\n')
           if (isUserSelectedSession) {
-            // ユーザーが明示的に選択したセッションが消えた場合はエラーにする
+            term.write('\\r\\n[セッションが見つかりません: ' + msg.sessionId + ']\\r\\n')
             noReconnect = true
             stopKeepalive()
             currentWs.close()
             postToNative({ type: 'session_not_found', sessionId: msg.sessionId })
           } else {
             // 自動作成セッションが消えた場合（サーバー再起動等）は新規作成する
+            term.write('\\r\\n[セッションが見つかりません: ' + msg.sessionId + '. 新規セッションを作成します...]\\r\\n')
             currentSessionId = null
             currentWs.send(JSON.stringify(buildSessionCreate(PROJECT_PATH)))
           }

@@ -505,9 +505,14 @@ export function startPtyServer(port = DEFAULT_WS_PORT, callbacks: PtyServerCallb
             const s = ptySessions.get(session.id)
             if (s && s.wsClient === null) {
               console.log(`[pty-server] Auto-deleting orphaned session ${session.id.slice(0, 8)} (no client for ${DETACH_CLEANUP_DELAY / 60000}min)`)
-              s.pty?.kill()
-              if (s.providerWs?.readyState === WebSocket.OPEN) s.providerWs.close()
-              closeSession(s, -1)
+              if (s.pty) {
+                // PTYセッション: kill() → onExit ハンドラーが closeSession を呼ぶ
+                s.pty.kill()
+              } else {
+                // 外部プロバイダーセッション: onExit がないため直接終了する
+                if (s.providerWs?.readyState === WebSocket.OPEN) s.providerWs.close()
+                closeSession(s, -1)
+              }
             }
           }, DETACH_CLEANUP_DELAY)
         }

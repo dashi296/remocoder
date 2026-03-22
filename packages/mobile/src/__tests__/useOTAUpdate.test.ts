@@ -49,11 +49,11 @@ describe('useOTAUpdate', () => {
 
       expect(mockFetchUpdateAsync).toHaveBeenCalledTimes(1)
       expect(mockAlert).toHaveBeenCalledWith(
-        'アップデートがあります',
-        'アプリを再起動して最新バージョンを適用しますか？',
+        'Update Available',
+        'Restart the app to apply the latest version?',
         expect.arrayContaining([
-          expect.objectContaining({ text: 'あとで' }),
-          expect.objectContaining({ text: '再起動' }),
+          expect.objectContaining({ text: 'Later' }),
+          expect.objectContaining({ text: 'Restart' }),
         ]),
       )
     })
@@ -66,7 +66,7 @@ describe('useOTAUpdate', () => {
       await waitFor(() => expect(mockAlert).toHaveBeenCalledTimes(1))
 
       const buttons = mockAlert.mock.calls[0][2]
-      const reloadButton = buttons.find((b: any) => b.text === '再起動')
+      const reloadButton = buttons.find((b: any) => b.text === 'Restart')
       reloadButton.onPress()
 
       expect(mockReloadAsync).toHaveBeenCalledTimes(1)

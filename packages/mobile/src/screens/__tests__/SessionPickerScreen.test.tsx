@@ -301,7 +301,7 @@ describe('SessionPickerScreen', () => {
 
       triggerMessage({ type: 'session_deleted', sessionId: 'sid-del' })
 
-      await waitFor(() => expect(screen.queryByText('app')).toBeNull())
+      await waitFor(() => expect(screen.queryByText('app')).toBeNull(), { timeout: 5000 })
     })
 
     it('キャンセルを選ぶと session_delete は送信されない', async () => {

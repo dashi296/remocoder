@@ -82,6 +82,8 @@ export interface PowerSettings {
   preventSleepOnAC: boolean
   /** バッテリー駆動中にスリープを抑制する */
   preventSleepOnBattery: boolean
+  /** 蓋を閉じてもスリープしない（macOS・AC電源時のみ有効） */
+  preventLidSleep: boolean
 }
 
 /** デスクトップアプリの自動アップデート情報 */

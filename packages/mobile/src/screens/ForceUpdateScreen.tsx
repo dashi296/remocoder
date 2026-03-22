@@ -13,10 +13,10 @@ export function ForceUpdateScreen({ message, storeUrl }: Props) {
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>アップデートが必要です</Text>
+      <Text style={styles.title}>Update Required</Text>
       <Text style={styles.message}>{message}</Text>
       <TouchableOpacity style={[styles.button, !storeUrl && styles.buttonDisabled]} onPress={handleUpdate} disabled={!storeUrl}>
-        <Text style={styles.buttonText}>ストアでアップデート</Text>
+        <Text style={styles.buttonText}>Update on Store</Text>
       </TouchableOpacity>
     </View>
   )

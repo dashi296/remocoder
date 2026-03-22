@@ -15,12 +15,12 @@ export function useOTAUpdate(): void {
         await Updates.fetchUpdateAsync()
 
         Alert.alert(
-          'アップデートがあります',
-          'アプリを再起動して最新バージョンを適用しますか？',
+          'Update Available',
+          'Restart the app to apply the latest version?',
           [
-            { text: 'あとで', style: 'cancel' },
+            { text: 'Later', style: 'cancel' },
             {
-              text: '再起動',
+              text: 'Restart',
               onPress: () => Updates.reloadAsync(),
             },
           ],

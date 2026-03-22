@@ -30,7 +30,7 @@
       [
         "expo-camera",
         {
-          "cameraPermission": "QRコードスキャンのためにカメラへのアクセスが必要です"
+          "cameraPermission": "Camera access is required to scan QR codes"
         }
       ],
       [

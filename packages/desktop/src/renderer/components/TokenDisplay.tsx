@@ -67,7 +67,7 @@ export function TokenDisplay({ token, tailscaleIP, serverName, onRotate }: Token
           <button
             style={styles.iconBtn}
             onClick={() => setRevealed(r => !r)}
-            title={revealed ? '隠す' : '表示'}
+            title={revealed ? 'Hide' : 'Show'}
           >
             {revealed ? <EyeOffIcon /> : <EyeIcon />}
           </button>
@@ -77,7 +77,7 @@ export function TokenDisplay({ token, tailscaleIP, serverName, onRotate }: Token
               ...(copied ? styles.iconBtnSuccess : {}),
             }}
             onClick={handleCopy}
-            title="クリップボードにコピー"
+            title="Copy to clipboard"
           >
             {copied ? <CheckIcon /> : <CopyIcon />}
           </button>
@@ -88,7 +88,7 @@ export function TokenDisplay({ token, tailscaleIP, serverName, onRotate }: Token
                 ...(showQr ? styles.iconBtnActive : {}),
               }}
               onClick={() => setShowQr(v => !v)}
-              title="QRコードを表示"
+              title="Show QR code"
             >
               <QrIcon />
             </button>
@@ -101,7 +101,7 @@ export function TokenDisplay({ token, tailscaleIP, serverName, onRotate }: Token
               }}
               onClick={handleRotate}
               disabled={rotating}
-              title="トークンを再生成"
+              title="Regenerate token"
             >
               <RotateIcon />
             </button>
@@ -120,10 +120,10 @@ export function TokenDisplay({ token, tailscaleIP, serverName, onRotate }: Token
           {qrDataUrl ? (
             <>
               <img src={qrDataUrl} alt="QR Code" style={styles.qrImage} />
-              <span style={styles.qrHint}>モバイルアプリでスキャン</span>
+              <span style={styles.qrHint}>Scan with mobile app</span>
             </>
           ) : (
-            <span style={styles.qrHint}>生成中...</span>
+            <span style={styles.qrHint}>Generating...</span>
           )}
         </div>
       )}

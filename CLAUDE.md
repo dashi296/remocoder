@@ -446,3 +446,19 @@ export function buildTerminalHtml(wsUrl: string, token: string): string {
 - node-ptyはネイティブモジュールのためElectronのrebuildが必要（`electron-rebuild`）
 - iOS実機でのWebSocket接続にはATS（App Transport Security）の設定が必要な場合あり（Tailscale IPはプライベートIPのため通常は不要）
 - xterm.jsのFitAddonはWebViewのリサイズイベントで`fitAddon.fit()`を呼ぶ必要あり
+
+---
+
+## バージョン管理
+
+### バージョンをインクリメントする手順
+
+リリース時は以下の3ファイルのバージョンを同時に更新する。
+
+| ファイル | 対象パッケージ |
+|---|---|
+| `packages/desktop/package.json` | desktop |
+| `packages/mobile/package.json` | mobile |
+| `packages/mobile/app.json` | Expo（app store向け） |
+
+`packages/shared/package.json` は独立してバージョン管理するため、上記に含めない。

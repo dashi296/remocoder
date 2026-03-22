@@ -52,9 +52,9 @@ describe('SessionPickerScreen', () => {
     mockWs.onclose = null
   })
 
-  it('マウント時に「接続中...」が表示される', () => {
+  it('マウント時に「Connecting...」が表示される', () => {
     render(<SessionPickerScreen />, { wrapper: createWrapper() })
-    expect(screen.getByText('接続中...')).toBeTruthy()
+    expect(screen.getByText('Connecting...')).toBeTruthy()
   })
 
   it('WebSocket を開いたとき auth メッセージを送信する', () => {
@@ -72,8 +72,8 @@ describe('SessionPickerScreen', () => {
     triggerMessage({ type: 'project_list', projects: [] })
     triggerMessage({ type: 'session_list', sessions: [] })
 
-    await waitFor(() => expect(screen.queryByText('接続中...')).toBeNull())
-    expect(screen.getByText('新規セッション')).toBeTruthy()
+    await waitFor(() => expect(screen.queryByText('Connecting...')).toBeNull())
+    expect(screen.getByText('New Session')).toBeTruthy()
   })
 
   it('session_list を受信すると実行中セッションセクションが表示される', async () => {
@@ -88,7 +88,7 @@ describe('SessionPickerScreen', () => {
     })
     triggerMessage({ type: 'project_list', projects: [] })
 
-    await waitFor(() => expect(screen.getByText('実行中のセッション')).toBeTruthy())
+    await waitFor(() => expect(screen.getByText('Active Sessions')).toBeTruthy())
     expect(screen.getByText('myapp')).toBeTruthy()
   })
 
@@ -127,15 +127,15 @@ describe('SessionPickerScreen', () => {
     expect(mockWs.close).toHaveBeenCalled()
   })
 
-  it('「プロジェクトなし」をタップすると projectPath: "" で push ナビゲートする', async () => {
+  it('「No project」をタップすると projectPath: "" で push ナビゲートする', async () => {
     render(<SessionPickerScreen />, { wrapper: createWrapper() })
     triggerOpen()
     triggerMessage({ type: 'auth_ok' })
     triggerMessage({ type: 'session_list', sessions: [] })
     triggerMessage({ type: 'project_list', projects: [] })
 
-    await waitFor(() => expect(screen.getByText('プロジェクトなし')).toBeTruthy())
-    fireEvent.press(screen.getByText('プロジェクトなし'))
+    await waitFor(() => expect(screen.getByText('No project')).toBeTruthy())
+    fireEvent.press(screen.getByText('No project'))
 
     expect(mockRouterPush).toHaveBeenCalledWith({
       pathname: '/terminal',
@@ -169,7 +169,7 @@ describe('SessionPickerScreen', () => {
     triggerOpen()
     triggerMessage({ type: 'auth_error', reason: 'invalid token' })
 
-    await waitFor(() => expect(screen.getByText('接続エラーが発生しました')).toBeTruthy())
+    await waitFor(() => expect(screen.getByText('Connection error')).toBeTruthy())
   })
 
   it('接続済み状態でWSが切断されるとエラー画面が表示される', async () => {
@@ -179,10 +179,10 @@ describe('SessionPickerScreen', () => {
     triggerMessage({ type: 'session_list', sessions: [] })
     triggerMessage({ type: 'project_list', projects: [] })
 
-    await waitFor(() => expect(screen.getByText('新規セッション')).toBeTruthy())
+    await waitFor(() => expect(screen.getByText('New Session')).toBeTruthy())
 
     act(() => { mockWs.onclose?.() })
-    await waitFor(() => expect(screen.getByText('接続エラーが発生しました')).toBeTruthy())
+    await waitFor(() => expect(screen.getByText('Connection error')).toBeTruthy())
   })
 
   it('選択後に WS が切断してもエラー画面にならない', async () => {
@@ -192,12 +192,12 @@ describe('SessionPickerScreen', () => {
     triggerMessage({ type: 'session_list', sessions: [] })
     triggerMessage({ type: 'project_list', projects: [] })
 
-    await waitFor(() => expect(screen.getByText('プロジェクトなし')).toBeTruthy())
-    fireEvent.press(screen.getByText('プロジェクトなし'))
+    await waitFor(() => expect(screen.getByText('No project')).toBeTruthy())
+    fireEvent.press(screen.getByText('No project'))
     act(() => { mockWs.onclose?.() })
 
     expect(mockRouterPush).toHaveBeenCalled()
-    expect(screen.queryByText('接続エラーが発生しました')).toBeNull()
+    expect(screen.queryByText('Connection error')).toBeNull()
   })
 
   it('ping 受信で pong を返す', async () => {
@@ -221,8 +221,8 @@ describe('SessionPickerScreen', () => {
     triggerOpen()
     triggerMessage({ type: 'auth_error', reason: 'invalid token' })
 
-    await waitFor(() => expect(screen.getByText('接続エラーが発生しました')).toBeTruthy())
-    fireEvent.press(screen.getByText('戻る'))
+    await waitFor(() => expect(screen.getByText('Connection error')).toBeTruthy())
+    fireEvent.press(screen.getByText('Back'))
     expect(mockRouterBack).toHaveBeenCalled()
   })
 
@@ -238,7 +238,7 @@ describe('SessionPickerScreen', () => {
     })
     triggerMessage({ type: 'project_list', projects: [] })
 
-    await waitFor(() => expect(screen.getByText('アクティブ')).toBeTruthy())
+    await waitFor(() => expect(screen.getByText('Active')).toBeTruthy())
   })
 
   it('セッションの hasClient が true のとき「· 接続中」と表示される', async () => {
@@ -253,7 +253,7 @@ describe('SessionPickerScreen', () => {
     })
     triggerMessage({ type: 'project_list', projects: [] })
 
-    await waitFor(() => expect(screen.getByText('アクティブ · 接続中')).toBeTruthy())
+    await waitFor(() => expect(screen.getByText('Active · Connected')).toBeTruthy())
   })
 
   describe('セッション削除', () => {
@@ -272,7 +272,7 @@ describe('SessionPickerScreen', () => {
     function confirmDelete() {
       // Alert.alert に渡されたボタン定義から「削除」ボタンの onPress を呼ぶ
       const [, , buttons] = Alert.alert.mock.lastCall
-      buttons.find((b: { text: string; onPress?: () => void }) => b.text === '削除')?.onPress?.()
+      buttons.find((b: { text: string; onPress?: () => void }) => b.text === 'Delete')?.onPress?.()
     }
 
     it('ロングプレスで Alert が表示され、確認すると session_delete を送信する', async () => {
@@ -280,7 +280,7 @@ describe('SessionPickerScreen', () => {
       fireEvent(screen.getByText('app'), 'longPress')
 
       expect(Alert.alert).toHaveBeenCalledWith(
-        'セッションを削除',
+        'Delete Session',
         expect.stringContaining('app'),
         expect.any(Array),
       )
@@ -311,7 +311,7 @@ describe('SessionPickerScreen', () => {
 
       // キャンセルボタンの onPress は undefined（style: 'cancel'）なので送信されない
       const [, , buttons] = Alert.alert.mock.lastCall
-      buttons.find((b: { text: string; onPress?: () => void }) => b.text === 'キャンセル')?.onPress?.()
+      buttons.find((b: { text: string; onPress?: () => void }) => b.text === 'Cancel')?.onPress?.()
 
       expect(mockWs.send).not.toHaveBeenCalledWith(
         expect.stringContaining('session_delete'),

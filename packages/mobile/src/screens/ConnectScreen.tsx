@@ -181,7 +181,7 @@ export function ConnectScreen() {
           style={styles.input}
           value={name}
           onChangeText={setName}
-          placeholder="例: MacBook Pro"
+          placeholder="e.g. MacBook Pro"
           placeholderTextColor="#555"
           autoCapitalize="none"
           autoCorrect={false}

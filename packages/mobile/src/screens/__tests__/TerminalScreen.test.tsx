@@ -27,36 +27,36 @@ describe('TerminalScreen', () => {
     expect(screen.getByTestId('webview')).toBeTruthy()
   })
 
-  it('初期状態で「接続中...」ステータスが表示される', () => {
+  it('初期状態で「Connecting...」ステータスが表示される', () => {
     render(<TerminalScreen />)
-    expect(screen.getByText('接続中...')).toBeTruthy()
+    expect(screen.getByText('Connecting...')).toBeTruthy()
   })
 
-  it('session_attached メッセージ → 「接続済み」ステータスに変わる', () => {
+  it('session_attached メッセージ → 「Connected」ステータスに変わる', () => {
     render(<TerminalScreen />)
     sendFromWebView({ type: 'session_attached', sessionId: 'test-session', scrollback: '' })
-    expect(screen.getByText('接続済み')).toBeTruthy()
+    expect(screen.getByText('Connected')).toBeTruthy()
   })
 
-  it('disconnected メッセージ → 「再接続中...」ステータスに変わる', () => {
+  it('disconnected メッセージ → 「Reconnecting...」ステータスに変わる', () => {
     render(<TerminalScreen />)
     sendFromWebView({ type: 'disconnected' })
-    expect(screen.getByText('再接続中...')).toBeTruthy()
+    expect(screen.getByText('Reconnecting...')).toBeTruthy()
   })
 
-  it('auth_error メッセージ → 「認証エラー」ステータスと「再試行」ボタンが表示される', () => {
+  it('auth_error メッセージ → 「Auth Error」ステータスと「Retry」ボタンが表示される', () => {
     render(<TerminalScreen />)
     sendFromWebView({ type: 'auth_error', reason: 'invalid token' })
-    expect(screen.getByText('認証エラー')).toBeTruthy()
-    expect(screen.getByText('再試行')).toBeTruthy()
+    expect(screen.getByText('Auth Error')).toBeTruthy()
+    expect(screen.getByText('Retry')).toBeTruthy()
     expect(mockRouterBack).not.toHaveBeenCalled()
   })
 
-  it('shell_exit メッセージ → 「セッション終了」ステータスと「再試行」ボタンが表示される', () => {
+  it('shell_exit メッセージ → 「Session Ended」ステータスと「Retry」ボタンが表示される', () => {
     render(<TerminalScreen />)
     sendFromWebView({ type: 'shell_exit', exitCode: 0 })
-    expect(screen.getByText('セッション終了')).toBeTruthy()
-    expect(screen.getByText('再試行')).toBeTruthy()
+    expect(screen.getByText('Session Ended')).toBeTruthy()
+    expect(screen.getByText('Retry')).toBeTruthy()
   })
 
   it('不正な JSON でも throw しない', () => {
@@ -78,17 +78,17 @@ describe('TerminalScreen', () => {
     expect(() => render(<TerminalScreen />)).not.toThrow()
   })
 
-  it('切断ボタン押下で router.back() が呼ばれる', () => {
+  it('Disconnect ボタン押下で router.back() が呼ばれる', () => {
     render(<TerminalScreen />)
-    fireEvent.press(screen.getByText('切断'))
+    fireEvent.press(screen.getByText('Disconnect'))
     expect(mockRouterBack).toHaveBeenCalled()
   })
 
-  it('再試行ボタン押下でステータスが「接続中...」に戻る', () => {
+  it('Retry ボタン押下でステータスが「Connecting...」に戻る', () => {
     render(<TerminalScreen />)
     sendFromWebView({ type: 'auth_error', reason: 'invalid token' })
-    fireEvent.press(screen.getByText('再試行'))
-    expect(screen.getByText('接続中...')).toBeTruthy()
+    fireEvent.press(screen.getByText('Retry'))
+    expect(screen.getByText('Connecting...')).toBeTruthy()
     expect(mockRouterBack).not.toHaveBeenCalled()
   })
 
@@ -97,7 +97,7 @@ describe('TerminalScreen', () => {
     sendFromWebView({ type: 'session_attached', sessionId: 'sid-1', scrollback: '' })
     sendFromWebView({ type: 'session_not_found', sessionId: 'sid-gone' })
 
-    expect(screen.getByText('認証エラー')).toBeTruthy()
+    expect(screen.getByText('Auth Error')).toBeTruthy()
   })
 
   describe('PermissionSheet', () => {
@@ -111,12 +111,12 @@ describe('TerminalScreen', () => {
         requiresAlways: true,
       })
 
-      expect(screen.getByText('承認リクエスト')).toBeTruthy()
+      expect(screen.getByText('Permission Request')).toBeTruthy()
       expect(screen.getByText('Bash')).toBeTruthy()
       expect(screen.getByText('rm -rf /tmp/test')).toBeTruthy()
-      expect(screen.getByText('許可')).toBeTruthy()
-      expect(screen.getByText('拒否')).toBeTruthy()
-      expect(screen.getByText('常に許可')).toBeTruthy()
+      expect(screen.getByText('Allow')).toBeTruthy()
+      expect(screen.getByText('Deny')).toBeTruthy()
+      expect(screen.getByText('Always Allow')).toBeTruthy()
     })
 
     it('requiresAlways=false のとき「常に許可」ボタンが表示されない', () => {
@@ -129,9 +129,9 @@ describe('TerminalScreen', () => {
         requiresAlways: false,
       })
 
-      expect(screen.getByText('許可')).toBeTruthy()
-      expect(screen.getByText('拒否')).toBeTruthy()
-      expect(screen.queryByText('常に許可')).toBeNull()
+      expect(screen.getByText('Allow')).toBeTruthy()
+      expect(screen.getByText('Deny')).toBeTruthy()
+      expect(screen.queryByText('Always Allow')).toBeNull()
     })
 
     it('「許可」を押すと sendPermissionResponse が injectJavaScript で呼ばれ、シートが閉じる', () => {
@@ -144,12 +144,12 @@ describe('TerminalScreen', () => {
         requiresAlways: false,
       })
 
-      fireEvent.press(screen.getByText('許可'))
+      fireEvent.press(screen.getByText('Allow'))
 
       expect(injectJavaScriptMock).toHaveBeenCalledWith(
         expect.stringContaining('window.sendPermissionResponse("req-003", "approve")'),
       )
-      expect(screen.queryByText('承認リクエスト')).toBeNull()
+      expect(screen.queryByText('Permission Request')).toBeNull()
     })
 
     it('「拒否」を押すと reject decision が送られ、シートが閉じる', () => {
@@ -162,12 +162,12 @@ describe('TerminalScreen', () => {
         requiresAlways: false,
       })
 
-      fireEvent.press(screen.getByText('拒否'))
+      fireEvent.press(screen.getByText('Deny'))
 
       expect(injectJavaScriptMock).toHaveBeenCalledWith(
         expect.stringContaining('window.sendPermissionResponse("req-004", "reject")'),
       )
-      expect(screen.queryByText('承認リクエスト')).toBeNull()
+      expect(screen.queryByText('Permission Request')).toBeNull()
     })
 
     it('「常に許可」を押すと always decision が送られる', () => {
@@ -180,7 +180,7 @@ describe('TerminalScreen', () => {
         requiresAlways: true,
       })
 
-      fireEvent.press(screen.getByText('常に許可'))
+      fireEvent.press(screen.getByText('Always Allow'))
 
       expect(injectJavaScriptMock).toHaveBeenCalledWith(
         expect.stringContaining('window.sendPermissionResponse("req-005", "always")'),

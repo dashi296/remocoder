@@ -35,23 +35,23 @@ describe('SessionSwitcherModal', () => {
 
   it('visible=false のとき中身を描画しない', () => {
     render(<SessionSwitcherModal {...defaultProps} visible={false} />)
-    expect(screen.queryByText('セッション切替')).toBeNull()
+    expect(screen.queryByText('Switch Session')).toBeNull()
   })
 
   it('visible=true のときタイトルを表示する', () => {
     render(<SessionSwitcherModal {...defaultProps} />)
-    expect(screen.getByText('セッション切替')).toBeTruthy()
+    expect(screen.getByText('Switch Session')).toBeTruthy()
   })
 
   it('loading=true のとき「新規セッション」セクションを表示しない', () => {
     render(<SessionSwitcherModal {...defaultProps} loading={true} />)
-    expect(screen.queryByText('新規セッション')).toBeNull()
+    expect(screen.queryByText('New Session')).toBeNull()
   })
 
   it('loading=true のときセッション一覧を表示しない', () => {
     const sessions = [makeSession()]
     render(<SessionSwitcherModal {...defaultProps} loading={true} sessions={sessions} />)
-    expect(screen.queryByText('実行中のセッション')).toBeNull()
+    expect(screen.queryByText('Active Sessions')).toBeNull()
   })
 
   it('閉じるボタンを押すと onClose が呼ばれる', () => {
@@ -62,21 +62,21 @@ describe('SessionSwitcherModal', () => {
   })
 
   describe('セッション一覧', () => {
-    it('セッションがあるとき「実行中のセッション」セクションを表示する', () => {
+    it('セッションがあるとき「Active Sessions」セクションを表示する', () => {
       const sessions = [makeSession()]
       render(<SessionSwitcherModal {...defaultProps} sessions={sessions} />)
-      expect(screen.getByText('実行中のセッション')).toBeTruthy()
+      expect(screen.getByText('Active Sessions')).toBeTruthy()
     })
 
-    it('セッションが空のとき「実行中のセッション」セクションを表示しない', () => {
+    it('セッションが空のとき「Active Sessions」セクションを表示しない', () => {
       render(<SessionSwitcherModal {...defaultProps} sessions={[]} />)
-      expect(screen.queryByText('実行中のセッション')).toBeNull()
+      expect(screen.queryByText('Active Sessions')).toBeNull()
     })
 
-    it('現在のセッションには「現在」バッジを表示する', () => {
+    it('現在のセッションには「Current」バッジを表示する', () => {
       const sessions = [makeSession({ id: 'sess-001' })]
       render(<SessionSwitcherModal {...defaultProps} sessions={sessions} currentSessionId="sess-001" />)
-      expect(screen.getByText('現在')).toBeTruthy()
+      expect(screen.getByText('Current')).toBeTruthy()
     })
 
     it('現在でないセッションには「→」矢印を表示する', () => {
@@ -105,15 +105,15 @@ describe('SessionSwitcherModal', () => {
   })
 
   describe('新規セッション', () => {
-    it('「プロジェクトなし」ボタンを表示する', () => {
+    it('「No project」ボタンを表示する', () => {
       render(<SessionSwitcherModal {...defaultProps} />)
-      expect(screen.getByText('プロジェクトなし')).toBeTruthy()
+      expect(screen.getByText('No project')).toBeTruthy()
     })
 
-    it('「プロジェクトなし」ボタンを押すと onCreateSession(null) が呼ばれる', () => {
+    it('「No project」ボタンを押すと onCreateSession(null) が呼ばれる', () => {
       const onCreateSession = jest.fn()
       render(<SessionSwitcherModal {...defaultProps} onCreateSession={onCreateSession} />)
-      fireEvent.press(screen.getByText('プロジェクトなし'))
+      fireEvent.press(screen.getByText('No project'))
       expect(onCreateSession).toHaveBeenCalledWith(null)
     })
 
@@ -131,15 +131,15 @@ describe('SessionSwitcherModal', () => {
       expect(onCreateSession).toHaveBeenCalledWith('/home/user/my-project')
     })
 
-    it('プロジェクトが空のとき「最近使ったプロジェクトはありません」を表示する', () => {
+    it('プロジェクトが空のとき「No recent projects」を表示する', () => {
       render(<SessionSwitcherModal {...defaultProps} projects={[]} />)
-      expect(screen.getByText('最近使ったプロジェクトはありません')).toBeTruthy()
+      expect(screen.getByText('No recent projects')).toBeTruthy()
     })
 
     it('プロジェクトがあるとき空メッセージを表示しない', () => {
       const projects = [makeProject()]
       render(<SessionSwitcherModal {...defaultProps} projects={projects} />)
-      expect(screen.queryByText('最近使ったプロジェクトはありません')).toBeNull()
+      expect(screen.queryByText('No recent projects')).toBeNull()
     })
   })
 })

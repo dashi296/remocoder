@@ -63,12 +63,12 @@ export function SessionPickerScreen() {
     (session: SessionInfo) => {
       const name = getSessionDisplayName(session)
       Alert.alert(
-        'セッションを削除',
-        `「${name}」を終了して削除しますか？`,
+        'Delete Session',
+        `Terminate and delete "${name}"?`,
         [
-          { text: 'キャンセル', style: 'cancel' },
+          { text: 'Cancel', style: 'cancel' },
           {
-            text: '削除',
+            text: 'Delete',
             style: 'destructive',
             onPress: () => deleteSession(session.id),
           },
@@ -86,14 +86,14 @@ export function SessionPickerScreen() {
   const listData = useMemo<ListItem[]>(() => {
     const items: ListItem[] = []
     if (sessions.length > 0) {
-      items.push({ kind: 'header', label: '実行中のセッション' })
+      items.push({ kind: 'header', label: 'Active Sessions' })
       sessions.forEach((s) => items.push({ kind: 'session', session: s }))
     }
     if (multiplexerSessions.length > 0) {
-      items.push({ kind: 'header', label: 'マルチプレクサ' })
+      items.push({ kind: 'header', label: 'Multiplexers' })
       multiplexerSessions.forEach((m) => items.push({ kind: 'multiplexer', mux: m }))
     }
-    items.push({ kind: 'header', label: '新規セッション' })
+    items.push({ kind: 'header', label: 'New Session' })
     items.push({ kind: 'newSession' })
     projects.forEach((p) => items.push({ kind: 'project', project: p }))
     return items
@@ -104,24 +104,24 @@ export function SessionPickerScreen() {
       {/* ヘッダー */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-          <Text style={styles.backButtonText}>← 戻る</Text>
+          <Text style={styles.backButtonText}>← Back</Text>
         </TouchableOpacity>
-        <Text style={styles.title}>セッションを選択</Text>
+        <Text style={styles.title}>Select Session</Text>
         <View style={styles.headerRight} />
       </View>
 
       {connectionStatus === 'connecting' && (
         <View style={styles.center}>
           <ActivityIndicator color="#4ec9b0" size="large" />
-          <Text style={styles.statusText}>接続中...</Text>
+          <Text style={styles.statusText}>Connecting...</Text>
         </View>
       )}
 
       {connectionStatus === 'error' && (
         <View style={styles.center}>
-          <Text style={styles.errorText}>接続エラーが発生しました</Text>
+          <Text style={styles.errorText}>Connection error</Text>
           <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
-            <Text style={styles.backBtnText}>戻る</Text>
+            <Text style={styles.backBtnText}>Back</Text>
           </TouchableOpacity>
         </View>
       )}
@@ -149,7 +149,7 @@ export function SessionPickerScreen() {
                   onPress={() => handleSelectProject(null)}
                 >
                   <Text style={styles.newSessionIcon}>＋</Text>
-                  <Text style={styles.newSessionText}>プロジェクトなし</Text>
+                  <Text style={styles.newSessionText}>No project</Text>
                 </TouchableOpacity>
               )
             }
@@ -178,8 +178,8 @@ export function SessionPickerScreen() {
                       </Text>
                     )}
                     <Text style={styles.sessionMeta}>
-                      {session.status === 'active' ? 'アクティブ' : 'アイドル'}
-                      {session.hasClient ? ' · 接続中' : ''}
+                      {session.status === 'active' ? 'Active' : 'Idle'}
+                      {session.hasClient ? ' · Connected' : ''}
                     </Text>
                   </View>
                   {isDeleting

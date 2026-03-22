@@ -1,9 +1,9 @@
 import { formatDate, getSessionDisplayName } from '../utils'
 
 describe('formatDate', () => {
-  it('ISO日付文字列を日本語の月日時分形式でフォーマットする', () => {
+  it('ISO日付文字列を英語の月日時分形式でフォーマットする', () => {
     const result = formatDate('2024-06-15T09:30:00.000Z')
-    expect(result).toMatch(/\d+月\d+日/)
+    expect(result).toMatch(/[A-Z][a-z]+ \d+/)
     expect(result).toMatch(/\d{2}:\d{2}/)
   })
 
@@ -29,15 +29,15 @@ describe('getSessionDisplayName', () => {
     expect(getSessionDisplayName({ projectPath: '/home/user/project/' })).toBe('project')
   })
 
-  it('projectPath が undefined の場合 "セッション" を返す', () => {
-    expect(getSessionDisplayName({ projectPath: undefined })).toBe('セッション')
+  it('projectPath が undefined の場合 "Session" を返す', () => {
+    expect(getSessionDisplayName({ projectPath: undefined })).toBe('Session')
   })
 
-  it('projectPath が空文字列の場合 "セッション" を返す', () => {
-    expect(getSessionDisplayName({ projectPath: '' })).toBe('セッション')
+  it('projectPath が空文字列の場合 "Session" を返す', () => {
+    expect(getSessionDisplayName({ projectPath: '' })).toBe('Session')
   })
 
-  it('ルートパス "/" の場合 "セッション" を返す', () => {
-    expect(getSessionDisplayName({ projectPath: '/' })).toBe('セッション')
+  it('ルートパス "/" の場合 "Session" を返す', () => {
+    expect(getSessionDisplayName({ projectPath: '/' })).toBe('Session')
   })
 })

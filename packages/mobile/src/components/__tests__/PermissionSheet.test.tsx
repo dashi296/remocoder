@@ -19,12 +19,12 @@ describe('PermissionSheet', () => {
 
   it('request が null のとき何も描画しない', () => {
     render(<PermissionSheet request={null} onDecide={onDecide} />)
-    expect(screen.queryByText('承認リクエスト')).toBeNull()
+    expect(screen.queryByText('Permission Request')).toBeNull()
   })
 
-  it('request があるとき「承認リクエスト」ラベルを表示する', () => {
+  it('request があるとき「Permission Request」ラベルを表示する', () => {
     render(<PermissionSheet request={makeRequest()} onDecide={onDecide} />)
-    expect(screen.getByText('承認リクエスト')).toBeTruthy()
+    expect(screen.getByText('Permission Request')).toBeTruthy()
   })
 
   it('ツール名を表示する', () => {
@@ -34,12 +34,12 @@ describe('PermissionSheet', () => {
 
   it('TOOL_INFO に登録されたツールの操作説明を表示する', () => {
     render(<PermissionSheet request={makeRequest({ toolName: 'Bash' })} onDecide={onDecide} />)
-    expect(screen.getByText('シェルコマンドを実行')).toBeTruthy()
+    expect(screen.getByText('Run shell command')).toBeTruthy()
   })
 
   it('TOOL_INFO に未登録のツールは操作説明を表示しない', () => {
     render(<PermissionSheet request={makeRequest({ toolName: 'UnknownTool' })} onDecide={onDecide} />)
-    expect(screen.queryByText('シェルコマンドを実行')).toBeNull()
+    expect(screen.queryByText('Run shell command')).toBeNull()
   })
 
   it('details の内容を表示する', () => {
@@ -50,34 +50,34 @@ describe('PermissionSheet', () => {
 
   it('details が空のとき詳細ボックスを表示しない', () => {
     render(<PermissionSheet request={makeRequest({ details: [] })} onDecide={onDecide} />)
-    expect(screen.queryByText('実行コマンド')).toBeNull()
+    expect(screen.queryByText('Command')).toBeNull()
   })
 
-  it('「許可」ボタンを押すと onDecide("approve") が呼ばれる', () => {
+  it('「Allow」ボタンを押すと onDecide("approve") が呼ばれる', () => {
     render(<PermissionSheet request={makeRequest()} onDecide={onDecide} />)
-    fireEvent.press(screen.getByText('許可'))
+    fireEvent.press(screen.getByText('Allow'))
     expect(onDecide).toHaveBeenCalledWith('req-001', 'approve')
   })
 
-  it('「拒否」ボタンを押すと onDecide("reject") が呼ばれる', () => {
+  it('「Deny」ボタンを押すと onDecide("reject") が呼ばれる', () => {
     render(<PermissionSheet request={makeRequest()} onDecide={onDecide} />)
-    fireEvent.press(screen.getByText('拒否'))
+    fireEvent.press(screen.getByText('Deny'))
     expect(onDecide).toHaveBeenCalledWith('req-001', 'reject')
   })
 
-  it('requiresAlways=true のとき「常に許可」ボタンが表示される', () => {
+  it('requiresAlways=true のとき「Always Allow」ボタンが表示される', () => {
     render(<PermissionSheet request={makeRequest({ requiresAlways: true })} onDecide={onDecide} />)
-    expect(screen.getByText('常に許可')).toBeTruthy()
+    expect(screen.getByText('Always Allow')).toBeTruthy()
   })
 
-  it('requiresAlways=false のとき「常に許可」ボタンが表示されない', () => {
+  it('requiresAlways=false のとき「Always Allow」ボタンが表示されない', () => {
     render(<PermissionSheet request={makeRequest({ requiresAlways: false })} onDecide={onDecide} />)
-    expect(screen.queryByText('常に許可')).toBeNull()
+    expect(screen.queryByText('Always Allow')).toBeNull()
   })
 
-  it('「常に許可」ボタンを押すと onDecide("always") が呼ばれる', () => {
+  it('「Always Allow」ボタンを押すと onDecide("always") が呼ばれる', () => {
     render(<PermissionSheet request={makeRequest({ requiresAlways: true })} onDecide={onDecide} />)
-    fireEvent.press(screen.getByText('常に許可'))
+    fireEvent.press(screen.getByText('Always Allow'))
     expect(onDecide).toHaveBeenCalledWith('req-001', 'always')
   })
 
@@ -89,37 +89,37 @@ describe('PermissionSheet', () => {
           onDecide={onDecide}
         />,
       )
-      expect(screen.getByText('⚠ 危険')).toBeTruthy()
+      expect(screen.getByText('⚠ Danger')).toBeTruthy()
     })
 
-    it('sudo を含むコマンドで「⚠ 危険」バッジを表示する', () => {
+    it('sudo を含むコマンドで「⚠ Danger」バッジを表示する', () => {
       render(
         <PermissionSheet
           request={makeRequest({ details: ['sudo apt-get update'] })}
           onDecide={onDecide}
         />,
       )
-      expect(screen.getByText('⚠ 危険')).toBeTruthy()
+      expect(screen.getByText('⚠ Danger')).toBeTruthy()
     })
 
-    it('dd コマンドで「⚠ 危険」バッジを表示する', () => {
+    it('dd コマンドで「⚠ Danger」バッジを表示する', () => {
       render(
         <PermissionSheet
           request={makeRequest({ details: ['dd if=/dev/zero of=file'] })}
           onDecide={onDecide}
         />,
       )
-      expect(screen.getByText('⚠ 危険')).toBeTruthy()
+      expect(screen.getByText('⚠ Danger')).toBeTruthy()
     })
 
-    it('安全なコマンドでは「⚠ 危険」バッジを表示しない', () => {
+    it('安全なコマンドでは「⚠ Danger」バッジを表示しない', () => {
       render(
         <PermissionSheet
           request={makeRequest({ details: ['echo hello world'] })}
           onDecide={onDecide}
         />,
       )
-      expect(screen.queryByText('⚠ 危険')).toBeNull()
+      expect(screen.queryByText('⚠ Danger')).toBeNull()
     })
   })
 

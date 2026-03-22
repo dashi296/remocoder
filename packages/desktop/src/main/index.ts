@@ -97,18 +97,18 @@ function setupTray(token: string) {
   tray.setToolTip('Remocoder')
   tray.setContextMenu(
     Menu.buildFromTemplate([
-      { label: `Tailscale IP: ${tailscaleIp ?? '未接続'}`, enabled: false },
+      { label: `Tailscale IP: ${tailscaleIp ?? 'Disconnected'}`, enabled: false },
       { label: `Token: ${token}`, enabled: false },
       { type: 'separator' },
       {
-        label: 'ウィンドウを表示',
+        label: 'Show Window',
         click: () => {
           win?.show()
           win?.focus()
         },
       },
       { type: 'separator' },
-      { label: '終了', click: () => app.exit() },
+      { label: 'Quit', click: () => app.exit() },
     ]),
   )
   tray.on('double-click', () => {

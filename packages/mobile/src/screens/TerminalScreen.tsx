@@ -16,11 +16,11 @@ const STATUS_CONFIG: Record<
   ConnectionStatus,
   { label: string; color: string; bgColor: string }
 > = {
-  connecting: { label: '接続中...', color: '#d4d4d4', bgColor: 'rgba(100,100,100,0.8)' },
-  connected: { label: '接続済み', color: '#4ec9b0', bgColor: 'rgba(0,80,60,0.8)' },
-  reconnecting: { label: '再接続中...', color: '#dcdcaa', bgColor: 'rgba(80,70,0,0.8)' },
-  auth_error: { label: '認証エラー', color: '#f44747', bgColor: 'rgba(80,0,0,0.8)' },
-  shell_exit: { label: 'セッション終了', color: '#d4d4d4', bgColor: 'rgba(50,50,50,0.8)' },
+  connecting: { label: 'Connecting...', color: '#d4d4d4', bgColor: 'rgba(100,100,100,0.8)' },
+  connected: { label: 'Connected', color: '#4ec9b0', bgColor: 'rgba(0,80,60,0.8)' },
+  reconnecting: { label: 'Reconnecting...', color: '#dcdcaa', bgColor: 'rgba(80,70,0,0.8)' },
+  auth_error: { label: 'Auth Error', color: '#f44747', bgColor: 'rgba(80,0,0,0.8)' },
+  shell_exit: { label: 'Session Ended', color: '#d4d4d4', bgColor: 'rgba(50,50,50,0.8)' },
 }
 
 export function TerminalScreen() {
@@ -149,11 +149,11 @@ export function TerminalScreen() {
         <View style={styles.statusActions}>
           {showRetry && (
             <TouchableOpacity style={styles.actionButton} onPress={handleRetry}>
-              <Text style={styles.actionButtonText}>再試行</Text>
+              <Text style={styles.actionButtonText}>Retry</Text>
             </TouchableOpacity>
           )}
           <TouchableOpacity style={styles.actionButton} onPress={() => router.back()}>
-            <Text style={styles.actionButtonText}>切断</Text>
+            <Text style={styles.actionButtonText}>Disconnect</Text>
           </TouchableOpacity>
         </View>
       </View>

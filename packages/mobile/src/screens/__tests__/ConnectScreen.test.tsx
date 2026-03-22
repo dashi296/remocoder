@@ -19,9 +19,9 @@ describe('ConnectScreen', () => {
 
   it('プロファイルがない場合は空状態が表示される', async () => {
     render(<ConnectScreen />)
-    await waitFor(() => screen.getByText('接続先がありません'))
-    expect(screen.getByText('接続先がありません')).toBeTruthy()
-    expect(screen.getByText('+ 接続先を追加')).toBeTruthy()
+    await waitFor(() => screen.getByText('No connections'))
+    expect(screen.getByText('No connections')).toBeTruthy()
+    expect(screen.getByText('+ Add Connection')).toBeTruthy()
   })
 
   it('プロファイル一覧が表示される', async () => {
@@ -55,9 +55,9 @@ describe('ConnectScreen', () => {
     AsyncStorage.getItem.mockResolvedValue(null)
     AsyncStorage.setItem.mockResolvedValue(undefined)
     render(<ConnectScreen />)
-    await waitFor(() => screen.getByText('+ 接続先を追加'))
+    await waitFor(() => screen.getByText('+ Add Connection'))
 
-    fireEvent.press(screen.getByText('+ 接続先を追加'))
+    fireEvent.press(screen.getByText('+ Add Connection'))
     await waitFor(() => screen.getByPlaceholderText('100.x.x.x'))
 
     fireEvent.changeText(screen.getByPlaceholderText('100.x.x.x'), '10.0.0.1')
@@ -65,28 +65,28 @@ describe('ConnectScreen', () => {
       screen.getByPlaceholderText('xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx'),
       'my-token',
     )
-    fireEvent.press(screen.getByText('保存'))
+    fireEvent.press(screen.getByText('Save'))
 
     await waitFor(() => screen.getAllByText('10.0.0.1'))
     expect(screen.getAllByText('10.0.0.1').length).toBeGreaterThan(0)
   })
 
-  it('フォームで ip か token が空の場合は保存ボタンが無効', async () => {
+  it('フォームで ip か token が空の場合はSaveボタンが無効', async () => {
     render(<ConnectScreen />)
-    await waitFor(() => screen.getByText('+ 接続先を追加'))
-    fireEvent.press(screen.getByText('+ 接続先を追加'))
-    await waitFor(() => screen.getByText('保存'))
-    fireEvent.press(screen.getByText('保存'))
+    await waitFor(() => screen.getByText('+ Add Connection'))
+    fireEvent.press(screen.getByText('+ Add Connection'))
+    await waitFor(() => screen.getByText('Save'))
+    fireEvent.press(screen.getByText('Save'))
     expect(mockRouterPush).not.toHaveBeenCalled()
   })
 
-  it('キャンセルボタンで一覧画面に戻る', async () => {
+  it('Cancelボタンで一覧画面に戻る', async () => {
     render(<ConnectScreen />)
-    await waitFor(() => screen.getByText('+ 接続先を追加'))
-    fireEvent.press(screen.getByText('+ 接続先を追加'))
-    await waitFor(() => screen.getByText('キャンセル'))
-    fireEvent.press(screen.getByText('キャンセル'))
-    await waitFor(() => screen.getByText('+ 接続先を追加'))
-    expect(screen.getByText('+ 接続先を追加')).toBeTruthy()
+    await waitFor(() => screen.getByText('+ Add Connection'))
+    fireEvent.press(screen.getByText('+ Add Connection'))
+    await waitFor(() => screen.getByText('Cancel'))
+    fireEvent.press(screen.getByText('Cancel'))
+    await waitFor(() => screen.getByText('+ Add Connection'))
+    expect(screen.getByText('+ Add Connection')).toBeTruthy()
   })
 })

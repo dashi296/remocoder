@@ -17,18 +17,18 @@ interface Props {
 const TIMEOUT_MS = 60000
 const DANGER_COLOR = '#f44747'
 
-/** ツール名 → 操作説明・詳細ラベルのマッピング */
+/** Tool name → action description and detail label mapping */
 const TOOL_INFO: Record<string, { action: string; detailLabel: string }> = {
-  Bash:      { action: 'シェルコマンドを実行',     detailLabel: '実行コマンド' },
-  Read:      { action: 'ファイルを読み取り',       detailLabel: '対象ファイル' },
-  Write:     { action: 'ファイルに書き込み',       detailLabel: '対象ファイル' },
-  Edit:      { action: 'ファイルを編集',          detailLabel: '対象ファイル' },
-  MultiEdit: { action: 'ファイルを一括編集',       detailLabel: '対象ファイル' },
-  Glob:      { action: 'ファイルを検索',          detailLabel: '検索パターン' },
-  Grep:      { action: 'ファイル内容を検索',       detailLabel: '検索パターン' },
-  LS:        { action: 'ディレクトリを一覧表示',    detailLabel: '対象パス' },
-  WebFetch:  { action: 'URLにアクセス',          detailLabel: 'URL' },
-  WebSearch: { action: 'Web検索を実行',          detailLabel: '検索クエリ' },
+  Bash:      { action: 'Run shell command',    detailLabel: 'Command' },
+  Read:      { action: 'Read file',            detailLabel: 'Target file' },
+  Write:     { action: 'Write file',           detailLabel: 'Target file' },
+  Edit:      { action: 'Edit file',            detailLabel: 'Target file' },
+  MultiEdit: { action: 'Edit files in bulk',   detailLabel: 'Target file' },
+  Glob:      { action: 'Search files',         detailLabel: 'Search pattern' },
+  Grep:      { action: 'Search file contents', detailLabel: 'Search pattern' },
+  LS:        { action: 'List directory',       detailLabel: 'Target path' },
+  WebFetch:  { action: 'Fetch URL',            detailLabel: 'URL' },
+  WebSearch: { action: 'Web search',           detailLabel: 'Search query' },
 }
 
 const DANGER_PATTERNS = [
@@ -85,11 +85,11 @@ export function PermissionSheet({ request, onDecide }: Props) {
       />
 
       {/* Tool name + action description */}
-      <Text style={styles.toolLabel}>承認リクエスト</Text>
+      <Text style={styles.toolLabel}>Permission Request</Text>
       <View style={styles.toolRow}>
         <Text style={styles.toolName}>{request.toolName}</Text>
         {toolInfo && <Text style={styles.toolAction}>{toolInfo.action}</Text>}
-        {dangerous && <Text style={styles.dangerBadge}>⚠ 危険</Text>}
+        {dangerous && <Text style={styles.dangerBadge}>⚠ Danger</Text>}
       </View>
 
       {/* Details */}
@@ -112,14 +112,14 @@ export function PermissionSheet({ request, onDecide }: Props) {
       {/* Buttons */}
       <View style={styles.buttons}>
         <TouchableOpacity style={[styles.btn, styles.btnReject]} onPress={() => decide('reject')}>
-          <Text style={styles.btnText}>拒否</Text>
+          <Text style={styles.btnText}>Deny</Text>
         </TouchableOpacity>
         <TouchableOpacity style={[styles.btn, styles.btnApprove]} onPress={() => decide('approve')}>
-          <Text style={styles.btnText}>許可</Text>
+          <Text style={styles.btnText}>Allow</Text>
         </TouchableOpacity>
         {request.requiresAlways && (
           <TouchableOpacity style={[styles.btn, styles.btnAlways]} onPress={() => decide('always')}>
-            <Text style={styles.btnText}>常に許可</Text>
+            <Text style={styles.btnText}>Always Allow</Text>
           </TouchableOpacity>
         )}
       </View>

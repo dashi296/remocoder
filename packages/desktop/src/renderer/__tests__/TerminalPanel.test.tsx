@@ -104,12 +104,12 @@ describe('TerminalPanel', () => {
 
   it('閉じるボタンを表示する', () => {
     render(<TerminalPanel sessionId="session-abc123" onClose={onClose} />)
-    expect(screen.getByTitle('ターミナルを閉じる')).toBeInTheDocument()
+    expect(screen.getByTitle('Close terminal')).toBeInTheDocument()
   })
 
   it('閉じるボタンを押すと closeTerminalWindow が呼ばれ onClose が実行される', async () => {
     render(<TerminalPanel sessionId="session-abc123" onClose={onClose} />)
-    fireEvent.click(screen.getByTitle('ターミナルを閉じる'))
+    fireEvent.click(screen.getByTitle('Close terminal'))
     await waitFor(() => {
       expect(mockCloseTerminalWindow).toHaveBeenCalledTimes(1)
       expect(onClose).toHaveBeenCalledTimes(1)
@@ -158,7 +158,7 @@ describe('TerminalPanel', () => {
     act(() => {
       mockExitCb?.('my-session', 0)
     })
-    expect(mockTermWrite).toHaveBeenCalledWith(expect.stringContaining('セッションが終了しました'))
+    expect(mockTermWrite).toHaveBeenCalledWith(expect.stringContaining('Session exited'))
   })
 
   it('onPtyExit で別の sessionId のとき term.write しない', () => {

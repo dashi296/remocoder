@@ -96,10 +96,10 @@ describe('StatusPanel', () => {
       )
       expect(screen.getByText(/UPDATE AVAILABLE/)).toBeInTheDocument()
       expect(screen.getByText(/v1\.2\.0/)).toBeInTheDocument()
-      expect(screen.getByText('DL中...')).toBeInTheDocument()
+      expect(screen.getByText('Downloading...')).toBeInTheDocument()
     })
 
-    it('Major updateAvailable があるとき「ダウンロードして適用」ボタンを表示する', () => {
+    it('Major updateAvailable があるとき「Download & Apply」ボタンを表示する', () => {
       render(
         <StatusPanel
           {...makeDefaultProps()}
@@ -110,10 +110,10 @@ describe('StatusPanel', () => {
         />,
       )
       expect(screen.getByText(/UPDATE AVAILABLE/)).toBeInTheDocument()
-      expect(screen.getByRole('button', { name: 'ダウンロードして適用' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Download & Apply' })).toBeInTheDocument()
     })
 
-    it('「ダウンロードして適用」ボタンをクリックすると onDownloadUpdate が呼ばれる', async () => {
+    it('「Download & Apply」ボタンをクリックすると onDownloadUpdate が呼ばれる', async () => {
       const onDownloadUpdate = vi.fn()
       render(
         <StatusPanel
@@ -125,7 +125,7 @@ describe('StatusPanel', () => {
           updateAvailable={{ version: '2.0.0', isMajor: true }}
         />,
       )
-      await userEvent.click(screen.getByRole('button', { name: 'ダウンロードして適用' }))
+      await userEvent.click(screen.getByRole('button', { name: 'Download & Apply' }))
       expect(onDownloadUpdate).toHaveBeenCalledTimes(1)
     })
 
@@ -141,7 +141,7 @@ describe('StatusPanel', () => {
         />,
       )
       expect(screen.getByText(/UPDATE READY/)).toBeInTheDocument()
-      expect(screen.getByRole('button', { name: '再起動して適用' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Restart & Apply' })).toBeInTheDocument()
     })
 
     it('再起動ボタンをクリックすると onInstallUpdate が呼ばれる', async () => {
@@ -157,7 +157,7 @@ describe('StatusPanel', () => {
           updateDownloaded={{ version: '1.2.0', isMajor: false }}
         />,
       )
-      await userEvent.click(screen.getByRole('button', { name: '再起動して適用' }))
+      await userEvent.click(screen.getByRole('button', { name: 'Restart & Apply' }))
       expect(onInstallUpdate).toHaveBeenCalledTimes(1)
     })
 
@@ -185,7 +185,7 @@ describe('StatusPanel', () => {
         />,
       )
       expect(screen.getByText(/UPDATE READY/)).toBeInTheDocument()
-      expect(screen.getByRole('button', { name: '再起動して適用' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Restart & Apply' })).toBeInTheDocument()
     })
 
     it('更新なしのとき更新バナーを表示しない', () => {

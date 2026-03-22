@@ -10,10 +10,10 @@ export interface ConnectionProfile {
   lastConnectedAt?: string
 }
 
-/** ISO日付文字列を日本語表示用の短い形式にフォーマットする */
+/** Format an ISO date string into a short display format */
 export function formatDate(iso: string): string {
   const d = new Date(iso)
-  return d.toLocaleString('ja-JP', {
+  return d.toLocaleString('en-US', {
     month: 'short',
     day: 'numeric',
     hour: '2-digit',
@@ -28,9 +28,9 @@ export function firstParam(v: string | string[] | undefined): string | undefined
   return Array.isArray(v) ? v[0] : v
 }
 
-/** セッションの表示名を返す（projectPath のベース名、なければ 'セッション'） */
+/** Return a display name for the session (basename of projectPath, or 'Session' if absent) */
 export function getSessionDisplayName(session: Pick<SessionInfo, 'projectPath'>): string {
   return session.projectPath
-    ? (session.projectPath.split('/').filter(Boolean).pop() ?? 'セッション')
-    : 'セッション'
+    ? (session.projectPath.split('/').filter(Boolean).pop() ?? 'Session')
+    : 'Session'
 }

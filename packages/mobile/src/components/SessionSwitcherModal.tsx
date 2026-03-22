@@ -37,7 +37,7 @@ export function SessionSwitcherModal({
       <View style={styles.overlay}>
         <View style={styles.container}>
           <View style={styles.header}>
-            <Text style={styles.title}>セッション切替</Text>
+            <Text style={styles.title}>Switch Session</Text>
             <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
               <Text style={styles.closeText}>✕</Text>
             </TouchableOpacity>
@@ -51,7 +51,7 @@ export function SessionSwitcherModal({
             <ScrollView style={styles.scroll} showsVerticalScrollIndicator={false}>
               {sessions.length > 0 && (
                 <View style={styles.section}>
-                  <Text style={styles.sectionTitle}>実行中のセッション</Text>
+                  <Text style={styles.sectionTitle}>Active Sessions</Text>
                   {sessions.map((session) => {
                     const isCurrent = session.id === currentSessionId
                     const name = getSessionDisplayName(session)
@@ -77,7 +77,7 @@ export function SessionSwitcherModal({
                           )}
                         </View>
                         {isCurrent ? (
-                          <Text style={styles.currentBadge}>現在</Text>
+                          <Text style={styles.currentBadge}>Current</Text>
                         ) : (
                           <Text style={styles.switchArrow}>→</Text>
                         )}
@@ -88,13 +88,13 @@ export function SessionSwitcherModal({
               )}
 
               <View style={styles.section}>
-                <Text style={styles.sectionTitle}>新規セッション</Text>
+                <Text style={styles.sectionTitle}>New Session</Text>
                 <TouchableOpacity
                   style={styles.newSessionButton}
                   onPress={() => onCreateSession(null)}
                 >
                   <Text style={styles.newSessionIcon}>＋</Text>
-                  <Text style={styles.newSessionText}>プロジェクトなし</Text>
+                  <Text style={styles.newSessionText}>No project</Text>
                 </TouchableOpacity>
                 {projects.map((project) => (
                   <TouchableOpacity
@@ -112,7 +112,7 @@ export function SessionSwitcherModal({
                   </TouchableOpacity>
                 ))}
                 {projects.length === 0 && (
-                  <Text style={styles.emptyText}>最近使ったプロジェクトはありません</Text>
+                  <Text style={styles.emptyText}>No recent projects</Text>
                 )}
               </View>
             </ScrollView>

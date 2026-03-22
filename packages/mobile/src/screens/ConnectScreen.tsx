@@ -101,10 +101,10 @@ export function ConnectScreen() {
   }
 
   const handleDelete = (profile: ConnectionProfile) => {
-    Alert.alert('削除確認', `「${profile.name}」を削除しますか？`, [
-      { text: 'キャンセル', style: 'cancel' },
+    Alert.alert('Delete', `Delete "${profile.name}"?`, [
+      { text: 'Cancel', style: 'cancel' },
       {
-        text: '削除',
+        text: 'Delete',
         style: 'destructive',
         onPress: async () => {
           await saveProfiles(profiles.filter((p) => p.id !== profile.id))
@@ -156,9 +156,9 @@ export function ConnectScreen() {
           barcodeScannerSettings={{ barcodeTypes: ['qr'] }}
         />
         <View style={styles.scannerOverlay}>
-          <Text style={styles.scannerHint}>デスクトップのQRコードをスキャンしてください</Text>
+          <Text style={styles.scannerHint}>Scan the QR code on your desktop</Text>
           <TouchableOpacity style={styles.cancelButton} onPress={() => setScreen('list')}>
-            <Text style={styles.cancelButtonText}>キャンセル</Text>
+            <Text style={styles.cancelButtonText}>Cancel</Text>
           </TouchableOpacity>
         </View>
       </SafeAreaView>
@@ -168,20 +168,20 @@ export function ConnectScreen() {
   if (screen === 'form') {
     return (
       <SafeAreaView style={styles.container}>
-        <Text style={styles.title}>{editTarget ? 'プロファイルを編集' : '新しい接続'}</Text>
+        <Text style={styles.title}>{editTarget ? 'Edit Profile' : 'New Connection'}</Text>
 
         <TouchableOpacity style={styles.qrButton} onPress={handleScanPress}>
-          <Text style={styles.qrButtonText}>QRコードをスキャン</Text>
+          <Text style={styles.qrButtonText}>Scan QR Code</Text>
         </TouchableOpacity>
 
-        <Text style={styles.divider}>または手動で入力</Text>
+        <Text style={styles.divider}>or enter manually</Text>
 
-        <Text style={styles.label}>名前</Text>
+        <Text style={styles.label}>Name</Text>
         <TextInput
           style={styles.input}
           value={name}
           onChangeText={setName}
-          placeholder="例: MacBook Pro"
+          placeholder="e.g. MacBook Pro"
           placeholderTextColor="#555"
           autoCapitalize="none"
           autoCorrect={false}
@@ -211,14 +211,14 @@ export function ConnectScreen() {
 
         <View style={styles.formActions}>
           <TouchableOpacity style={styles.secondaryButton} onPress={() => setScreen('list')}>
-            <Text style={styles.secondaryButtonText}>キャンセル</Text>
+            <Text style={styles.secondaryButtonText}>Cancel</Text>
           </TouchableOpacity>
           <TouchableOpacity
             style={[styles.primaryButton, (!ip || !token) && styles.disabledButton]}
             onPress={handleSave}
             disabled={!ip || !token}
           >
-            <Text style={styles.primaryButtonText}>保存</Text>
+            <Text style={styles.primaryButtonText}>Save</Text>
           </TouchableOpacity>
         </View>
       </SafeAreaView>
@@ -231,8 +231,8 @@ export function ConnectScreen() {
 
       {profiles.length === 0 ? (
         <View style={styles.emptyState}>
-          <Text style={styles.emptyText}>接続先がありません</Text>
-          <Text style={styles.emptySubText}>新しい接続先を追加してください</Text>
+          <Text style={styles.emptyText}>No connections</Text>
+          <Text style={styles.emptySubText}>Add a new connection to get started</Text>
         </View>
       ) : (
         <FlatList
@@ -246,16 +246,16 @@ export function ConnectScreen() {
                 <Text style={styles.profileIp}>{item.ip}</Text>
                 {item.lastConnectedAt && (
                   <Text style={styles.profileLastConnected}>
-                    最終接続: {formatDate(item.lastConnectedAt)}
+                    Last connected: {formatDate(item.lastConnectedAt)}
                   </Text>
                 )}
               </TouchableOpacity>
               <View style={styles.profileActions}>
                 <TouchableOpacity style={styles.editButton} onPress={() => openEditForm(item)}>
-                  <Text style={styles.editButtonText}>編集</Text>
+                  <Text style={styles.editButtonText}>Edit</Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={styles.deleteButton} onPress={() => handleDelete(item)}>
-                  <Text style={styles.deleteButtonText}>削除</Text>
+                  <Text style={styles.deleteButtonText}>Delete</Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -264,7 +264,7 @@ export function ConnectScreen() {
       )}
 
       <TouchableOpacity style={styles.addButton} onPress={openNewForm}>
-        <Text style={styles.addButtonText}>+ 接続先を追加</Text>
+        <Text style={styles.addButtonText}>+ Add Connection</Text>
       </TouchableOpacity>
     </SafeAreaView>
   )

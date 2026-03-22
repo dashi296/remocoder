@@ -68,10 +68,10 @@ function SessionRow({
           }}
         >
           {session.status.toUpperCase()}
-          {hasClient ? ' · 接続中' : ''}
+          {hasClient ? ' · Connected' : ''}
         </span>
         {onOpen && (
-          <button style={styles.openButton} onClick={() => onOpen(session.id)} title="ターミナルを開く">
+          <button style={styles.openButton} onClick={() => onOpen(session.id)} title="Open terminal">
             <TerminalIcon />
           </button>
         )}
@@ -116,7 +116,7 @@ function MultiplexerRow({
           <button
             style={styles.openButton}
             onClick={() => onAttach(info.tool, info.sessionName)}
-            title="セッションにアタッチ"
+            title="Attach to session"
           >
             <AttachIcon />
           </button>
@@ -146,7 +146,7 @@ export function SessionList({
             {sessions.length > 0 ? `${sessions.length} ACTIVE` : '—'}
           </span>
           {onNewSession && (
-            <button style={styles.newButton} onClick={onNewSession} title="新規セッション作成">
+            <button style={styles.newButton} onClick={onNewSession} title="Create new session">
               <PlusIcon />
             </button>
           )}
@@ -157,14 +157,14 @@ export function SessionList({
             <div style={styles.emptyIcon}>
               <WifiIcon />
             </div>
-            <p style={styles.emptyText}>接続待ち中</p>
+            <p style={styles.emptyText}>Waiting for connections</p>
             <p style={styles.emptySubText}>
               <span style={{ color: 'var(--green)', animation: 'blink 1.2s step-end infinite' }}>▮</span>
-              {' '}モバイルアプリからの接続を待っています
+              {' '}Waiting for connection from mobile app
             </p>
             {onNewSession && (
               <button style={styles.newSessionBtn} onClick={onNewSession}>
-                + 新規セッションを作成
+                + Create new session
               </button>
             )}
           </div>
@@ -187,7 +187,7 @@ export function SessionList({
               {hasMux ? `${multiplexerSessions.length} FOUND` : '—'}
             </span>
             {onRefreshMultiplexer && (
-              <button style={styles.newButton} onClick={onRefreshMultiplexer} title="一覧を更新">
+              <button style={styles.newButton} onClick={onRefreshMultiplexer} title="Refresh list">
                 <RefreshIcon />
               </button>
             )}
@@ -195,8 +195,8 @@ export function SessionList({
 
           {!hasMux ? (
             <div style={styles.empty}>
-              <p style={styles.emptyText}>セッションなし</p>
-              <p style={styles.emptySubText}>tmux / screen / zellij のセッションが見つかりません</p>
+              <p style={styles.emptyText}>No sessions</p>
+              <p style={styles.emptySubText}>No tmux / screen / zellij sessions found</p>
             </div>
           ) : (
             <div style={styles.list}>

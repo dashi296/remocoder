@@ -213,7 +213,7 @@ export function buildTerminalHtml(
       // 接続タイムアウト: CONNECTINGのまま応答がない場合
       connectTimeoutId = setTimeout(() => {
         if (currentWs.readyState === WebSocket.CONNECTING) {
-          term.write('\\r\\n[接続タイムアウト。再接続中...]\\r\\n')
+          term.write('\\r\\n[Connection timed out. Reconnecting...]\\r\\n')
           currentWs.close()
         }
       }, CONNECT_TIMEOUT)
@@ -257,25 +257,25 @@ export function buildTerminalHtml(
           postToNative({ type: 'session_attached', sessionId: msg.sessionId })
         } else if (msg.type === 'session_not_found') {
           if (isUserSelectedSession) {
-            term.write('\\r\\n[セッションが見つかりません: ' + msg.sessionId + ']\\r\\n')
+            term.write('\\r\\n[Session not found: ' + msg.sessionId + ']\\r\\n')
             noReconnect = true
             stopKeepalive()
             currentWs.close()
             postToNative({ type: 'session_not_found', sessionId: msg.sessionId })
           } else {
             // 自動作成セッションが消えた場合（サーバー再起動等）は新規作成する
-            term.write('\\r\\n[セッションが見つかりません: ' + msg.sessionId + '. 新規セッションを作成します...]\\r\\n')
+            term.write('\\r\\n[Session not found: ' + msg.sessionId + '. Creating a new session...]\\r\\n')
             currentSessionId = null
             currentWs.send(JSON.stringify(buildSessionCreate(PROJECT_PATH)))
           }
         } else if (msg.type === 'auth_error') {
-          term.write('\\r\\n[認証エラー: ' + msg.reason + ']\\r\\n')
+          term.write('\\r\\n[Auth error: ' + msg.reason + ']\\r\\n')
           noReconnect = true
           stopKeepalive()
           currentWs.close()
           postToNative({ type: 'auth_error', reason: msg.reason })
         } else if (msg.type === 'shell_exit') {
-          term.write('\\r\\n[セッションが終了しました (exit code: ' + msg.exitCode + ')]\\r\\n')
+          term.write('\\r\\n[Session exited (exit code: ' + msg.exitCode + ')]\\r\\n')
           noReconnect = true
           stopKeepalive()
           currentWs.close()
@@ -301,7 +301,7 @@ export function buildTerminalHtml(
         if (noReconnect) return
 
         const delaySec = reconnectDelay / 1000
-        term.write('\\r\\n[切断されました。' + delaySec + '秒後に再接続します... (試行: ' + reconnectAttempt + ')]\\r\\n')
+        term.write('\\r\\n[Disconnected. Reconnecting in ' + delaySec + 's... (attempt: ' + reconnectAttempt + ')]\\r\\n')
         postToNative({ type: 'disconnected', reconnectDelay })
 
         reconnectTimerId = setTimeout(() => {

@@ -231,21 +231,21 @@ export function StatusPanel({
                 </span>
                 {updateInfo.isMajor && (
                   <span style={styles.majorWarning}>
-                    MAJOR — モバイルとの互換性を確認してください
+                    MAJOR — Please verify compatibility with the mobile app
                   </span>
                 )}
               </div>
             </div>
             {updateDownloaded ? (
               <button style={styles.updateButton} onClick={onInstallUpdate}>
-                再起動して適用
+                Restart &amp; Apply
               </button>
             ) : updateInfo.isMajor ? (
               <button style={styles.updateButton} onClick={onDownloadUpdate}>
-                ダウンロードして適用
+                Download &amp; Apply
               </button>
             ) : (
-              <span style={{ ...styles.updateLabel, color: 'var(--text-dim)' }}>DL中...</span>
+              <span style={{ ...styles.updateLabel, color: 'var(--text-dim)' }}>Downloading...</span>
             )}
           </div>
         </>

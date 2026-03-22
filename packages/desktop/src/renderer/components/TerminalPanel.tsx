@@ -61,7 +61,7 @@ export function TerminalPanel({ sessionId, onClose }: Props) {
     // PTY終了
     const unsubExit = window.electronAPI.onPtyExit((sid, exitCode) => {
       if (sid === sessionId) {
-        term.write(`\r\n\x1b[33m[セッションが終了しました (exit code: ${exitCode})]\x1b[0m\r\n`)
+        term.write(`\r\n\x1b[33m[Session exited (exit code: ${exitCode})]\x1b[0m\r\n`)
       }
     })
 
@@ -104,7 +104,7 @@ export function TerminalPanel({ sessionId, onClose }: Props) {
           <span style={styles.headerTitle}>TERMINAL</span>
           <span style={styles.sessionBadge}>{sessionId.slice(0, 8)}</span>
         </div>
-        <button style={styles.closeButton} onClick={handleClose} title="ターミナルを閉じる">
+        <button style={styles.closeButton} onClick={handleClose} title="Close terminal">
           ✕
         </button>
       </div>

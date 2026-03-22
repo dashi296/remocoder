@@ -17,7 +17,7 @@ describe('SessionList', () => {
   describe('セッションが 0 件のとき', () => {
     it('接続待ち中メッセージを表示する', () => {
       render(<SessionList sessions={[]} />)
-      expect(screen.getByText('接続待ち中')).toBeInTheDocument()
+      expect(screen.getByText('Waiting for connections')).toBeInTheDocument()
     })
 
     it('カウントに — を表示する', () => {
@@ -60,7 +60,7 @@ describe('SessionList', () => {
 
     it('接続待ちメッセージを表示しない', () => {
       render(<SessionList sessions={sessions} />)
-      expect(screen.queryByText('接続待ち中')).not.toBeInTheDocument()
+      expect(screen.queryByText('Waiting for connections')).not.toBeInTheDocument()
     })
   })
 

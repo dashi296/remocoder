@@ -89,37 +89,37 @@ describe('PermissionSheet', () => {
           onDecide={onDecide}
         />,
       )
-      expect(screen.getByText('⚠ 危険')).toBeTruthy()
+      expect(screen.getByText('⚠ Danger')).toBeTruthy()
     })
 
-    it('sudo を含むコマンドで「⚠ 危険」バッジを表示する', () => {
+    it('sudo を含むコマンドで「⚠ Danger」バッジを表示する', () => {
       render(
         <PermissionSheet
           request={makeRequest({ details: ['sudo apt-get update'] })}
           onDecide={onDecide}
         />,
       )
-      expect(screen.getByText('⚠ 危険')).toBeTruthy()
+      expect(screen.getByText('⚠ Danger')).toBeTruthy()
     })
 
-    it('dd コマンドで「⚠ 危険」バッジを表示する', () => {
+    it('dd コマンドで「⚠ Danger」バッジを表示する', () => {
       render(
         <PermissionSheet
           request={makeRequest({ details: ['dd if=/dev/zero of=file'] })}
           onDecide={onDecide}
         />,
       )
-      expect(screen.getByText('⚠ 危険')).toBeTruthy()
+      expect(screen.getByText('⚠ Danger')).toBeTruthy()
     })
 
-    it('安全なコマンドでは「⚠ 危険」バッジを表示しない', () => {
+    it('安全なコマンドでは「⚠ Danger」バッジを表示しない', () => {
       render(
         <PermissionSheet
           request={makeRequest({ details: ['echo hello world'] })}
           onDecide={onDecide}
         />,
       )
-      expect(screen.queryByText('⚠ 危険')).toBeNull()
+      expect(screen.queryByText('⚠ Danger')).toBeNull()
     })
   })
 

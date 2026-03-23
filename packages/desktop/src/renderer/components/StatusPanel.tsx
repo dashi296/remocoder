@@ -13,7 +13,6 @@ interface Props {
   powerSettings: PowerSettings
   isOnAC: boolean
   isBlockerActive: boolean
-  isCaffeinateActive: boolean
   onSetPowerSetting: (key: keyof PowerSettings, enabled: boolean) => void
 }
 
@@ -75,7 +74,6 @@ export function StatusPanel({
   powerSettings,
   isOnAC,
   isBlockerActive,
-  isCaffeinateActive,
   onSetPowerSetting,
 }: Props): React.ReactElement {
   const tailscaleConnected = tailscaleIP !== null
@@ -190,15 +188,6 @@ export function StatusPanel({
         active={isBlockerActive && !isOnAC}
         activeColor="var(--amber)"
         onToggle={() => onSetPowerSetting('preventSleepOnBattery', !powerSettings.preventSleepOnBattery)}
-      />
-
-      {/* SLEEP/LID row */}
-      <SleepRow
-        label="SLEEP / LID"
-        enabled={powerSettings.preventLidSleep}
-        active={isCaffeinateActive}
-        activeColor="var(--blue, #4fc3f7)"
-        onToggle={() => onSetPowerSetting('preventLidSleep', !powerSettings.preventLidSleep)}
       />
 
       {/* Update error */}

@@ -50,10 +50,10 @@ const mockAPI = {
   onUpdateAvailable: (_cb: (info: UpdateInfo) => void) => () => { /* mock no-op */ },
   onUpdateDownloaded: (_cb: (info: UpdateInfo) => void) => () => { /* mock no-op */ },
   onUpdateError: (_cb: (error: { message: string }) => void) => () => { /* mock no-op */ },
-  getPowerSettings: async (): Promise<PowerSettings> => ({ preventSleepOnAC: false, preventSleepOnBattery: false, preventLidSleep: false }),
+  getPowerSettings: async (): Promise<PowerSettings> => ({ preventSleepOnAC: false, preventSleepOnBattery: false }),
   setPowerSetting: async (_key: keyof PowerSettings, _enabled: boolean) => { /* mock no-op */ },
-  getPowerStatus: async () => ({ isOnAC: true, isBlockerActive: false, isCaffeinateActive: false }),
-  onPowerStatusChanged: (_cb: (status: { isOnAC: boolean; isBlockerActive: boolean; isCaffeinateActive: boolean }) => void) => () => { /* mock no-op */ },
+  getPowerStatus: async () => ({ isOnAC: true, isBlockerActive: false }),
+  onPowerStatusChanged: (_cb: (status: { isOnAC: boolean; isBlockerActive: boolean }) => void) => () => { /* mock no-op */ },
 }
 
 const api = MOCK_MODE ? mockAPI : (window as any).electronAPI
@@ -70,19 +70,17 @@ export default function App() {
   const [updateAvailable, setUpdateAvailable] = useState<UpdateInfo | null>(null)
   const [updateDownloaded, setUpdateDownloaded] = useState<UpdateInfo | null>(null)
   const [updateError, setUpdateError] = useState<string | null>(null)
-  const [powerSettings, setPowerSettings] = useState<PowerSettings>({ preventSleepOnAC: false, preventSleepOnBattery: false, preventLidSleep: false })
+  const [powerSettings, setPowerSettings] = useState<PowerSettings>({ preventSleepOnAC: false, preventSleepOnBattery: false })
   const [isOnAC, setIsOnAC] = useState(true)
   const [isBlockerActive, setIsBlockerActive] = useState(false)
-  const [isCaffeinateActive, setIsCaffeinateActive] = useState(false)
 
   function loadMultiplexerSessions() {
     api.getMultiplexerSessions?.().then(setMultiplexerSessions).catch(() => {})
   }
 
-  function applyPowerStatus(s: { isOnAC: boolean; isBlockerActive: boolean; isCaffeinateActive: boolean }) {
+  function applyPowerStatus(s: { isOnAC: boolean; isBlockerActive: boolean }) {
     setIsOnAC(s.isOnAC)
     setIsBlockerActive(s.isBlockerActive)
-    setIsCaffeinateActive(s.isCaffeinateActive)
   }
 
   useEffect(() => {
@@ -212,7 +210,6 @@ export default function App() {
           powerSettings={powerSettings}
           isOnAC={isOnAC}
           isBlockerActive={isBlockerActive}
-          isCaffeinateActive={isCaffeinateActive}
           onSetPowerSetting={handleSetPowerSetting}
         />
         {token && (

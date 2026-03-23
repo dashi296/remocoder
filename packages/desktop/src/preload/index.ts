@@ -115,11 +115,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('set-power-setting', { key, enabled }),
 
   /** 現在の電源状態を取得する */
-  getPowerStatus: (): Promise<{ isOnAC: boolean; isBlockerActive: boolean; isCaffeinateActive: boolean }> =>
+  getPowerStatus: (): Promise<{ isOnAC: boolean; isBlockerActive: boolean }> =>
     ipcRenderer.invoke('get-power-status'),
 
   /** 電源状態が変化したときに呼ばれる。戻り値はリスナー解除関数 */
   onPowerStatusChanged: (
-    cb: (status: { isOnAC: boolean; isBlockerActive: boolean; isCaffeinateActive: boolean }) => void,
+    cb: (status: { isOnAC: boolean; isBlockerActive: boolean }) => void,
   ): (() => void) => makeListener('power-status-changed', cb),
 })

@@ -3,7 +3,10 @@ import { readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import type { PowerSettings } from '@remocoder/shared'
 
-const DEFAULT_POWER_SETTINGS: PowerSettings = { preventSleepOnAC: false, preventSleepOnBattery: false }
+const DEFAULT_POWER_SETTINGS: PowerSettings = {
+  preventSleepOnAC: false,
+  preventSleepOnBattery: false,
+}
 
 let mainWindow: BrowserWindow | null = null
 let blockerId: number | null = null
@@ -18,7 +21,10 @@ function loadPowerSettings(): PowerSettings {
   try {
     const raw = JSON.parse(readFileSync(getSettingsPath(), 'utf-8'))
     if (typeof raw.preventSleepOnAC === 'boolean' && typeof raw.preventSleepOnBattery === 'boolean') {
-      return raw as PowerSettings
+      return {
+        preventSleepOnAC: raw.preventSleepOnAC,
+        preventSleepOnBattery: raw.preventSleepOnBattery,
+      }
     }
   } catch {
     // ファイルなし or 不正 → デフォルト値

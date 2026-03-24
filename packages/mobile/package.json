@@ -8,6 +8,8 @@
     "start:debug": "WITH_ROZENITE=true expo start",
     "android": "expo run:android",
     "ios": "expo run:ios",
+    "lint": "oxlint src",
+    "lint:fix": "oxlint src --fix",
     "test": "jest --passWithNoTests"
   },
   "dependencies": {

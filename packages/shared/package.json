@@ -4,6 +4,8 @@
   "private": true,
 "main": "./src/index.ts",
   "scripts": {
+    "lint": "oxlint src",
+    "lint:fix": "oxlint src --fix",
     "test": "vitest run",
     "test:watch": "vitest"
   },

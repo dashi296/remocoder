@@ -25,6 +25,7 @@ module.exports = {
     '^expo-constants$': '<rootDir>/src/__mocks__/expo-constants.ts',
     '^expo-updates$': '<rootDir>/src/__mocks__/expo-updates.ts',
     '^expo-router$': '<rootDir>/src/__mocks__/expo-router.ts',
+    '^expo-keep-awake$': '<rootDir>/src/__mocks__/expo-keep-awake.ts',
     '^react-native-safe-area-context$': '<rootDir>/src/__mocks__/react-native-safe-area-context.tsx',
   },
   testMatch: ['**/src/**/__tests__/**/*.{ts,tsx}', '**/src/**/*.test.{ts,tsx}'],

@@ -1,5 +1,6 @@
 import React, { useRef, useCallback, useState, useMemo, useEffect } from 'react'
 import { View, StyleSheet, TouchableOpacity, Text, AppState } from 'react-native'
+import { useKeepAwake } from 'expo-keep-awake'
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { WebView, WebViewMessageEvent } from 'react-native-webview'
 import { useLocalSearchParams, useRouter } from 'expo-router'
@@ -57,6 +58,8 @@ export function TerminalScreen() {
   const [webViewKey, setWebViewKey] = useState(0)
   const [pendingPermission, setPendingPermission] = useState<PermissionRequest | null>(null)
   const webViewRef = useRef<WebView>(null)
+
+  useKeepAwake()
 
   useEffect(() => {
     const sub = AppState.addEventListener('change', (nextState) => {

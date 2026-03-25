@@ -186,8 +186,7 @@ export default function App() {
             <TerminalIcon />
           </div>
           <div style={styles.titleGroup}>
-            <h1 style={styles.appName}>CLAUDE CODE</h1>
-            <span style={styles.appSub}>REMOTE</span>
+            <h1 style={styles.appName}>REMOCODER</h1>
           </div>
         </div>
         <div style={styles.statusDot}>

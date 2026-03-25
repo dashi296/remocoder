@@ -12,6 +12,8 @@ export interface MultiplexerSessionInfo {
   sessionName: string
   /** セッションの追加情報（例: ウィンドウ数、状態） */
   detail?: string
+  /** セッションのカレントディレクトリ */
+  workingDirectory?: string
 }
 
 /** WebSocketメッセージの型定義 */

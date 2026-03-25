@@ -202,6 +202,11 @@ export function SessionPickerScreen() {
                     <Text style={styles.sessionMeta}>
                       {mux.tool.toUpperCase()}{mux.detail ? ` · ${mux.detail}` : ''}
                     </Text>
+                    {mux.workingDirectory ? (
+                      <Text style={styles.sessionPath} numberOfLines={1} ellipsizeMode="middle">
+                        {mux.workingDirectory}
+                      </Text>
+                    ) : null}
                   </View>
                   <Text style={styles.attachArrow}>→</Text>
                 </TouchableOpacity>

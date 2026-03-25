@@ -851,14 +851,23 @@ export async function getMultiplexerSessions(): Promise<MultiplexerSessionInfo[]
 
   // tmux
   try {
-    const { stdout } = await execAsync('tmux list-sessions -F "#{session_name}:#{session_windows}"')
+    const { stdout } = await execAsync(
+      'tmux list-panes -a -F "#{session_name}\t#{session_windows}\t#{pane_current_path}"',
+    )
+    const seenSessions = new Set<string>()
     for (const line of stdout.trim().split('\n').filter(Boolean)) {
-      const colonIdx = line.indexOf(':')
-      if (colonIdx === -1) continue
-      const sessionName = line.slice(0, colonIdx)
-      const windows = line.slice(colonIdx + 1)
+      const parts = line.split('\t')
+      if (parts.length < 3) continue
+      const [sessionName, windows, paneCurrentPath] = parts
+      if (seenSessions.has(sessionName)) continue
       if (!SAFE_SESSION_NAME_RE.test(sessionName)) continue
-      results.push({ tool: 'tmux', sessionName, detail: `${windows} windows` })
+      seenSessions.add(sessionName)
+      results.push({
+        tool: 'tmux',
+        sessionName,
+        detail: `${windows} windows`,
+        workingDirectory: paneCurrentPath || undefined,
+      })
     }
   } catch {
     // tmux未インストールまたはセッションなし

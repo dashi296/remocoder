@@ -851,27 +851,20 @@ export async function getMultiplexerSessions(): Promise<MultiplexerSessionInfo[]
 
   // tmux
   try {
-    // list-panes -a で各セッションの最初のペインのパスを取得する
     const { stdout } = await execAsync(
-      'tmux list-panes -a -F "#{session_name}\t#{session_windows}\t#{pane_index}\t#{pane_current_path}"',
+      'tmux list-panes -a -F "#{session_name}\t#{session_windows}\t#{window_index}\t#{pane_index}\t#{pane_current_path}"',
     )
-    const sessionMap = new Map<string, { windows: string; workingDirectory: string }>()
     for (const line of stdout.trim().split('\n').filter(Boolean)) {
       const parts = line.split('\t')
-      if (parts.length < 4) continue
-      const [sessionName, windows, paneIndex, paneCurrentPath] = parts
+      if (parts.length < 5) continue
+      const [sessionName, windows, windowIndex, paneIndex, paneCurrentPath] = parts
+      if (windowIndex !== '0' || paneIndex !== '0') continue
       if (!SAFE_SESSION_NAME_RE.test(sessionName)) continue
-      // セッションの最初のペイン（pane_index === "0"）のパスを採用する
-      if (!sessionMap.has(sessionName) || paneIndex === '0') {
-        sessionMap.set(sessionName, { windows, workingDirectory: paneCurrentPath })
-      }
-    }
-    for (const [sessionName, { windows, workingDirectory }] of sessionMap) {
       results.push({
         tool: 'tmux',
         sessionName,
         detail: `${windows} windows`,
-        workingDirectory: workingDirectory || undefined,
+        workingDirectory: paneCurrentPath || undefined,
       })
     }
   } catch {

@@ -109,6 +109,11 @@ function MultiplexerRow({
         <div style={styles.sessionInfo}>
           <span style={styles.sessionId}>{info.sessionName}</span>
           {info.detail && <span style={styles.sessionTime}>{info.detail}</span>}
+          {info.workingDirectory && (
+            <span style={styles.sessionPath} title={info.workingDirectory}>
+              {info.workingDirectory}
+            </span>
+          )}
         </div>
       </div>
       <div style={styles.rowRight}>
@@ -408,6 +413,14 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: 9,
     color: 'var(--text-muted)',
     letterSpacing: '0.04em',
+  },
+  sessionPath: {
+    fontSize: 9,
+    color: 'var(--text-muted)',
+    fontFamily: 'monospace',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
   },
   badge: {
     fontSize: 8,

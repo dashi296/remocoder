@@ -311,13 +311,6 @@ const styles: Record<string, React.CSSProperties> = {
     color: 'var(--text-primary)',
     lineHeight: 1.2,
   },
-  appSub: {
-    fontSize: 9,
-    fontWeight: 500,
-    letterSpacing: '0.35em',
-    color: 'var(--green)',
-    lineHeight: 1.2,
-  },
   statusDot: {
     display: 'flex',
     alignItems: 'center',

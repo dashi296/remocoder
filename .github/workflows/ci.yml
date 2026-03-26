@@ -7,9 +7,30 @@ on:
   pull_request:
 
 jobs:
+  changes:
+    name: Detect Changes
+    runs-on: ubuntu-latest
+    outputs:
+      desktop: ${{ steps.filter.outputs.desktop }}
+      mobile: ${{ steps.filter.outputs.mobile }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            desktop:
+              - 'packages/desktop/**'
+              - 'packages/shared/**'
+            mobile:
+              - 'packages/mobile/**'
+              - 'packages/shared/**'
+
   typecheck:
     name: Type Check
     runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.desktop == 'true' || needs.changes.outputs.mobile == 'true'
     steps:
       - uses: actions/checkout@v4
 
@@ -19,14 +40,18 @@ jobs:
         run: pnpm --filter @remocoder/shared exec tsc --noEmit
 
       - name: Type check desktop
+        if: needs.changes.outputs.desktop == 'true'
         run: pnpm --filter @remocoder/desktop exec tsc --noEmit
 
       - name: Type check mobile
+        if: needs.changes.outputs.mobile == 'true'
         run: pnpm --filter @remocoder/mobile exec tsc --noEmit
 
   test:
     name: Test
     runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.desktop == 'true'
     steps:
       - uses: actions/checkout@v4
 

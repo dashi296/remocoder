@@ -5,10 +5,27 @@ on:
     types: [opened, synchronize, reopened]
 
 jobs:
+  changes:
+    name: Detect Changes
+    runs-on: ubuntu-latest
+    outputs:
+      desktop: ${{ steps.filter.outputs.desktop }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            desktop:
+              - 'packages/desktop/**'
+              - 'packages/shared/**'
+
   build-desktop:
     name: Build Desktop macOS (DMG)
     runs-on: macos-latest
     environment: preview
+    needs: changes
+    if: needs.changes.outputs.desktop == 'true'
     permissions:
       contents: write
     steps:

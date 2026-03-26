@@ -44,6 +44,11 @@ if (!app.requestSingleInstanceLock()) {
   app.exit()
 }
 
+app.on('second-instance', () => {
+  win?.show()
+  win?.focus()
+})
+
 let win: BrowserWindow | null = null
 let tray: Tray | null = null
 let tailscaleIp: string | null = null

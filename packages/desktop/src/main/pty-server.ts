@@ -4,25 +4,10 @@ import type { IncomingMessage } from 'http'
 import { existsSync, readdirSync, statSync } from 'fs'
 import { join } from 'path'
 import { homedir, hostname as osHostname } from 'os'
-import { exec } from 'child_process'
-import { promisify } from 'util'
 import { WsMessage, SessionInfo, ProjectInfo, MultiplexerSessionInfo, SessionSource, DEFAULT_WS_PORT } from '@remocoder/shared'
 import { v4 as uuidv4 } from 'uuid'
 import { tryParsePermission, stripAnsi } from './permission-parser'
-
-const execAsync = promisify(exec)
-
-// パッケージ化アプリは .zshrc 等を読まず PATH が限定されるため明示的に指定する
-const EXEC_ENV = {
-  ...process.env,
-  PATH: [
-    '/usr/local/bin',
-    '/opt/homebrew/bin',
-    '/usr/bin',
-    '/bin',
-    process.env.PATH ?? '',
-  ].join(':'),
-}
+import { execAsync, EXEC_ENV } from './exec-env'
 
 let AUTH_TOKEN = process.env.REMOTE_TOKEN ?? uuidv4()
 const SERVER_NAME = osHostname()

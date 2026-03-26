@@ -231,7 +231,7 @@ export default function App() {
 
       {/* Footer */}
       <footer style={styles.footer}>
-        <span style={styles.footerText}>RemoCoderr</span>
+        <span style={styles.footerText}>RemoCoder</span>
         <span style={styles.footerDivider}>·</span>
         <span style={styles.footerText}>v{__APP_VERSION__}</span>
         <span style={styles.footerDivider}>·</span>

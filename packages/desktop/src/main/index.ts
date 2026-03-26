@@ -212,7 +212,8 @@ function setupIpc(getToken: () => string) {
   })
 }
 
-let tailscalePollingId: ReturnType<typeof setInterval> | null = null
+let tailscalePollingId: ReturnType<typeof setInterval> | undefined
+let isQuitting = false
 
 app.whenReady().then(async () => {
   initToken(loadOrCreateToken())
@@ -256,15 +257,14 @@ app.whenReady().then(async () => {
   }, 30000)
 
   app.on('before-quit', (e) => {
+    if (isQuitting) return
+    isQuitting = true
     e.preventDefault()
-    if (tailscalePollingId !== null) {
-      clearInterval(tailscalePollingId)
-      tailscalePollingId = null
-    }
+    clearInterval(tailscalePollingId)
     destroyPowerManager()
-    shutdownPtyServer(wss).then(() => {
-      app.exit(0)
-    })
+    shutdownPtyServer(wss)
+      .catch((err) => console.error('[main] shutdown error:', err))
+      .finally(() => app.exit(0))
   })
 })
 

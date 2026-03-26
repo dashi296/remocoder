@@ -447,8 +447,16 @@ export function shutdownPtyServer(wss: WebSocketServer): Promise<void> {
     session.pty?.kill()
   }
   ptySessions.clear()
-  return new Promise((resolve) => {
-    wss.close(() => resolve())
+  // 認証前など ptySessions に未登録の接続も強制終了する
+  for (const client of wss.clients) {
+    client.terminate()
+  }
+  return new Promise<void>((resolve) => {
+    const timeout = setTimeout(resolve, 5000)
+    wss.close(() => {
+      clearTimeout(timeout)
+      resolve()
+    })
   })
 }
 

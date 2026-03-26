@@ -871,10 +871,12 @@ export async function getMultiplexerSessions(): Promise<MultiplexerSessionInfo[]
   const results: MultiplexerSessionInfo[] = []
 
   // tmux
+  // TERM を明示的に設定することで tmux の vis(3) エンコードを抑制し、
+  // タブ区切り出力が正しく得られるようにする（GUI 起動時は TERM が未設定になる）
   try {
     const { stdout } = await execAsync(
       'tmux list-panes -a -F "#{session_name}\t#{session_windows}\t#{pane_current_path}"',
-      { env: EXEC_ENV },
+      { env: { ...EXEC_ENV, TERM: 'xterm-256color' } },
     )
     const seenSessions = new Set<string>()
     for (const line of stdout.trim().split('\n').filter(Boolean)) {

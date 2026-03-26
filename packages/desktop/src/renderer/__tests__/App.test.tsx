@@ -48,6 +48,6 @@ describe('App (MOCK_MODE)', () => {
 
   it('フッターにバージョン情報を表示する', async () => {
     render(<App />)
-    await waitFor(() => expect(screen.getByText('v0.1.0')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText(/^v\d+\.\d+\.\d+/)).toBeInTheDocument())
   })
 })

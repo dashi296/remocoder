@@ -8,7 +8,7 @@
 
 ## 概要
 
-RemococderはデスクトップのClaude CodeセッションにiPhone/Androidからアクセスできるツールです。通信はTailscale VPN（WireGuard）で暗号化され、UUIDトークン認証によって保護されます。
+RemoCoderはデスクトップのClaude CodeセッションにiPhone/Androidからアクセスできるツールです。通信はTailscale VPN（WireGuard）で暗号化され、UUIDトークン認証によって保護されます。
 
 ---
 

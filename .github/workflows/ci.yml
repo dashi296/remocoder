@@ -13,6 +13,7 @@ jobs:
     outputs:
       desktop: ${{ steps.filter.outputs.desktop }}
       mobile: ${{ steps.filter.outputs.mobile }}
+      cli: ${{ steps.filter.outputs.cli }}
     steps:
       - uses: actions/checkout@v4
       - uses: dorny/paths-filter@v3
@@ -25,12 +26,15 @@ jobs:
             mobile:
               - 'packages/mobile/**'
               - 'packages/shared/**'
+            cli:
+              - 'packages/cli/**'
+              - 'packages/shared/**'
 
   typecheck:
     name: Type Check
     runs-on: ubuntu-latest
     needs: changes
-    if: needs.changes.outputs.desktop == 'true' || needs.changes.outputs.mobile == 'true'
+    if: needs.changes.outputs.desktop == 'true' || needs.changes.outputs.mobile == 'true' || needs.changes.outputs.cli == 'true'
     steps:
       - uses: actions/checkout@v4
 
@@ -47,11 +51,15 @@ jobs:
         if: needs.changes.outputs.mobile == 'true'
         run: pnpm --filter @remocoder/mobile exec tsc --noEmit
 
+      - name: Type check cli
+        if: needs.changes.outputs.cli == 'true'
+        run: pnpm --filter @remocoder/cli exec tsc --noEmit
+
   test:
     name: Test
     runs-on: ubuntu-latest
     needs: changes
-    if: needs.changes.outputs.desktop == 'true'
+    if: needs.changes.outputs.desktop == 'true' || needs.changes.outputs.cli == 'true'
     steps:
       - uses: actions/checkout@v4
 

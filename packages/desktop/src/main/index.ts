@@ -82,7 +82,7 @@ function createWindow() {
   // 開発モードはウィンドウを閉じたら終了、本番はトレイに残る
   win.on('close', (e) => {
     if (isDev) {
-      app.exit()
+      app.quit()
     } else {
       e.preventDefault()
       win?.hide()

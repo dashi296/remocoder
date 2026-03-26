@@ -8,8 +8,7 @@ describe('App (MOCK_MODE)', () => {
   it('ヘッダーにアプリ名を表示する', async () => {
     render(<App />)
     // 非同期 useEffect の完了を待ってから確認
-    await waitFor(() => expect(screen.getByText('CLAUDE CODE')).toBeInTheDocument())
-    expect(screen.getByText('REMOTE')).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByText('REMOCODER')).toBeInTheDocument())
   })
 
   it('ONLINE インジケーターを表示する', async () => {

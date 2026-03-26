@@ -4,13 +4,10 @@ import type { IncomingMessage } from 'http'
 import { existsSync, readdirSync, statSync } from 'fs'
 import { join } from 'path'
 import { homedir, hostname as osHostname } from 'os'
-import { exec } from 'child_process'
-import { promisify } from 'util'
 import { WsMessage, SessionInfo, ProjectInfo, MultiplexerSessionInfo, SessionSource, DEFAULT_WS_PORT } from '@remocoder/shared'
 import { v4 as uuidv4 } from 'uuid'
 import { tryParsePermission, stripAnsi } from './permission-parser'
-
-const execAsync = promisify(exec)
+import { execAsync, EXEC_ENV } from './exec-env'
 
 let AUTH_TOKEN = process.env.REMOTE_TOKEN ?? uuidv4()
 const SERVER_NAME = osHostname()
@@ -853,6 +850,7 @@ export async function getMultiplexerSessions(): Promise<MultiplexerSessionInfo[]
   try {
     const { stdout } = await execAsync(
       'tmux list-panes -a -F "#{session_name}\t#{session_windows}\t#{pane_current_path}"',
+      { env: EXEC_ENV },
     )
     const seenSessions = new Set<string>()
     for (const line of stdout.trim().split('\n').filter(Boolean)) {
@@ -876,7 +874,7 @@ export async function getMultiplexerSessions(): Promise<MultiplexerSessionInfo[]
   // screen
   try {
     // screen -ls は接続中セッションがある場合に exit code 1 を返すため stdout を取り出す
-    const screenOutput = await execAsync('screen -ls').then(
+    const screenOutput = await execAsync('screen -ls', { env: EXEC_ENV }).then(
       (r) => r.stdout,
       (e: { stdout?: string }) => e.stdout ?? '',
     )
@@ -894,7 +892,7 @@ export async function getMultiplexerSessions(): Promise<MultiplexerSessionInfo[]
 
   // zellij
   try {
-    const { stdout } = await execAsync('zellij list-sessions')
+    const { stdout } = await execAsync('zellij list-sessions', { env: EXEC_ENV })
     for (const line of stdout.trim().split('\n').filter(Boolean)) {
       // "session-name [Created...]" 形式の場合もあるため最初のトークンだけ取得
       const sessionName = line.trim().split(/\s+/)[0]

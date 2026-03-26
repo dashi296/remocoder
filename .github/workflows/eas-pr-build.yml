@@ -5,10 +5,27 @@ on:
     types: [opened, synchronize, reopened]
 
 jobs:
+  changes:
+    name: Detect Changes
+    runs-on: ubuntu-latest
+    outputs:
+      mobile: ${{ steps.filter.outputs.mobile }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            mobile:
+              - 'packages/mobile/**'
+              - 'packages/shared/**'
+
   build-android:
     name: Build Android (EAS Local)
     runs-on: ubuntu-latest
     environment: preview
+    needs: changes
+    if: needs.changes.outputs.mobile == 'true'
     permissions:
       contents: write
     steps:
@@ -45,6 +62,8 @@ jobs:
     name: Build iOS (EAS Local)
     runs-on: macos-26
     environment: preview
+    needs: changes
+    if: needs.changes.outputs.mobile == 'true'
     permissions:
       contents: write
     steps:
@@ -79,8 +98,8 @@ jobs:
     name: Notify Slack
     runs-on: ubuntu-latest
     environment: preview
-    needs: [build-android, build-ios]
-    if: always() && (needs.build-android.result == 'success' || needs.build-ios.result == 'success')
+    needs: [changes, build-android, build-ios]
+    if: needs.changes.outputs.mobile == 'true' && always() && (needs.build-android.result == 'success' || needs.build-ios.result == 'success')
     steps:
       - name: Build Slack payload
         id: payload

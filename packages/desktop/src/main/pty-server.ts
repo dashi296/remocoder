@@ -444,6 +444,7 @@ export function shutdownPtyServer(wss: WebSocketServer): Promise<void> {
     if (session.detachCleanupId) clearTimeout(session.detachCleanupId)
     if (session.pendingPermission) clearTimeout(session.pendingPermission.timeoutId)
     session.wsClient?.terminate()
+    session.providerWs?.terminate()
     session.pty?.kill()
   }
   ptySessions.clear()

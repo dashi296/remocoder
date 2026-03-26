@@ -873,14 +873,17 @@ export async function getMultiplexerSessions(): Promise<MultiplexerSessionInfo[]
   // tmux
   try {
     const { stdout } = await execAsync(
-      'tmux list-panes -a -F "#{session_name}\t#{session_windows}\t#{pane_current_path}"',
+      'tmux list-panes -a -F "#{session_name}|#{session_windows}|#{pane_current_path}"',
       { env: EXEC_ENV },
     )
     const seenSessions = new Set<string>()
     for (const line of stdout.trim().split('\n').filter(Boolean)) {
-      const parts = line.split('\t')
-      if (parts.length < 3) continue
-      const [sessionName, windows, paneCurrentPath] = parts
+      const idx1 = line.indexOf('|')
+      const idx2 = idx1 !== -1 ? line.indexOf('|', idx1 + 1) : -1
+      if (idx1 === -1 || idx2 === -1) continue
+      const sessionName = line.slice(0, idx1)
+      const windows = line.slice(idx1 + 1, idx2)
+      const paneCurrentPath = line.slice(idx2 + 1)
       if (seenSessions.has(sessionName)) continue
       if (!SAFE_SESSION_NAME_RE.test(sessionName)) continue
       seenSessions.add(sessionName)

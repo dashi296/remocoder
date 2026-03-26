@@ -4,6 +4,7 @@ import { readFileSync, writeFileSync } from 'fs'
 import { hostname } from 'os'
 import {
   startPtyServer,
+  shutdownPtyServer,
   rotateToken,
   initToken,
   desktopCreateSession,
@@ -14,7 +15,7 @@ import {
 } from './pty-server'
 import { getTailscaleIP } from './tailscale'
 import { setupAutoUpdater, checkForUpdates, downloadUpdate, installUpdate } from './updater'
-import { initPowerManager, getPowerSettings, setPowerSetting, getPowerStatus } from './power-manager'
+import { initPowerManager, destroyPowerManager, getPowerSettings, setPowerSetting, getPowerStatus } from './power-manager'
 import type { SessionInfo, SessionSource, PowerSettings } from '@remocoder/shared'
 import { v4 as uuidv4 } from 'uuid'
 
@@ -108,7 +109,7 @@ function setupTray(token: string) {
         },
       },
       { type: 'separator' },
-      { label: 'Quit', click: () => app.exit() },
+      { label: 'Quit', click: () => app.quit() },
     ]),
   )
   tray.on('double-click', () => {
@@ -211,10 +212,12 @@ function setupIpc(getToken: () => string) {
   })
 }
 
+let tailscalePollingId: ReturnType<typeof setInterval> | null = null
+
 app.whenReady().then(async () => {
   initToken(loadOrCreateToken())
 
-  const { getToken } = startPtyServer(undefined, {
+  const { wss, getToken } = startPtyServer(undefined, {
     onSessionsChange: (sessions) => {
       currentSessions = sessions
       win?.webContents.send('sessions-update', sessions)
@@ -239,7 +242,7 @@ app.whenReady().then(async () => {
   }
 
   // Tailscale IP を定期的に更新（30秒ごと）
-  setInterval(() => {
+  tailscalePollingId = setInterval(() => {
     getTailscaleIP()
       .then((newIp) => {
         if (newIp !== tailscaleIp) {
@@ -251,6 +254,18 @@ app.whenReady().then(async () => {
         console.error('[main] Tailscale IP ポーリング中に予期しないエラー:', err)
       })
   }, 30000)
+
+  app.on('before-quit', (e) => {
+    e.preventDefault()
+    if (tailscalePollingId !== null) {
+      clearInterval(tailscalePollingId)
+      tailscalePollingId = null
+    }
+    destroyPowerManager()
+    shutdownPtyServer(wss).then(() => {
+      app.exit(0)
+    })
+  })
 })
 
 app.on('window-all-closed', () => {

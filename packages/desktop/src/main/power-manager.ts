@@ -99,3 +99,14 @@ export function setPowerSetting(key: keyof PowerSettings, enabled: boolean): voi
 export function getPowerStatus(): { isOnAC: boolean; isBlockerActive: boolean } {
   return { isOnAC, isBlockerActive: blockerId !== null }
 }
+
+/** アプリ終了時にpowerMonitorリスナーとblockerを解放する */
+export function destroyPowerManager(): void {
+  if (blockerId !== null) {
+    powerSaveBlocker.stop(blockerId)
+    blockerId = null
+  }
+  powerMonitor.removeAllListeners('on-ac')
+  powerMonitor.removeAllListeners('on-battery')
+  mainWindow = null
+}

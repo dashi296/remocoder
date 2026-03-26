@@ -13,6 +13,9 @@ let blockerId: number | null = null
 let isOnAC = true
 let settings: PowerSettings = { ...DEFAULT_POWER_SETTINGS }
 
+const onAc = () => { isOnAC = true; applyBlocker(); notifyRenderer() }
+const onBattery = () => { isOnAC = false; applyBlocker(); notifyRenderer() }
+
 function getSettingsPath(): string {
   return join(app.getPath('userData'), 'power-settings.json')
 }
@@ -65,17 +68,8 @@ export function initPowerManager(win: BrowserWindow): void {
 
   applyBlocker()
 
-  powerMonitor.on('on-ac', () => {
-    isOnAC = true
-    applyBlocker()
-    notifyRenderer()
-  })
-
-  powerMonitor.on('on-battery', () => {
-    isOnAC = false
-    applyBlocker()
-    notifyRenderer()
-  })
+  powerMonitor.on('on-ac', onAc)
+  powerMonitor.on('on-battery', onBattery)
 
   win.on('closed', () => {
     if (blockerId !== null) {
@@ -98,4 +92,15 @@ export function setPowerSetting(key: keyof PowerSettings, enabled: boolean): voi
 
 export function getPowerStatus(): { isOnAC: boolean; isBlockerActive: boolean } {
   return { isOnAC, isBlockerActive: blockerId !== null }
+}
+
+/** アプリ終了時にpowerMonitorリスナーとblockerを解放する */
+export function destroyPowerManager(): void {
+  if (blockerId !== null) {
+    powerSaveBlocker.stop(blockerId)
+    blockerId = null
+  }
+  powerMonitor.off('on-ac', onAc)
+  powerMonitor.off('on-battery', onBattery)
+  mainWindow = null
 }

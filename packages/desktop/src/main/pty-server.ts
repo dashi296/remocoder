@@ -437,6 +437,30 @@ export function getSessions(): SessionInfo[] {
   return getSessionInfos()
 }
 
+/** 全PTYセッションをkillし、WebSocketサーバーを停止する */
+export function shutdownPtyServer(wss: WebSocketServer): Promise<void> {
+  for (const session of ptySessions.values()) {
+    if (session.idleTimeoutId) clearTimeout(session.idleTimeoutId)
+    if (session.detachCleanupId) clearTimeout(session.detachCleanupId)
+    if (session.pendingPermission) clearTimeout(session.pendingPermission.timeoutId)
+    session.wsClient?.terminate()
+    session.providerWs?.terminate()
+    session.pty?.kill()
+  }
+  ptySessions.clear()
+  // 認証前など ptySessions に未登録の接続も強制終了する
+  for (const client of wss.clients) {
+    client.terminate()
+  }
+  return new Promise<void>((resolve) => {
+    const timeout = setTimeout(resolve, 5000)
+    wss.close(() => {
+      clearTimeout(timeout)
+      resolve()
+    })
+  })
+}
+
 // ─── WebSocketサーバー ──────────────────────────────────────────────────────
 
 export function startPtyServer(port = DEFAULT_WS_PORT, callbacks: PtyServerCallbacks = {}) {

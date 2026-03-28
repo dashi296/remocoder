@@ -4,10 +4,10 @@
   "private": true,
   "main": "index.js",
   "scripts": {
-    "start": "expo start",
-    "start:debug": "WITH_ROZENITE=true expo start",
-    "android": "expo run:android",
-    "ios": "expo run:ios",
+    "start": "APP_VARIANT=development expo start",
+    "start:debug": "APP_VARIANT=development WITH_ROZENITE=true expo start",
+    "android": "APP_VARIANT=development expo run:android",
+    "ios": "APP_VARIANT=development expo run:ios",
     "test": "jest --passWithNoTests"
   },
   "dependencies": {

@@ -26,17 +26,11 @@
       "distribution": "internal",
       "ios": {
         "distribution": "store"
-      },
-      "env": {
-        "APP_VARIANT": "production"
       }
     },
     "production": {
       "android": {
         "buildType": "app-bundle"
-      },
-      "env": {
-        "APP_VARIANT": "production"
       }
     }
   }

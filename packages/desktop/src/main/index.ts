@@ -56,15 +56,25 @@ let currentSessions: SessionInfo[] = []
 
 const isDev = !!process.env['ELECTRON_RENDERER_URL']
 
+function loadAppIcon(): Electron.NativeImage | null {
+  // 本番ビルドでは electron-builder がバンドルに埋め込むため不要
+  if (app.isPackaged) return null
+  const ext = process.platform === 'win32' ? 'ico' : process.platform === 'darwin' ? 'icns' : 'png'
+  // __dirname = out/main/ → ../../build/ = packages/desktop/build/
+  return nativeImage.createFromPath(join(__dirname, `../../build/icon.${ext}`))
+}
+
 // 通常ウィンドウサイズ / ターミナル表示時のウィンドウサイズ
 const WINDOW_NORMAL = { width: 360, height: 560 }
 const WINDOW_TERMINAL = { width: 1000, height: 680 }
 
 function createWindow() {
+  const icon = loadAppIcon()
   win = new BrowserWindow({
     width: WINDOW_NORMAL.width,
     height: WINDOW_NORMAL.height,
     resizable: false,
+    ...(icon ? { icon } : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.mjs'),
       contextIsolation: true,
@@ -99,7 +109,10 @@ function resizeWindow(size: { width: number; height: number }): void {
 
 function setupTray(token: string) {
   tray?.destroy()
-  tray = new Tray(nativeImage.createEmpty())
+  const icon = loadAppIcon()
+  // Tray アイコンは小さく表示されるため 22x22 にリサイズ（macOS メニューバー推奨サイズ）
+  const trayIcon = icon?.resize({ width: 22, height: 22 }) ?? nativeImage.createEmpty()
+  tray = new Tray(trayIcon)
   tray.setToolTip('Remocoder')
   tray.setContextMenu(
     Menu.buildFromTemplate([
@@ -221,6 +234,12 @@ let tailscalePollingId: ReturnType<typeof setInterval> | undefined
 let isQuitting = false
 
 app.whenReady().then(async () => {
+  // 開発時の Dock アイコン（本番はバンドルの ICNS が自動適用される）
+  const appIcon = loadAppIcon()
+  if (appIcon && process.platform === 'darwin') {
+    app.dock?.setIcon(appIcon)
+  }
+
   initToken(loadOrCreateToken())
 
   const { wss, getToken } = startPtyServer(undefined, {

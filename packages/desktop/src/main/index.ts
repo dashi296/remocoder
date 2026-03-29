@@ -66,15 +66,19 @@ function loadNativeImage(relativePath: string): Electron.NativeImage | null {
   return image
 }
 
-function loadAppIcon(): Electron.NativeImage | null {
-  if (app.isPackaged) return null
-  // dev 時はオレンジ配色のアイコンで prod と区別する
-  return loadNativeImage(isDev ? 'build/icon-dev.png' : 'build/icon.png')
-}
+const ICON_DEV = 'build/icon-dev.png'
+const ICON_PROD = 'build/icon.png'
+const ICON_TRAY = 'build/icon_tray.png'
+const TRAY_ICON_SIZE = 22 // macOS menu bar standard
 
 // 通常ウィンドウサイズ / ターミナル表示時のウィンドウサイズ
 const WINDOW_NORMAL = { width: 360, height: 560 }
 const WINDOW_TERMINAL = { width: 1000, height: 680 }
+
+function loadAppIcon(): Electron.NativeImage | null {
+  if (app.isPackaged) return null
+  return loadNativeImage(isDev ? ICON_DEV : ICON_PROD)
+}
 
 function createWindow(icon: Electron.NativeImage | null) {
   win = new BrowserWindow({
@@ -96,10 +100,10 @@ function createWindow(icon: Electron.NativeImage | null) {
     win.loadFile(join(__dirname, '../renderer/index.html'))
   }
 
-  // dev ビルドはウィンドウタイトルにサフィックスを付けて prod と区別する
   if (isDev) {
-    win.on('page-title-updated', (e) => e.preventDefault())
-    win.webContents.once('did-finish-load', () => win?.setTitle('RemoCoder [Dev]'))
+    const thisWin = win
+    thisWin.on('page-title-updated', (e) => e.preventDefault())
+    thisWin.webContents.once('did-finish-load', () => thisWin.setTitle('RemoCoder [Dev]'))
   }
 
   // 開発モードはウィンドウを閉じたら終了、本番はトレイに残る
@@ -121,28 +125,27 @@ function resizeWindow(size: { width: number; height: number }): void {
 }
 
 function loadTrayIcon(): Electron.NativeImage {
-  // dev ビルドはオレンジアイコンで prod と区別する（トレイサイズにリサイズ）
   if (isDev) {
-    const devIcon = loadNativeImage('build/icon-dev.png')
-    if (devIcon) return devIcon.resize({ width: 22, height: 22 })
+    const devIcon = loadNativeImage(ICON_DEV)
+    if (devIcon) return devIcon.resize({ width: TRAY_ICON_SIZE, height: TRAY_ICON_SIZE })
     return nativeImage.createEmpty()
   }
   if (process.platform === 'darwin') {
     // macOS: 白・透明背景のテンプレートアイコン（ダーク/ライトモード自動対応）
-    const trayIcon = loadNativeImage('build/icon_tray.png')
+    const trayIcon = loadNativeImage(ICON_TRAY)
     if (trayIcon) {
       trayIcon.setTemplateImage(true)
       return trayIcon
     }
   }
   // Windows / Linux: 白アイコンは明るいタスクバーで不可視になるためカラーにフォールバック
-  return loadNativeImage('build/icon.png') ?? nativeImage.createEmpty()
+  return loadNativeImage(ICON_PROD) ?? nativeImage.createEmpty()
 }
 
 function setupTray(token: string) {
   tray?.destroy()
   tray = new Tray(loadTrayIcon())
-  tray.setToolTip(isDev ? 'Remocoder [Dev]' : 'Remocoder')
+  tray.setToolTip(isDev ? 'RemoCoder [Dev]' : 'RemoCoder')
   tray.setContextMenu(
     Menu.buildFromTemplate([
       { label: `Tailscale IP: ${tailscaleIp ?? 'Disconnected'}`, enabled: false },

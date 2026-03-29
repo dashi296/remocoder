@@ -73,15 +73,14 @@ export function PermissionSheet({ request, onDecide }: Props) {
   if (!request) return null
   const decide = (decision: 'approve' | 'reject' | 'always') => onDecide(request.requestId, decision)
 
-  // キーボード表示中は bottom をキーボード高さ分オフセットして隠れを防ぐ
-  const sheetBottom = keyboardHeight
   const sheetPaddingBottom = keyboardHeight > 0 ? 24 : 24 + bottomInset
 
   return (
     <Animated.View
       style={[
         styles.sheet,
-        { bottom: sheetBottom, paddingBottom: sheetPaddingBottom, transform: [{ translateY: slideAnim }] },
+        // キーボード表示中は bottom をキーボード高さ分オフセットして隠れを防ぐ
+        { bottom: keyboardHeight, paddingBottom: sheetPaddingBottom, transform: [{ translateY: slideAnim }] },
       ]}
     >
       {/* Progress bar */}

@@ -91,7 +91,6 @@ export function TerminalScreen() {
           setStatus('auth_error')
           break
         case 'session_attached':
-          console.log('[TerminalScreen] session_attached → pendingPermission をリセット')
           setStatus('connected')
           setPendingPermission(null)
           break
@@ -99,7 +98,6 @@ export function TerminalScreen() {
           setStatus('connected')
           break
         case 'disconnected':
-          console.log('[TerminalScreen] disconnected → pendingPermission をリセット')
           setStatus('reconnecting')
           setPendingPermission(null)
           break
@@ -110,7 +108,6 @@ export function TerminalScreen() {
           setStatus('auth_error')
           break
         case 'permission_request':
-          console.log('[TerminalScreen] permission_request 受信:', msg)
           setPendingPermission({
             requestId: msg.requestId as string,
             toolName: msg.toolName as string,

@@ -236,6 +236,19 @@ const PERMISSION_TIMEOUT = 60000
  * 承認リクエストをモバイルクライアントへ送信し、タイムアウト時に自動拒否する。
  * 呼び出し前に wsClient が OPEN であることを確認すること。
  */
+function sendPermissionToClient(ws: WebSocket, p: NonNullable<PtySession['pendingPermission']>): void {
+  ws.send(
+    JSON.stringify({
+      type: 'permission_request',
+      requestId: p.requestId,
+      toolName: p.toolName,
+      details: p.details,
+      requiresAlways: p.requiresAlways,
+      createdAt: p.createdAt,
+    } satisfies WsMessage),
+  )
+}
+
 function sendPermissionRequest(
   session: PtySession,
   toolName: string,
@@ -254,18 +267,10 @@ function sendPermissionRequest(
     }
   }, PERMISSION_TIMEOUT)
 
-  session.pendingPermission = { requestId, timeoutId, style, requiresAlways, toolName, details, createdAt }
+  const pending = { requestId, timeoutId, style, requiresAlways, toolName, details, createdAt }
+  session.pendingPermission = pending
   session.permissionBuffer = ''
-  session.wsClient!.send(
-    JSON.stringify({
-      type: 'permission_request',
-      requestId,
-      toolName,
-      details,
-      requiresAlways,
-      createdAt,
-    } satisfies WsMessage),
-  )
+  sendPermissionToClient(session.wsClient!, pending)
 }
 
 /**
@@ -295,17 +300,7 @@ function checkPermissionOnAttach(session: PtySession): void {
   if (session.wsClient?.readyState !== WebSocket.OPEN) return
 
   if (session.pendingPermission) {
-    const p = session.pendingPermission
-    session.wsClient.send(
-      JSON.stringify({
-        type: 'permission_request',
-        requestId: p.requestId,
-        toolName: p.toolName,
-        details: p.details,
-        requiresAlways: p.requiresAlways,
-        createdAt: p.createdAt,
-      } satisfies WsMessage),
-    )
+    sendPermissionToClient(session.wsClient, session.pendingPermission)
     return
   }
 

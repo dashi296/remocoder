@@ -18,6 +18,7 @@ if (!VALID_VARIANTS.includes(variant)) {
   )
 }
 
+// preview は prod と同じアイコン・名前を使用する（意図的）
 const IS_DEV = variant === 'development'
 
 module.exports = ({ config }) => {
@@ -51,7 +52,7 @@ module.exports = ({ config }) => {
         ...config.android?.adaptiveIcon,
         foregroundImage: iconPath,
       },
-      package: IS_DEV ? 'com.remocoder.app.dev' : config.android.package,
+      package: IS_DEV ? 'com.remocoder.app.dev' : config.android?.package,
       versionCode,
     },
   }

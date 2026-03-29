@@ -59,9 +59,15 @@ const isDev = !!process.env['ELECTRON_RENDERER_URL']
 function loadAppIcon(): Electron.NativeImage | null {
   // 本番ビルドでは electron-builder がバンドルに埋め込むため不要
   if (app.isPackaged) return null
-  const ext = process.platform === 'win32' ? 'ico' : process.platform === 'darwin' ? 'icns' : 'png'
-  // __dirname = out/main/ → ../../build/ = packages/desktop/build/
-  return nativeImage.createFromPath(join(__dirname, `../../build/icon.${ext}`))
+  // app.getAppPath() = packages/desktop/（electron-vite dev/prod 共通）
+  // PNG は全プラットフォームで nativeImage がロードできるため PNG に統一
+  const iconPath = join(app.getAppPath(), 'build/icon.png')
+  const icon = nativeImage.createFromPath(iconPath)
+  if (icon.isEmpty()) {
+    console.warn('[icon] failed to load icon from:', iconPath)
+    return null
+  }
+  return icon
 }
 
 // 通常ウィンドウサイズ / ターミナル表示時のウィンドウサイズ

@@ -114,14 +114,17 @@ function resizeWindow(size: { width: number; height: number }): void {
 }
 
 function loadTrayIcon(): Electron.NativeImage {
-  // macOS メニューバー用テンプレートアイコン（白・透明背景）
-  // setTemplateImage(true) でダーク/ライトモードを自動対応
-  const trayIcon = nativeImage.createFromPath(join(app.getAppPath(), 'build/icon_tray.png'))
-  if (!trayIcon.isEmpty()) {
-    trayIcon.setTemplateImage(true)
-    return trayIcon
+  if (process.platform === 'darwin') {
+    // macOS: 白・透明背景のテンプレートアイコン（ダーク/ライトモード自動対応）
+    const trayIcon = nativeImage.createFromPath(join(app.getAppPath(), 'build/icon_tray.png'))
+    if (!trayIcon.isEmpty()) {
+      trayIcon.setTemplateImage(true)
+      return trayIcon
+    }
   }
-  return nativeImage.createEmpty()
+  // Windows / Linux: カラーアイコンにフォールバック（白アイコンは明るいタスクバーで不可視になるため）
+  const fallback = nativeImage.createFromPath(join(app.getAppPath(), 'build/icon.png'))
+  return fallback.isEmpty() ? nativeImage.createEmpty() : fallback
 }
 
 function setupTray(token: string) {

@@ -113,12 +113,20 @@ function resizeWindow(size: { width: number; height: number }): void {
   win?.setResizable(false)
 }
 
+function loadTrayIcon(): Electron.NativeImage {
+  // macOS メニューバー用テンプレートアイコン（白・透明背景）
+  // setTemplateImage(true) でダーク/ライトモードを自動対応
+  const trayIcon = nativeImage.createFromPath(join(app.getAppPath(), 'build/icon_tray.png'))
+  if (!trayIcon.isEmpty()) {
+    trayIcon.setTemplateImage(true)
+    return trayIcon
+  }
+  return nativeImage.createEmpty()
+}
+
 function setupTray(token: string) {
   tray?.destroy()
-  const icon = loadAppIcon()
-  // Tray アイコンは小さく表示されるため 22x22 にリサイズ（macOS メニューバー推奨サイズ）
-  const trayIcon = icon?.resize({ width: 22, height: 22 }) ?? nativeImage.createEmpty()
-  tray = new Tray(trayIcon)
+  tray = new Tray(loadTrayIcon())
   tray.setToolTip('Remocoder')
   tray.setContextMenu(
     Menu.buildFromTemplate([

@@ -96,6 +96,12 @@ function createWindow(icon: Electron.NativeImage | null) {
     win.loadFile(join(__dirname, '../renderer/index.html'))
   }
 
+  // dev ビルドはウィンドウタイトルにサフィックスを付けて prod と区別する
+  if (isDev) {
+    win.on('page-title-updated', (e) => e.preventDefault())
+    win.webContents.once('did-finish-load', () => win?.setTitle('RemoCoder [Dev]'))
+  }
+
   // 開発モードはウィンドウを閉じたら終了、本番はトレイに残る
   win.on('close', (e) => {
     if (isDev) {
@@ -115,6 +121,12 @@ function resizeWindow(size: { width: number; height: number }): void {
 }
 
 function loadTrayIcon(): Electron.NativeImage {
+  // dev ビルドはオレンジアイコンで prod と区別する（トレイサイズにリサイズ）
+  if (isDev) {
+    const devIcon = loadNativeImage('build/icon-dev.png')
+    if (devIcon) return devIcon.resize({ width: 22, height: 22 })
+    return nativeImage.createEmpty()
+  }
   if (process.platform === 'darwin') {
     // macOS: 白・透明背景のテンプレートアイコン（ダーク/ライトモード自動対応）
     const trayIcon = loadNativeImage('build/icon_tray.png')
@@ -130,7 +142,7 @@ function loadTrayIcon(): Electron.NativeImage {
 function setupTray(token: string) {
   tray?.destroy()
   tray = new Tray(loadTrayIcon())
-  tray.setToolTip('Remocoder')
+  tray.setToolTip(isDev ? 'Remocoder [Dev]' : 'Remocoder')
   tray.setContextMenu(
     Menu.buildFromTemplate([
       { label: `Tailscale IP: ${tailscaleIp ?? 'Disconnected'}`, enabled: false },

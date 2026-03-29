@@ -73,10 +73,8 @@ export function PermissionSheet({ request, onDecide }: Props) {
   if (!request) return null
   const decide = (decision: 'approve' | 'reject' | 'always') => onDecide(request.requestId, decision)
 
-  // キーボード表示中はシートをキーボード上端に移動させる。
-  // position: absolute の bottom: 0 はキーボード下に隠れるため、
-  // keyboardHeight 分だけ上にオフセットする。
-  const sheetBottom = keyboardHeight > 0 ? keyboardHeight : 0
+  // キーボード表示中は bottom をキーボード高さ分オフセットして隠れを防ぐ
+  const sheetBottom = keyboardHeight
   const sheetPaddingBottom = keyboardHeight > 0 ? 24 : 24 + bottomInset
 
   return (

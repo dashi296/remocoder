@@ -143,7 +143,7 @@ interface PtySession {
   /** 承認プロンプト検出用の直近出力バッファ（ANSIなし、上限2KB） */
   permissionBuffer: string
   /** 承認待ちリクエスト（存在する間は重複検出しない） */
-  pendingPermission: { requestId: string; timeoutId: ReturnType<typeof setTimeout>; style: 'numbered' | 'legacy'; requiresAlways: boolean; toolName: string; details: string[] } | null
+  pendingPermission: { requestId: string; timeoutId: ReturnType<typeof setTimeout>; style: 'numbered' | 'legacy'; requiresAlways: boolean; toolName: string; details: string[]; createdAt: number } | null
   /** デタッチ後に再接続がなければセッションを自動削除するタイマー */
   detachCleanupId: ReturnType<typeof setTimeout> | null
 }
@@ -244,6 +244,7 @@ function sendPermissionRequest(
   style: 'numbered' | 'legacy',
 ): void {
   const requestId = uuidv4()
+  const createdAt = Date.now()
   const timeoutId = setTimeout(() => {
     if (session.pendingPermission?.requestId === requestId) {
       const p = session.pendingPermission
@@ -253,7 +254,7 @@ function sendPermissionRequest(
     }
   }, PERMISSION_TIMEOUT)
 
-  session.pendingPermission = { requestId, timeoutId, style, requiresAlways, toolName, details }
+  session.pendingPermission = { requestId, timeoutId, style, requiresAlways, toolName, details, createdAt }
   session.permissionBuffer = ''
   session.wsClient!.send(
     JSON.stringify({
@@ -262,6 +263,7 @@ function sendPermissionRequest(
       toolName,
       details,
       requiresAlways,
+      createdAt,
     } satisfies WsMessage),
   )
 }
@@ -301,6 +303,7 @@ function checkPermissionOnAttach(session: PtySession): void {
         toolName: p.toolName,
         details: p.details,
         requiresAlways: p.requiresAlways,
+        createdAt: p.createdAt,
       } satisfies WsMessage),
     )
     return

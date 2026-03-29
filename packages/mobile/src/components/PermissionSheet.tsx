@@ -8,6 +8,7 @@ export interface PermissionRequest {
   toolName: string
   details: string[]
   requiresAlways: boolean
+  createdAt: number
 }
 
 interface Props {
@@ -53,11 +54,15 @@ export function PermissionSheet({ request, onDecide }: Props) {
 
   useEffect(() => {
     if (!request) return
+    // 経過時間を考慮した残り時間・進捗を計算（再接続時にタイマーが正確に引き継がれる）
+    const elapsed = Date.now() - request.createdAt
+    const remaining = Math.max(TIMEOUT_MS - elapsed, 0)
+    const initialProgress = remaining / TIMEOUT_MS
     slideAnim.setValue(300)
     const spring = Animated.spring(slideAnim, { toValue: 0, useNativeDriver: true, bounciness: 4 })
-    const timing = Animated.timing(progressAnim, { toValue: 0, duration: TIMEOUT_MS, useNativeDriver: false })
+    const timing = Animated.timing(progressAnim, { toValue: 0, duration: remaining, useNativeDriver: false })
     spring.start()
-    progressAnim.setValue(1)
+    progressAnim.setValue(initialProgress)
     timing.start(({ finished }) => { if (finished) onDecide(request.requestId, 'reject') })
     return () => { spring.stop(); timing.stop() }
   }, [request, slideAnim, progressAnim, onDecide])

@@ -1,4 +1,5 @@
-const IS_DEV = process.env.APP_VARIANT === 'development'
+const variant = process.env.EAS_BUILD_PROFILE ?? process.env.APP_VARIANT ?? 'production'
+const IS_DEV = variant === 'development'
 
 module.exports = ({ config }) => {
   const version = config.version || '0.0.1'

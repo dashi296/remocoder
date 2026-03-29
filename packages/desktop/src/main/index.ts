@@ -69,7 +69,7 @@ function loadNativeImage(relativePath: string): Electron.NativeImage | null {
 const ICON_DEV = 'build/icon-dev.png'
 const ICON_PROD = 'build/icon.png'
 const ICON_TRAY = 'build/icon_tray.png'
-const TRAY_ICON_SIZE = 22 // macOS menu bar standard
+const DEV_TRAY_ICON_SIZE = 22 // icon-dev.png は 1024px のためトレイサイズにダウンスケール
 
 // 通常ウィンドウサイズ / ターミナル表示時のウィンドウサイズ
 const WINDOW_NORMAL = { width: 360, height: 560 }
@@ -101,6 +101,7 @@ function createWindow(icon: Electron.NativeImage | null) {
   }
 
   if (isDev) {
+    // モジュールレベルの win は再代入される可能性があるためローカルにキャプチャ
     const thisWin = win
     thisWin.on('page-title-updated', (e) => e.preventDefault())
     thisWin.webContents.once('did-finish-load', () => thisWin.setTitle('RemoCoder [Dev]'))
@@ -127,7 +128,7 @@ function resizeWindow(size: { width: number; height: number }): void {
 function loadTrayIcon(): Electron.NativeImage {
   if (isDev) {
     const devIcon = loadNativeImage(ICON_DEV)
-    if (devIcon) return devIcon.resize({ width: TRAY_ICON_SIZE, height: TRAY_ICON_SIZE })
+    if (devIcon) return devIcon.resize({ width: DEV_TRAY_ICON_SIZE, height: DEV_TRAY_ICON_SIZE })
     return nativeImage.createEmpty()
   }
   if (process.platform === 'darwin') {

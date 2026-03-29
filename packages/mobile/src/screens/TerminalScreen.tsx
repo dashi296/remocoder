@@ -113,6 +113,7 @@ export function TerminalScreen() {
             toolName: msg.toolName as string,
             details: msg.details as string[],
             requiresAlways: msg.requiresAlways as boolean,
+            createdAt: msg.createdAt as number,
           })
           break
         default:

@@ -7,6 +7,7 @@ const makeRequest = (overrides: Partial<PermissionRequest> = {}): PermissionRequ
   toolName: 'Bash',
   details: ['echo hello'],
   requiresAlways: false,
+  createdAt: Date.now(),
   ...overrides,
 })
 

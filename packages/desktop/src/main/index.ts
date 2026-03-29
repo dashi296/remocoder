@@ -56,15 +56,32 @@ let currentSessions: SessionInfo[] = []
 
 const isDev = !!process.env['ELECTRON_RENDERER_URL']
 
+function loadNativeImage(relativePath: string): Electron.NativeImage | null {
+  const fullPath = join(app.getAppPath(), relativePath)
+  const image = nativeImage.createFromPath(fullPath)
+  if (image.isEmpty()) {
+    console.warn('[icon] failed to load image from:', fullPath)
+    return null
+  }
+  return image
+}
+
+function loadAppIcon(): Electron.NativeImage | null {
+  if (app.isPackaged) return null
+  // dev 時はオレンジ配色のアイコンで prod と区別する
+  return loadNativeImage(isDev ? 'build/icon-dev.png' : 'build/icon.png')
+}
+
 // 通常ウィンドウサイズ / ターミナル表示時のウィンドウサイズ
 const WINDOW_NORMAL = { width: 360, height: 560 }
 const WINDOW_TERMINAL = { width: 1000, height: 680 }
 
-function createWindow() {
+function createWindow(icon: Electron.NativeImage | null) {
   win = new BrowserWindow({
     width: WINDOW_NORMAL.width,
     height: WINDOW_NORMAL.height,
     resizable: false,
+    ...(icon ? { icon } : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.mjs'),
       contextIsolation: true,
@@ -97,9 +114,22 @@ function resizeWindow(size: { width: number; height: number }): void {
   win?.setResizable(false)
 }
 
+function loadTrayIcon(): Electron.NativeImage {
+  if (process.platform === 'darwin') {
+    // macOS: 白・透明背景のテンプレートアイコン（ダーク/ライトモード自動対応）
+    const trayIcon = loadNativeImage('build/icon_tray.png')
+    if (trayIcon) {
+      trayIcon.setTemplateImage(true)
+      return trayIcon
+    }
+  }
+  // Windows / Linux: 白アイコンは明るいタスクバーで不可視になるためカラーにフォールバック
+  return loadNativeImage('build/icon.png') ?? nativeImage.createEmpty()
+}
+
 function setupTray(token: string) {
   tray?.destroy()
-  tray = new Tray(nativeImage.createEmpty())
+  tray = new Tray(loadTrayIcon())
   tray.setToolTip('Remocoder')
   tray.setContextMenu(
     Menu.buildFromTemplate([
@@ -221,6 +251,11 @@ let tailscalePollingId: ReturnType<typeof setInterval> | undefined
 let isQuitting = false
 
 app.whenReady().then(async () => {
+  const appIcon = loadAppIcon()
+  if (appIcon && process.platform === 'darwin') {
+    app.dock?.setIcon(appIcon)
+  }
+
   initToken(loadOrCreateToken())
 
   const { wss, getToken } = startPtyServer(undefined, {
@@ -238,7 +273,7 @@ app.whenReady().then(async () => {
 
   tailscaleIp = await getTailscaleIP()
 
-  createWindow()
+  createWindow(appIcon)
   setupTray(getToken())
   setupIpc(getToken)
 

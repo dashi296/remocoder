@@ -1,12 +1,14 @@
 import React, { useEffect, useMemo, useRef } from 'react'
 import { Animated, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import { useKeyboardHeight } from '../hooks/useKeyboardHeight'
 
 export interface PermissionRequest {
   requestId: string
   toolName: string
   details: string[]
   requiresAlways: boolean
+  createdAt: number
 }
 
 interface Props {
@@ -46,16 +48,21 @@ function isDangerous(details: string[]): boolean {
 
 export function PermissionSheet({ request, onDecide }: Props) {
   const { bottom: bottomInset } = useSafeAreaInsets()
+  const keyboardHeight = useKeyboardHeight()
   const slideAnim = useRef(new Animated.Value(300)).current
   const progressAnim = useRef(new Animated.Value(1)).current
 
   useEffect(() => {
     if (!request) return
+    // 経過時間を考慮した残り時間・進捗を計算（再接続時にタイマーが正確に引き継がれる）
+    const elapsed = Date.now() - request.createdAt
+    const remaining = Math.max(TIMEOUT_MS - elapsed, 0)
+    const initialProgress = Math.min(remaining / TIMEOUT_MS, 1)
     slideAnim.setValue(300)
     const spring = Animated.spring(slideAnim, { toValue: 0, useNativeDriver: true, bounciness: 4 })
-    const timing = Animated.timing(progressAnim, { toValue: 0, duration: TIMEOUT_MS, useNativeDriver: false })
+    const timing = Animated.timing(progressAnim, { toValue: 0, duration: remaining, useNativeDriver: false })
     spring.start()
-    progressAnim.setValue(1)
+    progressAnim.setValue(initialProgress)
     timing.start(({ finished }) => { if (finished) onDecide(request.requestId, 'reject') })
     return () => { spring.stop(); timing.stop() }
   }, [request, slideAnim, progressAnim, onDecide])
@@ -66,9 +73,15 @@ export function PermissionSheet({ request, onDecide }: Props) {
   if (!request) return null
   const decide = (decision: 'approve' | 'reject' | 'always') => onDecide(request.requestId, decision)
 
+  const sheetPaddingBottom = keyboardHeight > 0 ? 24 : 24 + bottomInset
+
   return (
     <Animated.View
-      style={[styles.sheet, { paddingBottom: 24 + bottomInset, transform: [{ translateY: slideAnim }] }]}
+      style={[
+        styles.sheet,
+        // キーボード表示中は bottom をキーボード高さ分オフセットして隠れを防ぐ
+        { bottom: keyboardHeight, paddingBottom: sheetPaddingBottom, transform: [{ translateY: slideAnim }] },
+      ]}
     >
       {/* Progress bar */}
       <Animated.View

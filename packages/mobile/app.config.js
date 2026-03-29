@@ -35,10 +35,12 @@ module.exports = ({ config }) => {
     }
   }
 
+  const iconPath = IS_DEV ? './assets/icon-dev.png' : './assets/icon.png'
+
   return {
     ...config,
     name: IS_DEV ? 'Remocoder Dev' : config.name,
-    icon: IS_DEV ? './assets/icon-dev.png' : './assets/icon.png',
+    icon: iconPath,
     ios: {
       ...config.ios,
       bundleIdentifier: IS_DEV ? 'com.remocoder.app.dev' : config.ios?.bundleIdentifier,
@@ -46,8 +48,8 @@ module.exports = ({ config }) => {
     android: {
       ...config.android,
       adaptiveIcon: {
-        ...(config.android?.adaptiveIcon ?? {}),
-        foregroundImage: IS_DEV ? './assets/icon-dev.png' : './assets/icon.png',
+        ...config.android?.adaptiveIcon,
+        foregroundImage: iconPath,
       },
       package: IS_DEV ? 'com.remocoder.app.dev' : config.android.package,
       versionCode,

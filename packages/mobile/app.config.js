@@ -38,12 +38,17 @@ module.exports = ({ config }) => {
   return {
     ...config,
     name: IS_DEV ? 'Remocoder Dev' : config.name,
+    icon: IS_DEV ? './assets/icon-dev.png' : './assets/icon.png',
     ios: {
       ...config.ios,
       bundleIdentifier: IS_DEV ? 'com.remocoder.app.dev' : config.ios?.bundleIdentifier,
     },
     android: {
       ...config.android,
+      adaptiveIcon: {
+        ...(config.android?.adaptiveIcon ?? {}),
+        foregroundImage: IS_DEV ? './assets/icon-dev.png' : './assets/icon.png',
+      },
       package: IS_DEV ? 'com.remocoder.app.dev' : config.android.package,
       versionCode,
     },

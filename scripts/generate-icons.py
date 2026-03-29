@@ -6,11 +6,12 @@
 使い方: python3 scripts/generate-icons.py
 
 生成されるファイル:
-  packages/desktop/build/icon.icns         -- macOS アプリアイコン
-  packages/desktop/build/icon.ico          -- Windows アプリアイコン
-  packages/desktop/build/icon.png          -- Linux / dev 参照用
-  packages/desktop/build/icon_tray.png     -- macOS メニューバー (1x)
-  packages/desktop/build/icon_tray@2x.png  -- macOS メニューバー (2x Retina)
+  packages/desktop/build/icon.icns          -- macOS アプリアイコン (prod)
+  packages/desktop/build/icon.ico           -- Windows アプリアイコン (prod)
+  packages/desktop/build/icon.png           -- Linux / dev 参照用 (prod)
+  packages/desktop/build/icon-dev.png       -- dev 用アイコン (オレンジ配色)
+  packages/desktop/build/icon_tray.png      -- macOS メニューバー (1x)
+  packages/desktop/build/icon_tray@2x.png   -- macOS メニューバー (2x Retina)
 """
 
 import subprocess
@@ -29,14 +30,19 @@ except ImportError:
 REPO_ROOT     = Path(__file__).parent.parent
 DESKTOP_BUILD = REPO_ROOT / 'packages' / 'desktop' / 'build'
 
-SIZE         = 1024
-BG_COLOR     = (18, 22, 20, 255)   # --bg-base
-BORDER_DARK  = (45, 64, 53, 255)   # --border-bright #2d4035
-GLOW_COLOR   = (61, 255, 143)      # --green #3dff8f
-GREEN        = (0, 255, 128, 255)  # シンボル色
+SIZE        = 1024
+BG_COLOR    = (18, 22, 20, 255)   # --bg-base
+BORDER_DARK = (45, 64, 53, 255)   # --border-bright #2d4035
+GLOW_COLOR  = (61, 255, 143)      # --green #3dff8f
+GREEN       = (0, 255, 128, 255)  # シンボル色（prod）
 
-MARGIN       = int(SIZE * 0.12)    # Apple HIG 推奨余白 (~12%)
-CORNER_R     = 160
+# dev 用オレンジ配色
+BORDER_DARK_DEV = (80, 45, 10, 255)
+GLOW_COLOR_DEV  = (255, 140, 0)
+ORANGE          = (255, 160, 40, 255)
+
+MARGIN   = int(SIZE * 0.12)    # Apple HIG 推奨余白 (~12%)
+CORNER_R = 160
 
 # ── ヘルパー ─────────────────────────────────────────────────────────────────
 
@@ -62,35 +68,35 @@ def draw_terminal_symbol(draw: 'ImageDraw.ImageDraw', size: int,
     def pt(x: float, y: float) -> tuple:
         return int(draw_offset + x * scale), int(draw_offset + y * scale)
 
-    # ">" chevron
     draw.line([pt(4, 17), pt(10, 11), pt(4, 5)], fill=color, width=lw, joint='curve')
-    # "_" underscore
     draw.line([pt(12, 19), pt(20, 19)], fill=color, width=lw)
 
 
 # ── アイコン生成 ──────────────────────────────────────────────────────────────
 
-def generate_app_icon() -> 'Image.Image':
+def generate_app_icon(
+    border_dark: tuple = BORDER_DARK,
+    glow_rgb: tuple = GLOW_COLOR,
+    symbol_color: tuple = GREEN,
+) -> 'Image.Image':
     """1024x1024 の RGBA アプリアイコンを生成して返す"""
-    # ベース（背景 + ダーク枠線）
     base = Image.new('RGBA', (SIZE, SIZE), (0, 0, 0, 0))
     d    = ImageDraw.Draw(base)
     d.rounded_rectangle([MARGIN, MARGIN, SIZE - MARGIN, SIZE - MARGIN],
                         radius=CORNER_R, fill=BG_COLOR,
-                        outline=BORDER_DARK, width=6)
+                        outline=border_dark, width=6)
 
-    # インナーグロー（枠内側にブラー）
     glow = Image.new('RGBA', (SIZE, SIZE), (0, 0, 0, 0))
     gd   = ImageDraw.Draw(glow)
     gd.rounded_rectangle([MARGIN, MARGIN, SIZE - MARGIN, SIZE - MARGIN],
-                         radius=CORNER_R, outline=(*GLOW_COLOR, 80), width=30)
+                         radius=CORNER_R, outline=(*glow_rgb, 80), width=30)
     glow = glow.filter(ImageFilter.GaussianBlur(radius=14))
     inner_mask = rounded_rect_mask(MARGIN, CORNER_R, shrink=2)
     glow.putalpha(ImageChops.multiply(glow.getchannel('A'), inner_mask))
 
     result = Image.alpha_composite(base, glow)
     draw_terminal_symbol(ImageDraw.Draw(result), SIZE, MARGIN,
-                         inner_padding=60, color=GREEN)
+                         inner_padding=60, color=symbol_color)
     return result
 
 
@@ -144,13 +150,12 @@ def save_ico(png_path: Path, out_path: Path) -> None:
 def main() -> None:
     DESKTOP_BUILD.mkdir(parents=True, exist_ok=True)
 
-    # アプリアイコン（PNG）
+    # prod アイコン
+    print('Generating prod app icon...')
     png_path = DESKTOP_BUILD / 'icon.png'
-    print('Generating app icon...')
     generate_app_icon().save(png_path)
     print(f'  Saved: {png_path}')
 
-    # ICNS (macOS)
     if sys.platform == 'darwin':
         icns_path = DESKTOP_BUILD / 'icon.icns'
         save_icns(png_path, icns_path)
@@ -158,12 +163,21 @@ def main() -> None:
     else:
         print('  Skipped icon.icns (macOS only)')
 
-    # ICO (Windows)
     ico_path = DESKTOP_BUILD / 'icon.ico'
     save_ico(png_path, ico_path)
     print(f'  Saved: {ico_path}')
 
-    # Tray アイコン (macOS メニューバー用)
+    # dev アイコン（オレンジ配色）
+    print('Generating dev app icon...')
+    dev_png_path = DESKTOP_BUILD / 'icon-dev.png'
+    generate_app_icon(
+        border_dark=BORDER_DARK_DEV,
+        glow_rgb=GLOW_COLOR_DEV,
+        symbol_color=ORANGE,
+    ).save(dev_png_path)
+    print(f'  Saved: {dev_png_path}')
+
+    # Tray アイコン
     print('Generating tray icon...')
     for size, suffix in [(22, ''), (44, '@2x')]:
         path = DESKTOP_BUILD / f'icon_tray{suffix}.png'

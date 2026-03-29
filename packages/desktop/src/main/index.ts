@@ -59,9 +59,9 @@ const isDev = !!process.env['ELECTRON_RENDERER_URL']
 function loadAppIcon(): Electron.NativeImage | null {
   // 本番ビルドでは electron-builder がバンドルに埋め込むため不要
   if (app.isPackaged) return null
-  // app.getAppPath() = packages/desktop/（electron-vite dev/prod 共通）
-  // PNG は全プラットフォームで nativeImage がロードできるため PNG に統一
-  const iconPath = join(app.getAppPath(), 'build/icon.png')
+  // dev 時はオレンジ配色のアイコンで prod と区別する
+  const iconFile = isDev ? 'icon-dev.png' : 'icon.png'
+  const iconPath = join(app.getAppPath(), `build/${iconFile}`)
   const icon = nativeImage.createFromPath(iconPath)
   if (icon.isEmpty()) {
     console.warn('[icon] failed to load icon from:', iconPath)

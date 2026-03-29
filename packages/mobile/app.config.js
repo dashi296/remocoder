@@ -40,7 +40,7 @@ module.exports = ({ config }) => {
     name: IS_DEV ? 'Remocoder Dev' : config.name,
     ios: {
       ...config.ios,
-      bundleIdentifier: IS_DEV ? 'com.remocoder.app.dev' : config.ios.bundleIdentifier,
+      bundleIdentifier: IS_DEV ? 'com.remocoder.app.dev' : config.ios?.bundleIdentifier,
     },
     android: {
       ...config.android,

@@ -57,7 +57,7 @@ export function PermissionSheet({ request, onDecide }: Props) {
     // 経過時間を考慮した残り時間・進捗を計算（再接続時にタイマーが正確に引き継がれる）
     const elapsed = Date.now() - request.createdAt
     const remaining = Math.max(TIMEOUT_MS - elapsed, 0)
-    const initialProgress = remaining / TIMEOUT_MS
+    const initialProgress = Math.min(remaining / TIMEOUT_MS, 1)
     slideAnim.setValue(300)
     const spring = Animated.spring(slideAnim, { toValue: 0, useNativeDriver: true, bounciness: 4 })
     const timing = Animated.timing(progressAnim, { toValue: 0, duration: remaining, useNativeDriver: false })

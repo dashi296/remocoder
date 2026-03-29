@@ -143,7 +143,7 @@ interface PtySession {
   /** 承認プロンプト検出用の直近出力バッファ（ANSIなし、上限2KB） */
   permissionBuffer: string
   /** 承認待ちリクエスト（存在する間は重複検出しない） */
-  pendingPermission: { requestId: string; timeoutId: ReturnType<typeof setTimeout>; style: 'numbered' | 'legacy'; requiresAlways: boolean } | null
+  pendingPermission: { requestId: string; timeoutId: ReturnType<typeof setTimeout>; style: 'numbered' | 'legacy'; requiresAlways: boolean; toolName: string; details: string[] } | null
   /** デタッチ後に再接続がなければセッションを自動削除するタイマー */
   detachCleanupId: ReturnType<typeof setTimeout> | null
 }
@@ -253,7 +253,7 @@ function sendPermissionRequest(
     }
   }, PERMISSION_TIMEOUT)
 
-  session.pendingPermission = { requestId, timeoutId, style, requiresAlways }
+  session.pendingPermission = { requestId, timeoutId, style, requiresAlways, toolName, details }
   session.permissionBuffer = ''
   session.wsClient!.send(
     JSON.stringify({
@@ -285,11 +285,27 @@ function detectAndSendPermission(session: PtySession, data: string): void {
 }
 
 /**
- * セッションへのアタッチ直後に呼び出し、バッファに残存する承認プロンプトを即時検出する。
- * クライアント未接続中に出力されたプロンプトを見逃さないための補完処理。
+ * セッションへのアタッチ直後に呼び出し、承認プロンプトをクライアントへ送信する。
+ * - 既に pendingPermission がある場合（再接続時）: 同じ requestId でクライアントへ再送する。
+ * - バッファに残存するプロンプトがある場合: 新規に検出して送信する。
  */
 function checkPermissionOnAttach(session: PtySession): void {
-  if (session.pendingPermission || session.wsClient?.readyState !== WebSocket.OPEN) return
+  if (session.wsClient?.readyState !== WebSocket.OPEN) return
+
+  if (session.pendingPermission) {
+    const p = session.pendingPermission
+    session.wsClient.send(
+      JSON.stringify({
+        type: 'permission_request',
+        requestId: p.requestId,
+        toolName: p.toolName,
+        details: p.details,
+        requiresAlways: p.requiresAlways,
+      } satisfies WsMessage),
+    )
+    return
+  }
+
   const parsed = tryParsePermission(session.permissionBuffer)
   if (!parsed) return
   sendPermissionRequest(session, parsed.toolName, parsed.details, parsed.requiresAlways, parsed.style)

@@ -12,8 +12,8 @@
   packages/desktop/build/icon-dev.png       -- dev 用アイコン (オレンジ配色)
   packages/desktop/build/icon_tray.png      -- macOS メニューバー (1x)
   packages/desktop/build/icon_tray@2x.png   -- macOS メニューバー (2x Retina)
-  packages/mobile/assets/icon.png           -- iOS/Android アイコン (prod, full-bleed)
-  packages/mobile/assets/icon-dev.png       -- iOS/Android アイコン (dev, full-bleed)
+  packages/mobile/assets/icon.png           -- モバイル (iOS/Android) アイコン (prod, full-bleed)
+  packages/mobile/assets/icon-dev.png       -- モバイル (iOS/Android) アイコン (dev, full-bleed)
 """
 
 import subprocess
@@ -52,7 +52,9 @@ APP_BORDER_W = 6
 # iOS の角丸半径は 1024px に対して約 220px（連続曲線の近似値）
 IOS_CORNER_R  = 220
 IOS_BORDER_W  = 8    # full-bleed では視認性のため desktop より太く
-IOS_INNER_PAD = 150  # 余白なし分を補って視覚的バランスを保つ
+# desktop は MARGIN(122px) + inner_padding(60px) = 182px のインセットでシンボルを描画する。
+# full-bleed では MARGIN がないため inner_padding を大きくして同等の視覚バランスを保つ。
+IOS_INNER_PAD = 150
 
 # ── ヘルパー ─────────────────────────────────────────────────────────────────
 
@@ -116,23 +118,25 @@ def generate_app_icon(
     return result
 
 
-def generate_ios_icon(
+def generate_mobile_icon(
     border_dark: tuple = BORDER_DARK,
     glow_rgb: tuple = GLOW_COLOR,
     symbol_color: tuple = GREEN,
 ) -> 'Image.Image':
     """iOS/Android 用 full-bleed アイコンを生成して返す。
     余白なし・背景色でキャンバス全体を塗りつぶし、枠線を iOS 角丸半径に合わせる。
+    inset = IOS_BORDER_W でストローク全体をキャンバス内に収める（// 2 では外半分がクリップされる）。
     """
     base  = Image.new('RGBA', (SIZE, SIZE), BG_COLOR)
-    inset = IOS_BORDER_W // 2
+    inset = IOS_BORDER_W
     rect  = [inset, inset, SIZE - inset, SIZE - inset]
     ImageDraw.Draw(base).rounded_rectangle(rect, radius=IOS_CORNER_R,
                                            outline=border_dark, width=IOS_BORDER_W)
-    result = _apply_glow(base, rect, IOS_CORNER_R, glow_rgb)
+    result = _apply_glow(base, rect, IOS_CORNER_R, glow_rgb, clip_margin=inset)
     draw_terminal_symbol(ImageDraw.Draw(result), SIZE, margin=0,
                          inner_padding=IOS_INNER_PAD, color=symbol_color)
-    return result
+    # アルファチャンネルを除去してランチャーでの透明ハロー発生を防ぐ
+    return result.convert('RGB').convert('RGBA')
 
 
 def generate_tray_icon(size: int) -> 'Image.Image':
@@ -224,11 +228,11 @@ def main() -> None:
 
     print('Generating mobile icons (full-bleed)...')
     mobile_prod = MOBILE_ASSETS / 'icon.png'
-    generate_ios_icon().save(mobile_prod)
+    generate_mobile_icon().save(mobile_prod)
     print(f'  Saved: {mobile_prod}')
 
     mobile_dev = MOBILE_ASSETS / 'icon-dev.png'
-    generate_ios_icon(
+    generate_mobile_icon(
         border_dark=BORDER_DARK_DEV,
         glow_rgb=GLOW_COLOR_DEV,
         symbol_color=ORANGE,

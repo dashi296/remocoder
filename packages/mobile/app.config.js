@@ -42,12 +42,14 @@ module.exports = ({ config }) => {
         icon: './assets/icon-dev.png',
         bundleIdentifier: 'com.remocoder.app.dev',
         androidPackage: 'com.remocoder.app.dev',
+        adaptiveIconBgColor: '#121614',
       }
     : {
         name: config.name,
         icon: './assets/icon.png',
         bundleIdentifier: config.ios?.bundleIdentifier,
         androidPackage: config.android?.package,
+        adaptiveIconBgColor: '#121614',
       }
 
   return {
@@ -63,7 +65,7 @@ module.exports = ({ config }) => {
       adaptiveIcon: {
         ...config.android?.adaptiveIcon,
         foregroundImage: variantConfig.icon,
-        backgroundColor: '#121614',
+        backgroundColor: variantConfig.adaptiveIconBgColor,
       },
       package: variantConfig.androidPackage,
       versionCode,

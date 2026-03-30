@@ -50,10 +50,11 @@ MARGIN       = int(SIZE * 0.12)  # Apple HIG 推奨余白 (~12%)
 CORNER_R     = 160
 APP_BORDER_W = 6
 
-# iOS full-bleed アイコン用（余白なし・枠線を iOS 角丸に合わせる）
-# iOS の角丸半径は 1024px に対して約 220px（連続曲線の近似値）
-IOS_CORNER_R  = 220
-IOS_BORDER_W  = 8    # full-bleed では視認性のため desktop より太く
+# モバイル full-bleed アイコン用（iOS/Android 共通・余白なし）
+# 角丸半径は iOS の連続曲線近似値（1024px に対して約 220px）に合わせる。
+# Android ではランチャーが独自シェイプでクリップするため、この値は実質的に枠線の形状のみに影響する。
+FULLBLEED_CORNER_R = 220
+FULLBLEED_BORDER_W = 8    # full-bleed では視認性のため desktop より太く
 # desktop は MARGIN(122px) + inner_padding(60px) = 182px のインセットでシンボルを描画する。
 # full-bleed では MARGIN がないため inner_padding を大きくして同等の視覚バランスを保つ。
 IOS_INNER_PAD = 150
@@ -132,16 +133,19 @@ def generate_fullbleed_icon(
     symbol_color: tuple = GREEN,
 ) -> 'Image.Image':
     """モバイル用 full-bleed アイコンを生成して返す。
-    余白なし・背景色でキャンバス全体を塗りつぶし、枠線を iOS 角丸半径に合わせる。
-    inset = IOS_BORDER_W でストローク全体をキャンバス内に収める（// 2 では外半分がクリップされる）。
+    余白なし・背景色でキャンバス全体を塗りつぶし、枠線を FULLBLEED_CORNER_R に合わせる。
+    inset = FULLBLEED_BORDER_W でストロークの外縁をキャンバス端と面一にする
+    （inset < FULLBLEED_BORDER_W // 2 にするとストロークがキャンバス外にはみ出す）。
     inner_padding で iOS (IOS_INNER_PAD) と Android (ANDROID_INNER_PAD) のシンボル余白を切り替える。
     """
     base  = Image.new('RGBA', (SIZE, SIZE), BG_COLOR)
-    inset = IOS_BORDER_W
+    inset = FULLBLEED_BORDER_W
     rect  = [inset, inset, SIZE - inset, SIZE - inset]
-    ImageDraw.Draw(base).rounded_rectangle(rect, radius=IOS_CORNER_R,
-                                           outline=border_dark, width=IOS_BORDER_W)
-    result = _apply_glow(base, rect, IOS_CORNER_R, glow_rgb, clip_margin=inset)
+    ImageDraw.Draw(base).rounded_rectangle(rect, radius=FULLBLEED_CORNER_R,
+                                           outline=border_dark, width=FULLBLEED_BORDER_W)
+    # full-bleed では背景が不透明でグローの漏れ出し先がないため clip_margin は実質不要だが、
+    # generate_app_icon（desktop）との実装一貫性を保つために渡している。
+    result = _apply_glow(base, rect, FULLBLEED_CORNER_R, glow_rgb, clip_margin=inset)
     draw_terminal_symbol(ImageDraw.Draw(result), SIZE, margin=0,
                          inner_padding=inner_padding, color=symbol_color)
     # アルファチャンネルを除去してランチャーでの透明ハロー発生を防ぐ

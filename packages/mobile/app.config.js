@@ -63,6 +63,7 @@ module.exports = ({ config }) => {
       adaptiveIcon: {
         ...config.android?.adaptiveIcon,
         foregroundImage: variantConfig.icon,
+        backgroundColor: '#121614',
       },
       package: variantConfig.androidPackage,
       versionCode,

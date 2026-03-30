@@ -12,6 +12,10 @@
   packages/desktop/build/icon-dev.png       -- dev 用アイコン (オレンジ配色)
   packages/desktop/build/icon_tray.png      -- macOS メニューバー (1x)
   packages/desktop/build/icon_tray@2x.png   -- macOS メニューバー (2x Retina)
+  packages/mobile/assets/icon.png           -- iOS アイコン (prod, full-bleed)
+  packages/mobile/assets/icon-dev.png       -- iOS アイコン (dev, full-bleed)
+  packages/mobile/assets/icon-android.png   -- Android adaptive foreground (prod, full-bleed, 余白大)
+  packages/mobile/assets/icon-android-dev.png -- Android adaptive foreground (dev, full-bleed, 余白大)
 """
 
 import subprocess
@@ -29,6 +33,7 @@ except ImportError:
 
 REPO_ROOT     = Path(__file__).parent.parent
 DESKTOP_BUILD = REPO_ROOT / 'packages' / 'desktop' / 'build'
+MOBILE_ASSETS = REPO_ROOT / 'packages' / 'mobile' / 'assets'
 
 SIZE        = 1024
 BG_COLOR    = (18, 22, 20, 255)   # --bg-base
@@ -41,8 +46,23 @@ BORDER_DARK_DEV = (80, 45, 10, 255)
 GLOW_COLOR_DEV  = (255, 140, 0)
 ORANGE          = (255, 160, 40, 255)
 
-MARGIN   = int(SIZE * 0.12)    # Apple HIG 推奨余白 (~12%)
-CORNER_R = 160
+MARGIN       = int(SIZE * 0.12)  # Apple HIG 推奨余白 (~12%)
+CORNER_R     = 160
+APP_BORDER_W = 6
+
+# モバイル full-bleed アイコン用（iOS/Android 共通・余白なし）
+# 角丸半径は iOS の連続曲線近似値（1024px に対して約 220px）に合わせる。
+# Android ではランチャーが独自シェイプでクリップするため、この値は実質的に枠線の形状のみに影響する。
+FULLBLEED_CORNER_R = 220
+FULLBLEED_BORDER_W = 8    # full-bleed では視認性のため desktop より太く
+# desktop は MARGIN(122px) + inner_padding(60px) = 182px のインセットでシンボルを描画する。
+# full-bleed では MARGIN がないため inner_padding を大きくして同等の視覚バランスを保つ。
+IOS_INNER_PAD = 150
+
+# Android adaptive icon 用
+# Android の safe zone は 108dp 中 72dp（約 66.7%）= 1024px 換算で約 170px インセット。
+# ANDROID_INNER_PAD = 280 でシンボルが safe zone に余裕を持って収まり、視覚的な余白を確保する。
+ANDROID_INNER_PAD = 280
 
 # ── ヘルパー ─────────────────────────────────────────────────────────────────
 
@@ -72,6 +92,23 @@ def draw_terminal_symbol(draw: 'ImageDraw.ImageDraw', size: int,
     draw.line([pt(12, 19), pt(20, 19)], fill=color, width=lw)
 
 
+def _apply_glow(
+    base: 'Image.Image',
+    rect: list,
+    radius: int,
+    glow_rgb: tuple,
+    clip_margin: 'int | None' = None,
+) -> 'Image.Image':
+    """グロー効果を base に合成して返す。clip_margin を指定すると角丸内側にクリップする。"""
+    glow = Image.new('RGBA', (SIZE, SIZE), (0, 0, 0, 0))
+    ImageDraw.Draw(glow).rounded_rectangle(rect, radius=radius, outline=(*glow_rgb, 80), width=30)
+    glow = glow.filter(ImageFilter.GaussianBlur(radius=14))
+    if clip_margin is not None:
+        inner_mask = rounded_rect_mask(clip_margin, radius, shrink=2)
+        glow.putalpha(ImageChops.multiply(glow.getchannel('A'), inner_mask))
+    return Image.alpha_composite(base, glow)
+
+
 # ── アイコン生成 ──────────────────────────────────────────────────────────────
 
 def generate_app_icon(
@@ -81,23 +118,38 @@ def generate_app_icon(
 ) -> 'Image.Image':
     """1024x1024 の RGBA アプリアイコンを生成して返す"""
     base = Image.new('RGBA', (SIZE, SIZE), (0, 0, 0, 0))
-    d    = ImageDraw.Draw(base)
-    d.rounded_rectangle([MARGIN, MARGIN, SIZE - MARGIN, SIZE - MARGIN],
-                        radius=CORNER_R, fill=BG_COLOR,
-                        outline=border_dark, width=6)
-
-    glow = Image.new('RGBA', (SIZE, SIZE), (0, 0, 0, 0))
-    gd   = ImageDraw.Draw(glow)
-    gd.rounded_rectangle([MARGIN, MARGIN, SIZE - MARGIN, SIZE - MARGIN],
-                         radius=CORNER_R, outline=(*glow_rgb, 80), width=30)
-    glow = glow.filter(ImageFilter.GaussianBlur(radius=14))
-    inner_mask = rounded_rect_mask(MARGIN, CORNER_R, shrink=2)
-    glow.putalpha(ImageChops.multiply(glow.getchannel('A'), inner_mask))
-
-    result = Image.alpha_composite(base, glow)
-    draw_terminal_symbol(ImageDraw.Draw(result), SIZE, MARGIN,
-                         inner_padding=60, color=symbol_color)
+    rect = [MARGIN, MARGIN, SIZE - MARGIN, SIZE - MARGIN]
+    ImageDraw.Draw(base).rounded_rectangle(rect, radius=CORNER_R, fill=BG_COLOR,
+                                           outline=border_dark, width=APP_BORDER_W)
+    result = _apply_glow(base, rect, CORNER_R, glow_rgb, clip_margin=MARGIN)
+    draw_terminal_symbol(ImageDraw.Draw(result), SIZE, MARGIN, inner_padding=60, color=symbol_color)
     return result
+
+
+def generate_fullbleed_icon(
+    inner_padding: int = IOS_INNER_PAD,
+    border_dark: tuple = BORDER_DARK,
+    glow_rgb: tuple = GLOW_COLOR,
+    symbol_color: tuple = GREEN,
+) -> 'Image.Image':
+    """モバイル用 full-bleed アイコンを生成して返す。
+    余白なし・背景色でキャンバス全体を塗りつぶし、枠線を FULLBLEED_CORNER_R に合わせる。
+    inset = FULLBLEED_BORDER_W でストロークの外縁をキャンバス端と面一にする
+    （inset < FULLBLEED_BORDER_W // 2 にするとストロークがキャンバス外にはみ出す）。
+    inner_padding で iOS (IOS_INNER_PAD) と Android (ANDROID_INNER_PAD) のシンボル余白を切り替える。
+    """
+    base  = Image.new('RGBA', (SIZE, SIZE), BG_COLOR)
+    inset = FULLBLEED_BORDER_W
+    rect  = [inset, inset, SIZE - inset, SIZE - inset]
+    ImageDraw.Draw(base).rounded_rectangle(rect, radius=FULLBLEED_CORNER_R,
+                                           outline=border_dark, width=FULLBLEED_BORDER_W)
+    # full-bleed では背景が不透明でグローの漏れ出し先がないため clip_margin は実質不要だが、
+    # generate_app_icon（desktop）との実装一貫性を保つために渡している。
+    result = _apply_glow(base, rect, FULLBLEED_CORNER_R, glow_rgb, clip_margin=inset)
+    draw_terminal_symbol(ImageDraw.Draw(result), SIZE, margin=0,
+                         inner_padding=inner_padding, color=symbol_color)
+    # アルファチャンネルを除去してランチャーでの透明ハロー発生を防ぐ
+    return result.convert('RGB')
 
 
 def generate_tray_icon(size: int) -> 'Image.Image':
@@ -111,8 +163,8 @@ def generate_tray_icon(size: int) -> 'Image.Image':
 
 # ── 書き出し ─────────────────────────────────────────────────────────────────
 
-def save_icns(png_path: Path, out_path: Path) -> None:
-    """PNG (1024x1024) から ICNS を生成する（macOS の iconutil を使用）"""
+def save_icns(src: 'Image.Image', out_path: Path) -> None:
+    """Image (1024x1024) から ICNS を生成する（macOS の iconutil を使用）"""
     sizes = [
         ('icon_16x16.png',       16),
         ('icon_16x16@2x.png',    32),
@@ -128,16 +180,15 @@ def save_icns(png_path: Path, out_path: Path) -> None:
     with tempfile.TemporaryDirectory() as tmpdir:
         iconset = Path(tmpdir) / 'icon.iconset'
         iconset.mkdir()
-        src = Image.open(png_path)
         for name, sz in sizes:
             src.resize((sz, sz), Image.LANCZOS).save(iconset / name)
         subprocess.run(['iconutil', '-c', 'icns', str(iconset), '-o', str(out_path)],
                        check=True)
 
 
-def save_ico(png_path: Path, out_path: Path) -> None:
-    """PNG (1024x1024) から ICO を生成する"""
-    src   = Image.open(png_path).convert('RGBA')
+def save_ico(src: 'Image.Image', out_path: Path) -> None:
+    """Image (1024x1024) から ICO を生成する"""
+    src   = src.convert('RGBA')
     sizes = [(256, 256), (128, 128), (64, 64), (48, 48), (32, 32), (16, 16)]
     imgs  = [src.resize(s, Image.LANCZOS) for s in sizes]
     imgs[0].save(out_path, format='ICO',
@@ -153,18 +204,19 @@ def main() -> None:
     # prod アイコン
     print('Generating prod app icon...')
     png_path = DESKTOP_BUILD / 'icon.png'
-    generate_app_icon().save(png_path)
+    prod_icon = generate_app_icon()
+    prod_icon.save(png_path)
     print(f'  Saved: {png_path}')
 
     if sys.platform == 'darwin':
         icns_path = DESKTOP_BUILD / 'icon.icns'
-        save_icns(png_path, icns_path)
+        save_icns(prod_icon, icns_path)
         print(f'  Saved: {icns_path}')
     else:
         print('  Skipped icon.icns (macOS only)')
 
     ico_path = DESKTOP_BUILD / 'icon.ico'
-    save_ico(png_path, ico_path)
+    save_ico(prod_icon, ico_path)
     print(f'  Saved: {ico_path}')
 
     # dev アイコン（オレンジ配色）
@@ -183,6 +235,36 @@ def main() -> None:
         path = DESKTOP_BUILD / f'icon_tray{suffix}.png'
         generate_tray_icon(size).save(path)
         print(f'  Saved: {path}')
+
+    # モバイル用 full-bleed アイコン
+    MOBILE_ASSETS.mkdir(parents=True, exist_ok=True)
+
+    print('Generating iOS icons (full-bleed)...')
+    ios_prod = MOBILE_ASSETS / 'icon.png'
+    generate_fullbleed_icon().save(ios_prod)
+    print(f'  Saved: {ios_prod}')
+
+    ios_dev = MOBILE_ASSETS / 'icon-dev.png'
+    generate_fullbleed_icon(
+        border_dark=BORDER_DARK_DEV,
+        glow_rgb=GLOW_COLOR_DEV,
+        symbol_color=ORANGE,
+    ).save(ios_dev)
+    print(f'  Saved: {ios_dev}')
+
+    print('Generating Android adaptive icons (full-bleed, larger padding)...')
+    android_prod = MOBILE_ASSETS / 'icon-android.png'
+    generate_fullbleed_icon(inner_padding=ANDROID_INNER_PAD).save(android_prod)
+    print(f'  Saved: {android_prod}')
+
+    android_dev = MOBILE_ASSETS / 'icon-android-dev.png'
+    generate_fullbleed_icon(
+        inner_padding=ANDROID_INNER_PAD,
+        border_dark=BORDER_DARK_DEV,
+        glow_rgb=GLOW_COLOR_DEV,
+        symbol_color=ORANGE,
+    ).save(android_dev)
+    print(f'  Saved: {android_dev}')
 
     print('\nDone.')
 

@@ -21,6 +21,9 @@ if (!VALID_VARIANTS.includes(variant)) {
 // preview は prod と同じアイコン・名前を使用する（意図的）
 const IS_DEV = variant === 'development'
 
+// generate-icons.py の BG_COLOR (18, 22, 20) = --bg-base に対応
+const ADAPTIVE_ICON_BG_COLOR = '#121614'
+
 module.exports = ({ config }) => {
   const version = config.version || '0.0.1'
   const [major, minor, patch] = version.split('.').map(Number)
@@ -43,7 +46,6 @@ module.exports = ({ config }) => {
         androidIcon: './assets/icon-android-dev.png',
         bundleIdentifier: 'com.remocoder.app.dev',
         androidPackage: 'com.remocoder.app.dev',
-        adaptiveIconBgColor: '#121614',
       }
     : {
         name: config.name,
@@ -51,7 +53,6 @@ module.exports = ({ config }) => {
         androidIcon: './assets/icon-android.png',
         bundleIdentifier: config.ios?.bundleIdentifier,
         androidPackage: config.android?.package,
-        adaptiveIconBgColor: '#121614',
       }
 
   return {
@@ -67,7 +68,7 @@ module.exports = ({ config }) => {
       adaptiveIcon: {
         ...config.android?.adaptiveIcon,
         foregroundImage: variantConfig.androidIcon,
-        backgroundColor: variantConfig.adaptiveIconBgColor,
+        backgroundColor: ADAPTIVE_ICON_BG_COLOR,
       },
       package: variantConfig.androidPackage,
       versionCode,

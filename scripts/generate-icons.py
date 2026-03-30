@@ -125,14 +125,16 @@ def generate_app_icon(
     return result
 
 
-def generate_ios_icon(
+def generate_fullbleed_icon(
+    inner_padding: int = IOS_INNER_PAD,
     border_dark: tuple = BORDER_DARK,
     glow_rgb: tuple = GLOW_COLOR,
     symbol_color: tuple = GREEN,
 ) -> 'Image.Image':
-    """iOS 用 full-bleed アイコンを生成して返す。
+    """モバイル用 full-bleed アイコンを生成して返す。
     余白なし・背景色でキャンバス全体を塗りつぶし、枠線を iOS 角丸半径に合わせる。
     inset = IOS_BORDER_W でストローク全体をキャンバス内に収める（// 2 では外半分がクリップされる）。
+    inner_padding で iOS (IOS_INNER_PAD) と Android (ANDROID_INNER_PAD) のシンボル余白を切り替える。
     """
     base  = Image.new('RGBA', (SIZE, SIZE), BG_COLOR)
     inset = IOS_BORDER_W
@@ -141,28 +143,9 @@ def generate_ios_icon(
                                            outline=border_dark, width=IOS_BORDER_W)
     result = _apply_glow(base, rect, IOS_CORNER_R, glow_rgb, clip_margin=inset)
     draw_terminal_symbol(ImageDraw.Draw(result), SIZE, margin=0,
-                         inner_padding=IOS_INNER_PAD, color=symbol_color)
+                         inner_padding=inner_padding, color=symbol_color)
     # アルファチャンネルを除去してランチャーでの透明ハロー発生を防ぐ
-    return result.convert('RGB').convert('RGBA')
-
-
-def generate_android_icon(
-    border_dark: tuple = BORDER_DARK,
-    glow_rgb: tuple = GLOW_COLOR,
-    symbol_color: tuple = GREEN,
-) -> 'Image.Image':
-    """Android adaptive icon 用 full-bleed アイコンを生成して返す。
-    iOS 版と同じ構造だが ANDROID_INNER_PAD を使ってシンボルを safe zone に収める。
-    """
-    base  = Image.new('RGBA', (SIZE, SIZE), BG_COLOR)
-    inset = IOS_BORDER_W
-    rect  = [inset, inset, SIZE - inset, SIZE - inset]
-    ImageDraw.Draw(base).rounded_rectangle(rect, radius=IOS_CORNER_R,
-                                           outline=border_dark, width=IOS_BORDER_W)
-    result = _apply_glow(base, rect, IOS_CORNER_R, glow_rgb, clip_margin=inset)
-    draw_terminal_symbol(ImageDraw.Draw(result), SIZE, margin=0,
-                         inner_padding=ANDROID_INNER_PAD, color=symbol_color)
-    return result.convert('RGB').convert('RGBA')
+    return result.convert('RGB')
 
 
 def generate_tray_icon(size: int) -> 'Image.Image':
@@ -254,11 +237,11 @@ def main() -> None:
 
     print('Generating iOS icons (full-bleed)...')
     ios_prod = MOBILE_ASSETS / 'icon.png'
-    generate_ios_icon().save(ios_prod)
+    generate_fullbleed_icon().save(ios_prod)
     print(f'  Saved: {ios_prod}')
 
     ios_dev = MOBILE_ASSETS / 'icon-dev.png'
-    generate_ios_icon(
+    generate_fullbleed_icon(
         border_dark=BORDER_DARK_DEV,
         glow_rgb=GLOW_COLOR_DEV,
         symbol_color=ORANGE,
@@ -267,11 +250,12 @@ def main() -> None:
 
     print('Generating Android adaptive icons (full-bleed, larger padding)...')
     android_prod = MOBILE_ASSETS / 'icon-android.png'
-    generate_android_icon().save(android_prod)
+    generate_fullbleed_icon(inner_padding=ANDROID_INNER_PAD).save(android_prod)
     print(f'  Saved: {android_prod}')
 
     android_dev = MOBILE_ASSETS / 'icon-android-dev.png'
-    generate_android_icon(
+    generate_fullbleed_icon(
+        inner_padding=ANDROID_INNER_PAD,
         border_dark=BORDER_DARK_DEV,
         glow_rgb=GLOW_COLOR_DEV,
         symbol_color=ORANGE,

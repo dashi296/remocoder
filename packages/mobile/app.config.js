@@ -40,6 +40,7 @@ module.exports = ({ config }) => {
     ? {
         name: 'Remocoder Dev',
         icon: './assets/icon-dev.png',
+        androidIcon: './assets/icon-android-dev.png',
         bundleIdentifier: 'com.remocoder.app.dev',
         androidPackage: 'com.remocoder.app.dev',
         adaptiveIconBgColor: '#121614',
@@ -47,6 +48,7 @@ module.exports = ({ config }) => {
     : {
         name: config.name,
         icon: './assets/icon.png',
+        androidIcon: './assets/icon-android.png',
         bundleIdentifier: config.ios?.bundleIdentifier,
         androidPackage: config.android?.package,
         adaptiveIconBgColor: '#121614',
@@ -64,7 +66,7 @@ module.exports = ({ config }) => {
       ...config.android,
       adaptiveIcon: {
         ...config.android?.adaptiveIcon,
-        foregroundImage: variantConfig.icon,
+        foregroundImage: variantConfig.androidIcon,
         backgroundColor: variantConfig.adaptiveIconBgColor,
       },
       package: variantConfig.androidPackage,

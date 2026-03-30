@@ -12,8 +12,10 @@
   packages/desktop/build/icon-dev.png       -- dev 用アイコン (オレンジ配色)
   packages/desktop/build/icon_tray.png      -- macOS メニューバー (1x)
   packages/desktop/build/icon_tray@2x.png   -- macOS メニューバー (2x Retina)
-  packages/mobile/assets/icon.png           -- モバイル (iOS/Android) アイコン (prod, full-bleed)
-  packages/mobile/assets/icon-dev.png       -- モバイル (iOS/Android) アイコン (dev, full-bleed)
+  packages/mobile/assets/icon.png           -- iOS アイコン (prod, full-bleed)
+  packages/mobile/assets/icon-dev.png       -- iOS アイコン (dev, full-bleed)
+  packages/mobile/assets/icon-android.png   -- Android adaptive foreground (prod, full-bleed, 余白大)
+  packages/mobile/assets/icon-android-dev.png -- Android adaptive foreground (dev, full-bleed, 余白大)
 """
 
 import subprocess
@@ -55,6 +57,11 @@ IOS_BORDER_W  = 8    # full-bleed では視認性のため desktop より太く
 # desktop は MARGIN(122px) + inner_padding(60px) = 182px のインセットでシンボルを描画する。
 # full-bleed では MARGIN がないため inner_padding を大きくして同等の視覚バランスを保つ。
 IOS_INNER_PAD = 150
+
+# Android adaptive icon 用
+# Android の safe zone は 108dp 中 72dp（約 66.7%）= 1024px 換算で約 170px インセット。
+# ANDROID_INNER_PAD = 200 でシンボルが safe zone に十分収まる余裕を確保する。
+ANDROID_INNER_PAD = 200
 
 # ── ヘルパー ─────────────────────────────────────────────────────────────────
 
@@ -118,12 +125,12 @@ def generate_app_icon(
     return result
 
 
-def generate_mobile_icon(
+def generate_ios_icon(
     border_dark: tuple = BORDER_DARK,
     glow_rgb: tuple = GLOW_COLOR,
     symbol_color: tuple = GREEN,
 ) -> 'Image.Image':
-    """iOS/Android 用 full-bleed アイコンを生成して返す。
+    """iOS 用 full-bleed アイコンを生成して返す。
     余白なし・背景色でキャンバス全体を塗りつぶし、枠線を iOS 角丸半径に合わせる。
     inset = IOS_BORDER_W でストローク全体をキャンバス内に収める（// 2 では外半分がクリップされる）。
     """
@@ -136,6 +143,25 @@ def generate_mobile_icon(
     draw_terminal_symbol(ImageDraw.Draw(result), SIZE, margin=0,
                          inner_padding=IOS_INNER_PAD, color=symbol_color)
     # アルファチャンネルを除去してランチャーでの透明ハロー発生を防ぐ
+    return result.convert('RGB').convert('RGBA')
+
+
+def generate_android_icon(
+    border_dark: tuple = BORDER_DARK,
+    glow_rgb: tuple = GLOW_COLOR,
+    symbol_color: tuple = GREEN,
+) -> 'Image.Image':
+    """Android adaptive icon 用 full-bleed アイコンを生成して返す。
+    iOS 版と同じ構造だが ANDROID_INNER_PAD を使ってシンボルを safe zone に収める。
+    """
+    base  = Image.new('RGBA', (SIZE, SIZE), BG_COLOR)
+    inset = IOS_BORDER_W
+    rect  = [inset, inset, SIZE - inset, SIZE - inset]
+    ImageDraw.Draw(base).rounded_rectangle(rect, radius=IOS_CORNER_R,
+                                           outline=border_dark, width=IOS_BORDER_W)
+    result = _apply_glow(base, rect, IOS_CORNER_R, glow_rgb, clip_margin=inset)
+    draw_terminal_symbol(ImageDraw.Draw(result), SIZE, margin=0,
+                         inner_padding=ANDROID_INNER_PAD, color=symbol_color)
     return result.convert('RGB').convert('RGBA')
 
 
@@ -223,21 +249,34 @@ def main() -> None:
         generate_tray_icon(size).save(path)
         print(f'  Saved: {path}')
 
-    # モバイル用 full-bleed アイコン（iOS/Android）
+    # モバイル用 full-bleed アイコン
     MOBILE_ASSETS.mkdir(parents=True, exist_ok=True)
 
-    print('Generating mobile icons (full-bleed)...')
-    mobile_prod = MOBILE_ASSETS / 'icon.png'
-    generate_mobile_icon().save(mobile_prod)
-    print(f'  Saved: {mobile_prod}')
+    print('Generating iOS icons (full-bleed)...')
+    ios_prod = MOBILE_ASSETS / 'icon.png'
+    generate_ios_icon().save(ios_prod)
+    print(f'  Saved: {ios_prod}')
 
-    mobile_dev = MOBILE_ASSETS / 'icon-dev.png'
-    generate_mobile_icon(
+    ios_dev = MOBILE_ASSETS / 'icon-dev.png'
+    generate_ios_icon(
         border_dark=BORDER_DARK_DEV,
         glow_rgb=GLOW_COLOR_DEV,
         symbol_color=ORANGE,
-    ).save(mobile_dev)
-    print(f'  Saved: {mobile_dev}')
+    ).save(ios_dev)
+    print(f'  Saved: {ios_dev}')
+
+    print('Generating Android adaptive icons (full-bleed, larger padding)...')
+    android_prod = MOBILE_ASSETS / 'icon-android.png'
+    generate_android_icon().save(android_prod)
+    print(f'  Saved: {android_prod}')
+
+    android_dev = MOBILE_ASSETS / 'icon-android-dev.png'
+    generate_android_icon(
+        border_dark=BORDER_DARK_DEV,
+        glow_rgb=GLOW_COLOR_DEV,
+        symbol_color=ORANGE,
+    ).save(android_dev)
+    print(f'  Saved: {android_dev}')
 
     print('\nDone.')
 

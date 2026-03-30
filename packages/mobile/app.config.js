@@ -36,23 +36,35 @@ module.exports = ({ config }) => {
     }
   }
 
-  const iconPath = IS_DEV ? './assets/icon-dev.png' : './assets/icon.png'
+  const variantConfig = IS_DEV
+    ? {
+        name: 'Remocoder Dev',
+        icon: './assets/icon-dev.png',
+        bundleIdentifier: 'com.remocoder.app.dev',
+        androidPackage: 'com.remocoder.app.dev',
+      }
+    : {
+        name: config.name,
+        icon: './assets/icon.png',
+        bundleIdentifier: config.ios?.bundleIdentifier,
+        androidPackage: config.android?.package,
+      }
 
   return {
     ...config,
-    name: IS_DEV ? 'Remocoder Dev' : config.name,
-    icon: iconPath,
+    name: variantConfig.name,
+    icon: variantConfig.icon,
     ios: {
       ...config.ios,
-      bundleIdentifier: IS_DEV ? 'com.remocoder.app.dev' : config.ios?.bundleIdentifier,
+      bundleIdentifier: variantConfig.bundleIdentifier,
     },
     android: {
       ...config.android,
       adaptiveIcon: {
         ...config.android?.adaptiveIcon,
-        foregroundImage: iconPath,
+        foregroundImage: variantConfig.icon,
       },
-      package: IS_DEV ? 'com.remocoder.app.dev' : config.android?.package,
+      package: variantConfig.androidPackage,
       versionCode,
     },
   }

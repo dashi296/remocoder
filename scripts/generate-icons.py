@@ -60,8 +60,8 @@ IOS_INNER_PAD = 150
 
 # Android adaptive icon 用
 # Android の safe zone は 108dp 中 72dp（約 66.7%）= 1024px 換算で約 170px インセット。
-# ANDROID_INNER_PAD = 200 でシンボルが safe zone に十分収まる余裕を確保する。
-ANDROID_INNER_PAD = 200
+# ANDROID_INNER_PAD = 280 でシンボルが safe zone に余裕を持って収まり、視覚的な余白を確保する。
+ANDROID_INNER_PAD = 280
 
 # ── ヘルパー ─────────────────────────────────────────────────────────────────
 

@@ -1,5 +1,10 @@
 # Claude Code Remote - 設計ドキュメント
 
+> このドキュメントは初期アーキテクチャの設計指針を示すものです。
+> 記載の構成・依存パッケージ・型定義はベースラインであり、
+> 機能追加や保守に伴う拡張・再編成を許容します。
+> 変更禁止のルールは、本書内で明示的に「変更しないこと」と記載されたものだけを対象とします。
+
 ## プロジェクト概要
 
 デスクトップPC上で動作するClaude Codeのセッションを、モバイルデバイスからTailscale VPN経由でリモート操作するアプリケーション。
@@ -48,6 +53,30 @@ claude-code-remote/
 │           │   └── terminal.html
 │           └── App.tsx
 ```
+
+---
+
+## このドキュメントの扱い
+
+- ここに書かれているディレクトリ構成やコード例は、初期設計を共有するためのベースラインである
+- 実装の進行に応じて、責務分割・ファイル追加・依存追加・型追加を行ってよい
+- ドキュメント中のサンプルコードや依存一覧は固定仕様ではなく、現行実装との差分が生じうる
+- レビュー時は「このドキュメントに書かれていない変更」であることだけを理由に差し戻さず、変更理由と整合性を確認する
+
+### 拡張ガイドライン
+
+- `packages/desktop/src/main/` には新しいメインプロセスモジュールを追加してよい
+- `packages/desktop/src/preload/` のような Electron 標準構成のディレクトリは必要に応じて追加してよい
+- `packages/shared/src/types.ts` には共有メッセージ型・共有状態・補助的な export を追加してよい
+- `StatusPanel` など既存 UI コンポーネントには、関連する状態表示や操作を追加してよい
+- 依存パッケージは機能要件・保守性・配布要件に照らして妥当であれば追加してよい
+
+### 変更しないこと
+
+- Desktop / Mobile / Shared の責務分離を崩さないこと
+- 通信経路は Tailscale VPN を前提とし、インターネット公開を前提とした構成へ変更しないこと
+- リモート操作の主要通信は WebSocket ベースを維持すること
+- モバイル側のターミナル UI は WebView 上の xterm.js を前提に扱うこと
 
 ---
 
@@ -405,7 +434,7 @@ export function buildTerminalHtml(wsUrl: string, token: string): string {
 
 ---
 
-## 依存パッケージ
+## 依存パッケージ例
 
 ### desktop
 
@@ -440,7 +469,7 @@ export function buildTerminalHtml(wsUrl: string, token: string): string {
 
 ---
 
-## 既知の制約・注意点
+## 実装上の注意点
 
 - React NativeのネイティブターミナルコンポーネントはOSSで成熟したものがないためWebView + xterm.jsを採用
 - node-ptyはネイティブモジュールのためElectronのrebuildが必要（`electron-rebuild`）

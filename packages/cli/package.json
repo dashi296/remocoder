@@ -2,7 +2,7 @@
   "name": "@remocoder/cli",
   "version": "0.0.1",
   "private": true,
-  "description": "外部ターミナルのclaudeセッションをRemococderに登録するCLIツール",
+  "description": "外部ターミナルのclaudeセッションをRemoCoderに登録するCLIツール",
   "type": "module",
   "bin": {
     "remocoder-claude": "./dist/index.js"

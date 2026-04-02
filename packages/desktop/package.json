@@ -17,8 +17,8 @@
   },
   "build": {
     "appId": "com.remocoder.desktop",
-    "productName": "Remocoder",
-    "copyright": "Copyright © 2025 Remocoder",
+    "productName": "RemoCoder",
+    "copyright": "Copyright © 2025 RemoCoder",
     "directories": {
       "output": "dist"
     },

@@ -227,7 +227,7 @@ export function ConnectScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <Text style={styles.title}>Remocoder</Text>
+      <Text style={styles.title}>RemoCoder</Text>
 
       {profiles.length === 0 ? (
         <View style={styles.emptyState}>

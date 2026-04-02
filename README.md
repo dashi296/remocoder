@@ -1,4 +1,4 @@
-# Remocoder
+# RemoCoder
 
 Remotely control Claude Code sessions running on your desktop PC from a mobile device via Tailscale VPN.
 
@@ -8,7 +8,7 @@ Remotely control Claude Code sessions running on your desktop PC from a mobile d
 
 ## Overview
 
-Remocoder lets you connect to Claude Code sessions on your desktop from your iPhone or Android device. Communication is secured by Tailscale VPN (WireGuard), with UUID token authentication on top.
+RemoCoder lets you connect to Claude Code sessions on your desktop from your iPhone or Android device. Communication is secured by Tailscale VPN (WireGuard), with UUID token authentication on top.
 
 ---
 

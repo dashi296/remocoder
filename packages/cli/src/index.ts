@@ -2,10 +2,10 @@
 /**
  * remocoder-claude
  *
- * 外部ターミナルで起動したclaudeセッションをRemococderに登録するCLIツール。
+ * 外部ターミナルで起動したclaudeセッションをRemoCoderに登録するCLIツール。
  * このコマンドはclaudeの代わりに使用する：
  *
- *   remocoder-claude           # claudeを起動してRemococderに登録
+ *   remocoder-claude           # claudeを起動してRemoCoderに登録
  *   remocoder-claude --resume  # 再開フラグ付きで起動
  *
  * 初回セットアップ：
@@ -25,11 +25,11 @@ import type { WsMessage } from '@remocoder/shared'
 function getTokenFilePath(): string {
   const os = platform()
   if (os === 'darwin') {
-    return join(homedir(), 'Library', 'Application Support', 'Remocoder', 'auth-token.json')
+    return join(homedir(), 'Library', 'Application Support', 'RemoCoder', 'auth-token.json')
   } else if (os === 'win32') {
-    return join(process.env.APPDATA ?? join(homedir(), 'AppData', 'Roaming'), 'Remocoder', 'auth-token.json')
+    return join(process.env.APPDATA ?? join(homedir(), 'AppData', 'Roaming'), 'RemoCoder', 'auth-token.json')
   } else {
-    return join(homedir(), '.config', 'Remocoder', 'auth-token.json')
+    return join(homedir(), '.config', 'RemoCoder', 'auth-token.json')
   }
 }
 
@@ -47,7 +47,7 @@ function resolveToken(): string {
   }
 
   console.error(`[remocoder-claude] トークンが見つかりません。`)
-  console.error(`  Remococderデスクトップアプリが起動しているか確認してください。`)
+  console.error(`  RemoCoderデスクトップアプリが起動しているか確認してください。`)
   console.error(`  または環境変数 REMOCODER_TOKEN にトークンを設定してください。`)
   process.exit(1)
 }
@@ -60,7 +60,7 @@ const claudeArgs = process.argv.slice(2)
 
 const token = resolveToken()
 
-console.log(`[remocoder-claude] Remococderに接続中 (${WS_URL})...`)
+console.log(`[remocoder-claude] RemoCoderに接続中 (${WS_URL})...`)
 
 const ws = new WebSocket(WS_URL)
 let shell: pty.IPty | null = null
@@ -110,7 +110,7 @@ ws.on('message', (raw) => {
       cwd: process.cwd(),
     })
 
-    // PTY出力 → ローカル端末 + Remococderサーバーへ転送
+    // PTY出力 → ローカル端末 + RemoCoderサーバーへ転送
     shell.onData((data) => {
       process.stdout.write(data)
       safeSend({ type: 'output', data })
@@ -155,7 +155,7 @@ ws.on('message', (raw) => {
 
 ws.on('error', (err) => {
   console.error(`[remocoder-claude] 接続エラー: ${err.message}`)
-  console.error(`  Remococderデスクトップアプリが起動しているか確認してください。`)
+  console.error(`  RemoCoderデスクトップアプリが起動しているか確認してください。`)
   process.exit(1)
 })
 

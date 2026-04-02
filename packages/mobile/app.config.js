@@ -41,7 +41,7 @@ module.exports = ({ config }) => {
 
   const variantConfig = IS_DEV
     ? {
-        name: 'Remocoder Dev',
+        name: 'RemoCoder Dev',
         icon: './assets/icon-dev.png',
         androidIcon: './assets/icon-android-dev.png',
         bundleIdentifier: 'com.remocoder.app.dev',

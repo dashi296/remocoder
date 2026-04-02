@@ -1,4 +1,4 @@
-# Remocoder
+# RemoCoder
 
 デスクトップPC上で動作するClaude Codeのセッションを、モバイルデバイスからTailscale VPN経由でリモート操作するアプリケーションです。
 

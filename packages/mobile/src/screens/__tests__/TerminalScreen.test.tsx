@@ -3,6 +3,11 @@ import { render, screen, fireEvent, act } from '@testing-library/react-native'
 import { TerminalScreen } from '../TerminalScreen'
 import { injectJavaScriptMock } from '../../__mocks__/react-native-webview'
 import { useLocalSearchParams, mockRouterBack } from '../../__mocks__/expo-router'
+import { useKeyboardHeight } from '../../hooks/useKeyboardHeight'
+
+jest.mock('../../hooks/useKeyboardHeight', () => ({
+  useKeyboardHeight: jest.fn(() => 0),
+}))
 
 describe('TerminalScreen', () => {
   // WebView から onMessage を発火するヘルパー
@@ -16,6 +21,7 @@ describe('TerminalScreen', () => {
   beforeEach(() => {
     jest.clearAllMocks()
     injectJavaScriptMock.mockClear()
+    ;(useKeyboardHeight as jest.Mock).mockReturnValue(0)
     ;(useLocalSearchParams as jest.Mock).mockReturnValue({
       ip: '100.64.0.1',
       token: 'test-token',
@@ -101,6 +107,23 @@ describe('TerminalScreen', () => {
   })
 
   describe('PermissionSheet', () => {
+    it('キーボード表示中でも PermissionSheet が表示される', () => {
+      ;(useKeyboardHeight as jest.Mock).mockReturnValue(180)
+
+      render(<TerminalScreen />)
+      sendFromWebView({
+        type: 'permission_request',
+        requestId: 'req-keyboard',
+        toolName: 'Bash',
+        details: ['echo hello'],
+        requiresAlways: false,
+        createdAt: Date.now(),
+      })
+
+      expect(screen.getByText('Permission Request')).toBeTruthy()
+      expect(screen.getByText('Allow')).toBeTruthy()
+    })
+
     it('permission_request を受信すると PermissionSheet が表示される', () => {
       render(<TerminalScreen />)
       sendFromWebView({

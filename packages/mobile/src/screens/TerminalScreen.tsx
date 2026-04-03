@@ -227,7 +227,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     left: 0,
     right: 0,
-    bottom: 0,
+    // Keep the permission sheet above the WebView/toolbar stack on mobile.
     zIndex: 10,
     elevation: 10,
   },

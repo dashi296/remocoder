@@ -120,6 +120,12 @@ describe('TerminalScreen', () => {
         createdAt: Date.now(),
       })
 
+      const overlay = screen.getByTestId('permission-overlay')
+      expect(overlay.props.style).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ bottom: 180 }),
+        ]),
+      )
       expect(screen.getByText('Permission Request')).toBeTruthy()
       expect(screen.getByText('Allow')).toBeTruthy()
     })
@@ -132,6 +138,7 @@ describe('TerminalScreen', () => {
         toolName: 'Bash',
         details: ['rm -rf /tmp/test'],
         requiresAlways: true,
+        createdAt: Date.now(),
       })
 
       expect(screen.getByText('Permission Request')).toBeTruthy()
@@ -150,6 +157,7 @@ describe('TerminalScreen', () => {
         toolName: 'Write',
         details: ['/tmp/file.ts'],
         requiresAlways: false,
+        createdAt: Date.now(),
       })
 
       expect(screen.getByText('Allow')).toBeTruthy()
@@ -165,6 +173,7 @@ describe('TerminalScreen', () => {
         toolName: 'Bash',
         details: [],
         requiresAlways: false,
+        createdAt: Date.now(),
       })
 
       fireEvent.press(screen.getByText('Allow'))
@@ -183,6 +192,7 @@ describe('TerminalScreen', () => {
         toolName: 'Bash',
         details: [],
         requiresAlways: false,
+        createdAt: Date.now(),
       })
 
       fireEvent.press(screen.getByText('Deny'))
@@ -201,6 +211,7 @@ describe('TerminalScreen', () => {
         toolName: 'Bash',
         details: [],
         requiresAlways: true,
+        createdAt: Date.now(),
       })
 
       fireEvent.press(screen.getByText('Always Allow'))

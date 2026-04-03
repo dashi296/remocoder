@@ -181,6 +181,7 @@ export function TerminalScreen() {
 
       {/* 承認ボトムシート */}
       <View
+        testID="permission-overlay"
         pointerEvents="box-none"
         style={[styles.permissionOverlay, { bottom: keyboardHeight }]}
       >

@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RemoCoder — Control your desktop Claude Code from anywhere</title>
+  <meta name="description" content="Securely connect via Tailscale VPN. A remote terminal app that lets you reconnect to existing sessions from iPhone / Android.">
+  <meta property="og:title" content="RemoCoder — Control your desktop Claude Code from anywhere">
+  <meta property="og:description" content="Securely connect via Tailscale VPN. A remote terminal app that lets you reconnect to existing sessions from iPhone / Android.">
+  <meta property="og:type" content="website">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="RemoCoder — Control your desktop Claude Code from anywhere">
+  <meta name="twitter:description" content="Securely connect via Tailscale VPN. A remote terminal app that lets you reconnect to existing sessions from iPhone / Android.">
+  <link rel="alternate" hreflang="ja" href="https://dashi296.github.io/remocoder/ja/">
+  <link rel="alternate" hreflang="en" href="https://dashi296.github.io/remocoder/en/">
+  <link rel="alternate" hreflang="x-default" href="https://dashi296.github.io/remocoder/en/">
+  <link rel="icon" href="../favicon.ico" type="image/x-icon">
+  <link rel="stylesheet" href="../style.css">
+</head>
+<body>
+
+<!-- ─── NAV ─── -->
+<nav aria-label="Main navigation">
+  <a href="#" class="nav-logo">Remo<span>Coder</span></a>
+  <ul class="nav-links" role="list">
+    <li><a href="#features">Features</a></li>
+    <li><a href="#how-it-works">How it works</a></li>
+    <li><a href="#get-started">Get Started</a></li>
+    <li><a href="#security">Security</a></li>
+    <li><a href="#faq">FAQ</a></li>
+    <li class="lang-switch">
+      <a href="../ja/">JA</a>
+      <span>/</span>
+      <a href="../en/" aria-current="true">EN</a>
+    </li>
+  </ul>
+</nav>
+
+<!-- ─── 1. HERO ─── -->
+<section id="hero">
+  <div class="hero-left">
+    <div class="hero-eyebrow">Secure connection via Tailscale VPN</div>
+    <h1>Control your desktop<em> Claude Code </em>from anywhere</h1>
+    <p class="hero-sub">
+      Connect to Claude Code sessions running on your desktop from iPhone / Android.
+      Resume existing sessions or start new ones — right from your pocket.
+    </p>
+    <div class="hero-ctas">
+      <a href="#get-started" class="btn-primary">See how it works →</a>
+      <a href="#" class="btn-secondary" aria-disabled="true" tabindex="-1">Download (coming soon)</a>
+    </div>
+  </div>
+  <div class="hero-right">
+    <div class="hero-terminal">
+      <div class="terminal-topbar" aria-hidden="true">
+        <div class="dot dot-red"></div>
+        <div class="dot dot-yellow"></div>
+        <div class="dot dot-green"></div>
+        <div class="terminal-title">RemoCoder — claude</div>
+      </div>
+      <div class="terminal-body">
+        <div class="conn-badge">Connected — 100.x.x.x:8080</div>
+        <div><span class="t-prompt">❯ </span><span class="t-cmd">claude</span></div>
+        <div class="t-out">Claude Code v1.x.x</div>
+        <div class="t-out">Working in <span class="t-acc">~/projects/myapp</span></div>
+        <br>
+        <div><span class="t-prompt">❯ </span><span class="t-cmd">git status</span></div>
+        <div class="t-out">On branch feat/new-api</div>
+        <div class="t-out">Changes not staged for commit:</div>
+        <div class="t-out">&nbsp;&nbsp;<span class="t-modified">modified: src/api.ts</span></div>
+        <br>
+        <div><span class="t-prompt">❯ </span><span class="t-cursor"></span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ─── 2. WHAT YOU CAN DO ─── -->
+<section id="features">
+  <div class="section-label">What you can do</div>
+  <h2>Carry Claude Code in your pocket</h2>
+  <div class="features-grid">
+    <div class="feature-card card">
+      <div class="feature-icon">📱</div>
+      <h3>Connect to Claude Code from mobile</h3>
+      <p>Access shell sessions running on your desktop directly from iPhone / Android. Operate a full-featured terminal on mobile.</p>
+    </div>
+    <div class="feature-card card">
+      <div class="feature-icon">🔄</div>
+      <h3>Resume existing sessions</h3>
+      <p>Reconnect to sessions you left running on your desktop while on the go. Pick up right where you left off without losing context.</p>
+    </div>
+    <div class="feature-card card">
+      <div class="feature-icon">🖥️</div>
+      <h3>Start new sessions or attach to tmux</h3>
+      <p>Launch a new session per project or attach to existing tmux sessions from your mobile device.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ─── 3. HOW IT WORKS ─── -->
+<section id="how-it-works" class="wide-section">
+  <div class="inner">
+    <div class="section-label">How it works</div>
+    <h2>Direct access to your own environment</h2>
+    <p class="section-sub">
+      No cloud server in the middle — your desktop and your mobile connect directly.
+      A closed connection, never exposed to the public internet.
+    </p>
+    <div class="arch-diagram">
+      <div class="arch-box">
+        <div class="arch-icon">🖥️</div>
+        <div class="arch-label">Desktop App</div>
+        <div class="arch-desc">Electron + node-pty<br>Launches Claude Code</div>
+      </div>
+      <div class="arch-arrow">
+        <div class="arrow-line"></div>
+        <div class="arrow-label">WebSocket<br>over Tailscale</div>
+      </div>
+      <div class="arch-box">
+        <div class="arch-icon">🔒</div>
+        <div class="arch-label">Tailscale VPN</div>
+        <div class="arch-desc">WireGuard encryption<br>Private network</div>
+      </div>
+      <div class="arch-arrow">
+        <div class="arrow-line"></div>
+        <div class="arrow-label">Token auth<br>secured</div>
+      </div>
+      <div class="arch-box">
+        <div class="arch-icon">📱</div>
+        <div class="arch-label">Mobile App</div>
+        <div class="arch-desc">iOS / Android<br>xterm.js terminal</div>
+      </div>
+    </div>
+    <div class="security-note">
+      <span class="icon">🛡️</span>
+      <span>
+        All communication goes through Tailscale's WireGuard encrypted tunnel.
+        No port forwarding to the public internet required. Your data never leaves your devices —
+        it stays between your PC and your mobile.
+      </span>
+    </div>
+  </div>
+</section>
+
+<!-- ─── 4. 3 STEPS ─── -->
+<section id="get-started">
+  <div class="section-label">3-step setup</div>
+  <h2>Up and running in 3 steps</h2>
+  <div class="steps">
+    <div class="step">
+      <div class="step-num">1</div>
+      <h3>Launch the desktop app</h3>
+      <p>
+        Install and launch RemoCoder on macOS / Windows / Linux.
+        The Tailscale IP and token appear in the tray icon.
+      </p>
+    </div>
+    <div class="step">
+      <div class="step-num">2</div>
+      <h3>Enter IP / Token or scan QR code</h3>
+      <p>
+        Enter the connection details shown, or just scan the QR code.
+        Save it as a connection profile for instant reconnect next time.
+      </p>
+    </div>
+    <div class="step">
+      <div class="step-num">3</div>
+      <h3>Pick a session and get to work</h3>
+      <p>
+        Select from the Active / Idle session list or start a new session.
+        Continue working right in the terminal.
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ─── 5. MAIN FEATURES ─── -->
+<section id="main-features">
+  <div class="section-label">Features</div>
+  <h2>Everything you need, built in</h2>
+  <div class="feat-grid">
+    <div class="feat-item card">
+      <div class="fi-icon">📷</div>
+      <div>
+        <h4>QR code quick connect</h4>
+        <p>Scan the QR code on your desktop screen to auto-fill connection details instantly.</p>
+      </div>
+    </div>
+    <div class="feat-item card">
+      <div class="fi-icon">💾</div>
+      <div>
+        <h4>Save connection profiles</h4>
+        <p>Save frequent destinations. Reconnect with a single tap next time.</p>
+      </div>
+    </div>
+    <div class="feat-item card">
+      <div class="fi-icon">📋</div>
+      <div>
+        <h4>Active / Idle session list</h4>
+        <p>View all sessions running on your desktop at a glance. Check status and reconnect smoothly.</p>
+      </div>
+    </div>
+    <div class="feat-item card">
+      <div class="fi-icon">🗂️</div>
+      <div>
+        <h4>Start new sessions per project</h4>
+        <p>Launch a new Claude Code session for any project right from your mobile after connecting.</p>
+      </div>
+    </div>
+    <div class="feat-item card">
+      <div class="fi-icon">🔀</div>
+      <div>
+        <h4>Attach to tmux sessions</h4>
+        <p>Connect directly to existing tmux sessions. Pick up on mobile where you left off on desktop.</p>
+      </div>
+    </div>
+    <div class="feat-item card">
+      <div class="fi-icon">⌨️</div>
+      <div>
+        <h4>Mobile-optimized terminal UI</h4>
+        <p>An xterm.js terminal optimized for smartphone screens. Comfortable even with touch input.</p>
+      </div>
+    </div>
+    <div class="feat-item card">
+      <div class="fi-icon">✅</div>
+      <div>
+        <h4>Permission approval flow</h4>
+        <p>Approve Claude Code permission requests from your mobile. Work never stops while you're away.</p>
+      </div>
+    </div>
+    <div class="feat-item card">
+      <div class="fi-icon">🔔</div>
+      <div>
+        <h4>Session state notifications</h4>
+        <p>Stay on top of connection drops, reconnections, and session endings in real time.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ─── 6. SECURITY ─── -->
+<section id="security" class="wide-section">
+  <div class="inner">
+    <div class="section-label">Security</div>
+    <h2>Your environment, yours alone</h2>
+    <p class="section-sub">
+      Designed without dependency on cloud services, protecting your code and sessions.
+    </p>
+    <div class="security-grid">
+      <div class="security-item card">
+        <div class="si-icon">🔒</div>
+        <div>
+          <h4>Tailscale VPN only</h4>
+          <p>All communication goes through Tailscale's WireGuard tunnel. No port forwarding to the public internet needed.</p>
+        </div>
+      </div>
+      <div class="security-item card">
+        <div class="si-icon">🎫</div>
+        <div>
+          <h4>UUID token authentication</h4>
+          <p>Authenticate with a UUID token on every connection. Prevents unauthorized access even from other devices on the same Tailscale network.</p>
+        </div>
+      </div>
+      <div class="security-item card">
+        <div class="si-icon">🌐</div>
+        <div>
+          <h4>Not exposed to the internet</h4>
+          <p>The server exists only within your Tailscale network. External access is physically impossible.</p>
+        </div>
+      </div>
+      <div class="security-item card">
+        <div class="si-icon">🏠</div>
+        <div>
+          <h4>Closed to your own PC and sessions</h4>
+          <p>No intermediary cloud server. Your desktop and mobile connect directly. Data never leaves your devices.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ─── 7. TARGET USERS ─── -->
+<section id="target-users">
+  <div class="section-label">Who it's for</div>
+  <h2>Built for developers on the move</h2>
+  <div class="user-cards">
+    <div class="user-card card">
+      <div class="uc-icon">🚶</div>
+      <h3>Developers who want to keep coding on the go</h3>
+      <p>Check Claude Code status or do quick edits from a café or commute. Get things done on your phone without opening a laptop.</p>
+    </div>
+    <div class="user-card card">
+      <div class="uc-icon">💻</div>
+      <h3>People who don't want to interrupt desktop work</h3>
+      <p>Monitor and operate sessions running on your home desktop from outside. Keep sessions alive and continue without interruption.</p>
+    </div>
+    <div class="user-card card">
+      <div class="uc-icon">🔧</div>
+      <h3>People who want to use their own dev environment</h3>
+      <p>No cloud IDEs or other people's servers. Operate your machine, your environment, your tools — from mobile.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ─── 8. FAQ ─── -->
+<section id="faq">
+  <div class="section-label">FAQ</div>
+  <h2>FAQ</h2>
+  <div class="faq-list">
+    <details>
+      <summary>Is Tailscale required?</summary>
+      <div class="faq-answer">
+        Yes, Tailscale is currently required. Tailscale's free plan is more than sufficient for personal use —
+        just install it on both your desktop and mobile and join the same network.
+        Tailscale handles NAT traversal and VPN configuration for you, making secure connections simple.
+      </div>
+    </details>
+    <details>
+      <summary>Where does Claude Code run?</summary>
+      <div class="faq-answer">
+        Claude Code runs on your desktop PC. The mobile app only relays terminal input and output.
+        All processing happens on your own machine.
+      </div>
+    </details>
+    <details>
+      <summary>Do I need a public server?</summary>
+      <div class="faq-answer">
+        No. RemoCoder operates only within Tailscale's private network.
+        No VPS or cloud server is required.
+      </div>
+    </details>
+    <details>
+      <summary>Does it work on both iPhone and Android?</summary>
+      <div class="faq-answer">
+        Yes, both iOS and Android are supported. Built with React Native (Expo),
+        it provides the same experience on both platforms.
+      </div>
+    </details>
+    <details>
+      <summary>How secure is it?</summary>
+      <div class="faq-answer">
+        Communication goes through Tailscale's WireGuard encrypted tunnel. UUID token authentication
+        is also required on every connection, preventing unauthorized access even from other devices
+        on the same Tailscale network. No data is sent to any cloud — everything stays between your PC and mobile.
+      </div>
+    </details>
+  </div>
+</section>
+
+<!-- ─── 9. FINAL CTA ─── -->
+<section id="cta">
+  <div class="section-label">Get started</div>
+  <h2>Open your PC's Claude Code <em>from your pocket</em></h2>
+  <p>Start from either desktop or mobile.</p>
+  <div class="cta-btns">
+    <a href="#" class="btn-primary" aria-disabled="true" tabindex="-1">Download desktop app (coming soon)</a>
+    <a href="#" class="btn-secondary" aria-disabled="true" tabindex="-1">View mobile app (coming soon)</a>
+  </div>
+</section>
+
+<!-- ─── FOOTER ─── -->
+<footer>
+  <span>© 2026 RemoCoder</span>
+  <span>
+    <a href="privacy-policy.html">Privacy Policy</a>
+  </span>
+</footer>
+
+</body>
+</html>

@@ -6,3 +6,4 @@ coverage/
 .DS_Store
 packages/desktop/out/
 *.p12
+.superpowers/

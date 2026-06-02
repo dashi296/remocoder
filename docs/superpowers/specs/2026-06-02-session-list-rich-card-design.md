@@ -97,9 +97,9 @@ ANSI除去には軽量な正規表現を使用：`/\x1b\[[0-9;]*m/g`
 
 `SessionRow` に `editingLabel` / `labelValue` の local state を追加。
 
-**`packages/mobile/src/screens/SessionPickerScreen.tsx`（または相当ファイル）**
+**`packages/mobile/src/screens/SessionPickerScreen.tsx`**
 
-Desktop と同等の情報をモバイル用スタイルで表示。ユーザー定義ラベルは `AsyncStorage` を使用。実際のファイルパスは実装前に確認する。
+Desktop と同等の情報をモバイル用スタイルで表示。ユーザー定義ラベルは `AsyncStorage` を使用（キー: `session-label-${sessionId}`）。
 
 ---
 

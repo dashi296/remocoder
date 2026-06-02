@@ -43,7 +43,7 @@ describe('App (MOCK_MODE)', () => {
 
   it('モック API からセッション一覧を取得して表示する', async () => {
     render(<App />)
-    await waitFor(() => expect(screen.getByText('100.88.44.55')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText('2 ACTIVE')).toBeInTheDocument())
   })
 
   it('フッターにバージョン情報を表示する', async () => {

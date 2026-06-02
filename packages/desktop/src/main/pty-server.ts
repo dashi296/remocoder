@@ -111,6 +111,8 @@ const SERVER_PING_INTERVAL = 30000
 const PONG_TIMEOUT = 10000
 // アイドル判定時間（ms）
 const IDLE_TIMEOUT = 300000
+// Claudeフェーズのアイドル判定時間（ms）
+const CLAUDE_IDLE_TIMEOUT = 30000
 // スクロールバックの最大バイト数（500KB）
 const SCROLLBACK_MAX_BYTES = 500_000
 // アイドルタイマーを再スケジュールするまでの最小間隔（ms）
@@ -136,6 +138,14 @@ interface PtySession {
   idleTimeoutId: ReturnType<typeof setTimeout> | null
   /** アイドルタイマーを最後にリセットした時刻（デバウンス用） */
   lastActiveAt: number
+  /** PTYへの最終出力時刻（ms） */
+  lastOutputAt: number
+  /** PTYの最終出力行（ANSI除去済み、最大80文字） */
+  lastOutputLine?: string
+  /** Claudeのフェーズ推定 */
+  claudePhase?: 'thinking' | 'writing' | 'waiting' | 'idle'
+  /** claudePhase を idle にするタイマー */
+  claudeIdleTimeoutId: ReturnType<typeof setTimeout> | null
   /** セッションが起動したプロジェクトパス */
   projectPath?: string
   /** セッションの起動元 */
@@ -176,6 +186,9 @@ function getSessionInfos(): SessionInfo[] {
     isExternal: s.pty === null,
     projectPath: s.projectPath,
     source: s.source,
+    lastActiveAt: s.lastOutputAt > 0 ? new Date(s.lastOutputAt).toISOString() : undefined,
+    lastOutputLine: s.lastOutputLine,
+    claudePhase: s.claudePhase,
   }))
 }
 
@@ -185,6 +198,7 @@ function getSessionInfos(): SessionInfo[] {
  */
 function closeSession(session: PtySession, exitCode: number): void {
   if (session.idleTimeoutId) clearTimeout(session.idleTimeoutId)
+  if (session.claudeIdleTimeoutId) clearTimeout(session.claudeIdleTimeoutId)
   if (session.pendingPermission) clearTimeout(session.pendingPermission.timeoutId)
   if (session.detachCleanupId) clearTimeout(session.detachCleanupId)
   if (session.wsClient?.readyState === WebSocket.OPEN) {
@@ -273,6 +287,36 @@ function sendPermissionRequest(
   sendPermissionToClient(session.wsClient!, pending)
 }
 
+function detectClaudePhase(line: string): Exclude<SessionInfo['claudePhase'], 'idle' | undefined> | null {
+  if (/[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]/.test(line)) return 'thinking'
+  if (/Writing|Reading|Editing|Bash|Tool/i.test(line)) return 'writing'
+  if (/\?$|\bEnter\b|\bpress\b|\bconfirm\b/i.test(line)) return 'waiting'
+  return null
+}
+
+function updateSessionOutput(session: PtySession, data: string): void {
+  const clean = stripAnsi(data)
+  const lines = clean.split('\n').map((l) => l.trim()).filter((l) => l.length > 0)
+  if (lines.length === 0) return
+
+  session.lastOutputAt = Date.now()
+  session.lastOutputLine = lines[lines.length - 1].slice(0, 80)
+
+  const phase = detectClaudePhase(session.lastOutputLine)
+  if (phase !== null) session.claudePhase = phase
+
+  if (session.claudeIdleTimeoutId) clearTimeout(session.claudeIdleTimeoutId)
+  session.claudeIdleTimeoutId = setTimeout(() => {
+    const s = ptySessions.get(session.id)
+    if (s) {
+      s.claudePhase = 'idle'
+      notifySessions()
+    }
+  }, CLAUDE_IDLE_TIMEOUT)
+
+  notifySessions()
+}
+
 /**
  * PTY出力データから承認プロンプトを検出し、モバイルクライアントへ通知する。
  * 既に pending な承認リクエストがある場合は何もしない。
@@ -350,6 +394,8 @@ function createPtySession(source: SessionSource = { kind: 'claude' }, clientIP?:
     clientIP,
     idleTimeoutId: null,
     lastActiveAt: 0,
+    lastOutputAt: 0,
+    claudeIdleTimeoutId: null,
     projectPath,
     source,
     permissionBuffer: '',
@@ -359,6 +405,7 @@ function createPtySession(source: SessionSource = { kind: 'claude' }, clientIP?:
 
   ptyProc.onData((data) => {
     appendScrollback(session, data)
+    updateSessionOutput(session, data)
     if (session.wsClient?.readyState === WebSocket.OPEN) {
       session.wsClient.send(JSON.stringify({ type: 'output', data } satisfies WsMessage))
     }
@@ -395,6 +442,8 @@ function createExternalSession(providerWs: WebSocket): PtySession {
     wsClient: null,
     idleTimeoutId: null,
     lastActiveAt: 0,
+    lastOutputAt: 0,
+    claudeIdleTimeoutId: null,
     permissionBuffer: '',
     pendingPermission: null,
     detachCleanupId: null,
@@ -619,6 +668,7 @@ export function startPtyServer(port = DEFAULT_WS_PORT, callbacks: PtyServerCallb
 
         if (msg.type === 'output') {
           appendScrollback(provSession, msg.data)
+          updateSessionOutput(provSession, msg.data)
           if (provSession.wsClient?.readyState === WebSocket.OPEN) {
             provSession.wsClient.send(JSON.stringify({ type: 'output', data: msg.data } satisfies WsMessage))
           }

@@ -97,4 +97,30 @@ describe('SessionList', () => {
       expect(screen.getByText('1 ACTIVE')).toBeInTheDocument()
     })
   })
+
+  describe('インラインラベル編集', () => {
+    it('ラベルをクリックすると入力欄が表示される', () => {
+      render(<SessionList sessions={[makeSession()]} />)
+      fireEvent.click(screen.getByTitle('Click to rename'))
+      expect(screen.getByRole('textbox')).toBeInTheDocument()
+    })
+
+    it('Enter キーで編集を確定する', () => {
+      render(<SessionList sessions={[makeSession({ id: 'x1' })]} />)
+      fireEvent.click(screen.getByTitle('Click to rename'))
+      const input = screen.getByRole('textbox')
+      fireEvent.change(input, { target: { value: 'My Session' } })
+      fireEvent.keyDown(input, { key: 'Enter' })
+      expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
+    })
+
+    it('Escape キーで編集をキャンセルする', () => {
+      render(<SessionList sessions={[makeSession({ id: 'x2' })]} />)
+      fireEvent.click(screen.getByTitle('Click to rename'))
+      const input = screen.getByRole('textbox')
+      fireEvent.change(input, { target: { value: 'Unwanted Name' } })
+      fireEvent.keyDown(input, { key: 'Escape' })
+      expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
+    })
+  })
 })

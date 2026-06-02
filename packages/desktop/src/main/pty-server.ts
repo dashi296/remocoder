@@ -303,7 +303,12 @@ function updateSessionOutput(session: PtySession, data: string): void {
   session.lastOutputLine = lines[lines.length - 1].slice(0, 80)
 
   const phase = detectClaudePhase(session.lastOutputLine)
-  if (phase !== null) session.claudePhase = phase
+  if (phase !== null && phase !== session.claudePhase) {
+    session.claudePhase = phase
+    notifySessions()
+  } else if (phase !== null) {
+    session.claudePhase = phase
+  }
 
   if (session.claudeIdleTimeoutId) clearTimeout(session.claudeIdleTimeoutId)
   session.claudeIdleTimeoutId = setTimeout(() => {
@@ -313,8 +318,6 @@ function updateSessionOutput(session: PtySession, data: string): void {
       notifySessions()
     }
   }, CLAUDE_IDLE_TIMEOUT)
-
-  notifySessions()
 }
 
 /**

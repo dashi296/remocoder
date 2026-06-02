@@ -94,11 +94,17 @@ function SessionRow({
 
   const [isEditing, setIsEditing] = useState(false)
   const [labelValue, setLabelValue] = useState(() => loadLabel(session.id))
+  const cancelEditRef = React.useRef(false)
 
   const projectName = resolveProjectName(session)
   const displayName = labelValue || projectName || session.clientIP || `client_${session.id.slice(0, 6)}`
 
   const handleLabelBlur = () => {
+    if (cancelEditRef.current) {
+      cancelEditRef.current = false
+      setIsEditing(false)
+      return
+    }
     saveLabel(session.id, labelValue)
     setIsEditing(false)
   }
@@ -109,6 +115,7 @@ function SessionRow({
       setIsEditing(false)
     }
     if (e.key === 'Escape') {
+      cancelEditRef.current = true
       setLabelValue(loadLabel(session.id))
       setIsEditing(false)
     }

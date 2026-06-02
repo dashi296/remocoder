@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo } from 'react'
+import React, { useCallback, useEffect, useMemo } from 'react'
 import {
   View,
   Text,
@@ -7,12 +7,154 @@ import {
   StyleSheet,
   ActivityIndicator,
   Alert,
+  TextInput,
 } from 'react-native'
+import AsyncStorage from '@react-native-async-storage/async-storage'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { MultiplexerSessionInfo, ProjectInfo, SessionInfo, SessionSource } from '@remocoder/shared'
 import { firstParam, formatDate, getSessionDisplayName } from '../utils'
 import { useSessionPickerWs } from '../hooks/useSessionPickerWs'
+
+// ── モバイル用ヘルパー ──────────────────────────────────────────────────────
+
+function mobileSourceIcon(source?: SessionSource): string {
+  if (!source) return '🖥'
+  switch (source.kind) {
+    case 'claude': return '🤖'
+    case 'shell':  return '🐚'
+    case 'tmux':   return '📟'
+    case 'screen': return '🖥'
+    case 'zellij': return '🪟'
+    default:       return '🖥'
+  }
+}
+
+function mobileProjectName(session: SessionInfo): string | undefined {
+  const path =
+    (session.source?.kind === 'claude' ? session.source.projectPath : undefined) ??
+    session.projectPath
+  if (!path) return undefined
+  return path.split('/').filter(Boolean).pop()
+}
+
+function mobileFormatElapsed(isoString: string): string {
+  const ms = Date.now() - new Date(isoString).getTime()
+  const s = Math.floor(ms / 1000)
+  if (s < 60) return `${s}s ago`
+  const m = Math.floor(s / 60)
+  if (m < 60) return `${m} min ago`
+  const h = Math.floor(m / 60)
+  return `${h} hr ago`
+}
+
+function mobilePhaseBadgeText(phase?: SessionInfo['claudePhase']): string | null {
+  switch (phase) {
+    case 'thinking': return '✦ THINKING'
+    case 'writing':  return '✦ WRITING'
+    case 'waiting':  return '? WAITING'
+    default:         return null
+  }
+}
+
+const LABEL_KEY_PREFIX = 'session-label-'
+
+function useMobileLabels(sessionIds: string[]) {
+  const [labels, setLabels] = React.useState<Record<string, string>>({})
+
+  useEffect(() => {
+    if (sessionIds.length === 0) return
+    const keys = sessionIds.map((id) => LABEL_KEY_PREFIX + id)
+    AsyncStorage.multiGet(keys).then((pairs) => {
+      const map: Record<string, string> = {}
+      pairs.forEach(([key, value]) => {
+        if (value) map[key.replace(LABEL_KEY_PREFIX, '')] = value
+      })
+      setLabels(map)
+    })
+  }, [sessionIds.join(',')])
+
+  const setLabel = async (sessionId: string, label: string) => {
+    if (label.trim()) {
+      await AsyncStorage.setItem(LABEL_KEY_PREFIX + sessionId, label.trim())
+      setLabels((prev) => ({ ...prev, [sessionId]: label.trim() }))
+    } else {
+      await AsyncStorage.removeItem(LABEL_KEY_PREFIX + sessionId)
+      setLabels((prev) => { const next = { ...prev }; delete next[sessionId]; return next })
+    }
+  }
+
+  return { labels, setLabel }
+}
+
+function RenameModal({
+  visible,
+  initialValue,
+  onConfirm,
+  onCancel,
+}: {
+  visible: boolean
+  initialValue: string
+  onConfirm: (value: string) => void
+  onCancel: () => void
+}) {
+  const [value, setValue] = React.useState(initialValue)
+
+  useEffect(() => {
+    if (visible) setValue(initialValue)
+  }, [visible, initialValue])
+
+  if (!visible) return null
+
+  return (
+    <View style={renameStyles.overlay}>
+      <View style={renameStyles.modal}>
+        <Text style={renameStyles.title}>Rename Session</Text>
+        <TextInput
+          style={renameStyles.input}
+          value={value}
+          onChangeText={setValue}
+          placeholder="Session name"
+          placeholderTextColor="#8b949e"
+          autoFocus
+          selectTextOnFocus
+        />
+        <View style={renameStyles.buttons}>
+          <TouchableOpacity style={renameStyles.cancelBtn} onPress={onCancel}>
+            <Text style={renameStyles.cancelText}>Cancel</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={renameStyles.confirmBtn} onPress={() => onConfirm(value)}>
+            <Text style={renameStyles.confirmText}>Save</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </View>
+  )
+}
+
+const renameStyles = StyleSheet.create({
+  overlay: {
+    position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    alignItems: 'center', justifyContent: 'center', zIndex: 100,
+  },
+  modal: {
+    backgroundColor: '#161b22', borderRadius: 12, padding: 20,
+    width: '80%', borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)',
+    gap: 14,
+  },
+  title: { color: '#c9d1d9', fontSize: 16, fontWeight: '600' },
+  input: {
+    backgroundColor: '#0d1117', borderWidth: 1, borderColor: 'rgba(255,255,255,0.15)',
+    borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10,
+    color: '#c9d1d9', fontSize: 14,
+  },
+  buttons: { flexDirection: 'row', gap: 10, justifyContent: 'flex-end' },
+  cancelBtn: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 6, backgroundColor: 'rgba(255,255,255,0.06)' },
+  cancelText: { color: '#8b949e', fontSize: 14 },
+  confirmBtn: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 6, backgroundColor: 'rgba(78,201,176,0.15)', borderWidth: 1, borderColor: 'rgba(78,201,176,0.3)' },
+  confirmText: { color: '#4ec9b0', fontSize: 14, fontWeight: '600' },
+})
 
 type ListItem =
   | { kind: 'header'; label: string }
@@ -40,6 +182,11 @@ export function SessionPickerScreen() {
     selectedRef,
   } = useSessionPickerWs(ip, token, profileId ?? null)
 
+  const sessionIds = useMemo(() => sessions.map((s) => s.id), [sessions])
+  const { labels, setLabel } = useMobileLabels(sessionIds)
+
+  const [renameTarget, setRenameTarget] = React.useState<{ id: string; current: string } | null>(null)
+
   const navigateToTerminal = useCallback(
     (params: Record<string, string>) => {
       selectedRef.current = true
@@ -59,23 +206,37 @@ export function SessionPickerScreen() {
     [navigateToTerminal],
   )
 
-  const handleDeleteSession = useCallback(
+  const handleLongPressSession = useCallback(
     (session: SessionInfo) => {
-      const name = getSessionDisplayName(session)
+      if (isDeletingSession) return
+      const name = labels[session.id] || getSessionDisplayName(session)
       Alert.alert(
-        'Delete Session',
-        `Terminate and delete "${name}"?`,
+        name,
+        'Choose an action',
         [
-          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Rename',
+            onPress: () => setRenameTarget({ id: session.id, current: labels[session.id] ?? '' }),
+          },
           {
             text: 'Delete',
             style: 'destructive',
-            onPress: () => deleteSession(session.id),
+            onPress: () => {
+              Alert.alert(
+                'Delete Session',
+                `Terminate and delete "${name}"?`,
+                [
+                  { text: 'Cancel', style: 'cancel' },
+                  { text: 'Delete', style: 'destructive', onPress: () => deleteSession(session.id) },
+                ],
+              )
+            },
           },
+          { text: 'Cancel', style: 'cancel' },
         ],
       )
     },
-    [deleteSession],
+    [isDeletingSession, labels, deleteSession],
   )
 
   const handleAttachMultiplexer = (mux: MultiplexerSessionInfo) => {
@@ -155,13 +316,17 @@ export function SessionPickerScreen() {
             }
             if (item.kind === 'session') {
               const { session } = item
-              const name = getSessionDisplayName(session)
+              const label = labels[session.id]
+              const projectName = mobileProjectName(session)
+              const displayName = label || projectName || getSessionDisplayName(session)
+              const icon = mobileSourceIcon(session.source)
+              const phaseBadge = mobilePhaseBadgeText(session.claudePhase)
               const isDeleting = isDeletingSession && deletingSessionId === session.id
               return (
                 <TouchableOpacity
                   style={[styles.sessionRow, isDeleting && styles.sessionRowDeleting]}
                   onPress={() => !isDeleting && handleAttachSession(session.id)}
-                  onLongPress={() => !isDeleting && handleDeleteSession(session)}
+                  onLongPress={() => !isDeleting && handleLongPressSession(session)}
                   delayLongPress={500}
                 >
                   <View
@@ -171,16 +336,22 @@ export function SessionPickerScreen() {
                     ]}
                   />
                   <View style={styles.sessionInfo}>
-                    <Text style={styles.sessionName}>{name}</Text>
-                    {session.projectPath && (
-                      <Text style={styles.sessionPath} numberOfLines={1} ellipsizeMode="middle">
-                        {session.projectPath}
-                      </Text>
-                    )}
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                      <Text style={styles.sessionName}>{icon} {displayName}</Text>
+                      {phaseBadge && (
+                        <Text style={mobileSessionStyles.phaseBadge}>{phaseBadge}</Text>
+                      )}
+                    </View>
                     <Text style={styles.sessionMeta}>
                       {session.status === 'active' ? 'Active' : 'Idle'}
                       {session.hasClient ? ' · Connected' : ''}
+                      {' · '}{mobileFormatElapsed(session.createdAt)}
                     </Text>
+                    {session.lastOutputLine && (
+                      <Text style={mobileSessionStyles.outputPreview} numberOfLines={1}>
+                        ▸ {session.lastOutputLine}
+                      </Text>
+                    )}
                   </View>
                   {isDeleting
                     ? <ActivityIndicator size="small" color="#f85149" />
@@ -233,6 +404,15 @@ export function SessionPickerScreen() {
           }}
         />
       )}
+      <RenameModal
+        visible={renameTarget !== null}
+        initialValue={renameTarget?.current ?? ''}
+        onConfirm={(value) => {
+          if (renameTarget) setLabel(renameTarget.id, value)
+          setRenameTarget(null)
+        }}
+        onCancel={() => setRenameTarget(null)}
+      />
     </SafeAreaView>
   )
 }
@@ -407,5 +587,20 @@ const styles = StyleSheet.create({
     color: '#8b949e',
     fontSize: 11,
     flexShrink: 0,
+  },
+})
+
+const mobileSessionStyles = StyleSheet.create({
+  phaseBadge: {
+    color: '#60a5fa',
+    fontSize: 10,
+    fontWeight: '600',
+    letterSpacing: 0.5,
+  },
+  outputPreview: {
+    color: '#4ec9b0',
+    fontSize: 11,
+    fontFamily: 'monospace',
+    marginTop: 2,
   },
 })

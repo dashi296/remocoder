@@ -573,3 +573,88 @@ describe('startPtyServer', () => {
     })
   })
 })
+
+describe('session_list の claudePhase / lastOutputLine', () => {
+  let startPtyServer: (port?: number, callbacks?: any) => { wss: any; getToken: () => string }
+
+  beforeEach(async () => {
+    vi.resetModules()
+    delete process.env.REMOTE_TOKEN
+    mockUuidv4.mockReturnValue('test-token')
+    wssState.instance = null
+    ptyState.lastShell = null
+    const mod = await import('../pty-server')
+    startPtyServer = mod.startPtyServer
+  })
+
+  afterEach(() => {
+    vi.clearAllMocks()
+    vi.useRealTimers()
+  })
+
+  it('PTY 出力後に session_list_response の sessions[0].lastOutputLine が更新される', async () => {
+    startPtyServer()
+    const ws = createMockWs()
+    wssState.instance!.emit('connection', ws)
+    sendMessage(ws, { type: 'auth', token: 'test-token' })
+    sendMessage(ws, { type: 'session_create' })
+    ws.send.mockClear()
+
+    // PTY が出力を生成
+    ptyState.lastShell._onDataCb('Analyzing file.ts\n')
+
+    sendMessage(ws, { type: 'session_list_request' })
+    const calls = ws.send.mock.calls.map((c: any) => JSON.parse(c[0]))
+    const response = calls.find((m: any) => m.type === 'session_list_response')
+    expect(response.sessions[0].lastOutputLine).toBe('Analyzing file.ts')
+  })
+
+  it('スピナー文字を含む出力で claudePhase が "thinking" になる', () => {
+    startPtyServer()
+    const ws = createMockWs()
+    wssState.instance!.emit('connection', ws)
+    sendMessage(ws, { type: 'auth', token: 'test-token' })
+    sendMessage(ws, { type: 'session_create' })
+    ws.send.mockClear()
+
+    ptyState.lastShell._onDataCb('⠋ Thinking...\n')
+
+    sendMessage(ws, { type: 'session_list_request' })
+    const calls = ws.send.mock.calls.map((c: any) => JSON.parse(c[0]))
+    const response = calls.find((m: any) => m.type === 'session_list_response')
+    expect(response.sessions[0].claudePhase).toBe('thinking')
+  })
+
+  it('"Writing" を含む出力で claudePhase が "writing" になる', () => {
+    startPtyServer()
+    const ws = createMockWs()
+    wssState.instance!.emit('connection', ws)
+    sendMessage(ws, { type: 'auth', token: 'test-token' })
+    sendMessage(ws, { type: 'session_create' })
+    ws.send.mockClear()
+
+    ptyState.lastShell._onDataCb('Writing src/index.ts\n')
+
+    sendMessage(ws, { type: 'session_list_request' })
+    const calls = ws.send.mock.calls.map((c: any) => JSON.parse(c[0]))
+    const response = calls.find((m: any) => m.type === 'session_list_response')
+    expect(response.sessions[0].claudePhase).toBe('writing')
+  })
+
+  it('30秒経過後に claudePhase が "idle" になる', () => {
+    vi.useFakeTimers()
+    startPtyServer()
+    const ws = createMockWs()
+    wssState.instance!.emit('connection', ws)
+    sendMessage(ws, { type: 'auth', token: 'test-token' })
+    sendMessage(ws, { type: 'session_create' })
+
+    ptyState.lastShell._onDataCb('⠋ Thinking...\n')
+    vi.advanceTimersByTime(30000)
+
+    sendMessage(ws, { type: 'session_list_request' })
+    const calls = ws.send.mock.calls.map((c: any) => JSON.parse(c[0]))
+    const response = calls.find((m: any) => m.type === 'session_list_response')
+    expect(response.sessions[0].claudePhase).toBe('idle')
+  })
+})

@@ -8,6 +8,7 @@ import {
   ActivityIndicator,
   Alert,
   TextInput,
+  Modal,
 } from 'react-native'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { SafeAreaView } from 'react-native-safe-area-context'
@@ -61,6 +62,8 @@ const LABEL_KEY_PREFIX = 'session-label-'
 
 function useMobileLabels(sessionIds: string[]) {
   const [labels, setLabels] = React.useState<Record<string, string>>({})
+  // セッションIDのセットが変わった時のみ再フェッチ（順序に依存しないよう sort）
+  const sortedIdsKey = useMemo(() => [...sessionIds].sort().join(','), [sessionIds])
 
   useEffect(() => {
     if (sessionIds.length === 0) return
@@ -72,7 +75,7 @@ function useMobileLabels(sessionIds: string[]) {
       })
       setLabels(map)
     })
-  }, [sessionIds.join(',')])
+  }, [sortedIdsKey])
 
   const setLabel = async (sessionId: string, label: string) => {
     if (label.trim()) {
@@ -104,39 +107,39 @@ function RenameModal({
     if (visible) setValue(initialValue)
   }, [visible, initialValue])
 
-  if (!visible) return null
-
   return (
-    <View style={renameStyles.overlay}>
-      <View style={renameStyles.modal}>
-        <Text style={renameStyles.title}>Rename Session</Text>
-        <TextInput
-          style={renameStyles.input}
-          value={value}
-          onChangeText={setValue}
-          placeholder="Session name"
-          placeholderTextColor="#8b949e"
-          autoFocus
-          selectTextOnFocus
-        />
-        <View style={renameStyles.buttons}>
-          <TouchableOpacity style={renameStyles.cancelBtn} onPress={onCancel}>
-            <Text style={renameStyles.cancelText}>Cancel</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={renameStyles.confirmBtn} onPress={() => onConfirm(value)}>
-            <Text style={renameStyles.confirmText}>Save</Text>
-          </TouchableOpacity>
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onCancel}>
+      <View style={renameStyles.overlay}>
+        <View style={renameStyles.modal}>
+          <Text style={renameStyles.title}>Rename Session</Text>
+          <TextInput
+            style={renameStyles.input}
+            value={value}
+            onChangeText={setValue}
+            placeholder="Session name"
+            placeholderTextColor="#8b949e"
+            autoFocus
+            selectTextOnFocus
+          />
+          <View style={renameStyles.buttons}>
+            <TouchableOpacity style={renameStyles.cancelBtn} onPress={onCancel}>
+              <Text style={renameStyles.cancelText}>Cancel</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={renameStyles.confirmBtn} onPress={() => onConfirm(value)}>
+              <Text style={renameStyles.confirmText}>Save</Text>
+            </TouchableOpacity>
+          </View>
         </View>
       </View>
-    </View>
+    </Modal>
   )
 }
 
 const renameStyles = StyleSheet.create({
   overlay: {
-    position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+    flex: 1,
     backgroundColor: 'rgba(0,0,0,0.7)',
-    alignItems: 'center', justifyContent: 'center', zIndex: 100,
+    alignItems: 'center', justifyContent: 'center',
   },
   modal: {
     backgroundColor: '#161b22', borderRadius: 12, padding: 20,

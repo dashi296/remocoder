@@ -289,8 +289,10 @@ function sendPermissionRequest(
 
 function detectClaudePhase(line: string): Exclude<SessionInfo['claudePhase'], 'idle' | undefined> | null {
   if (/[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]/.test(line)) return 'thinking'
-  if (/Writing|Reading|Editing|Bash|Tool/i.test(line)) return 'writing'
-  if (/\?$|\bEnter\b|\bpress\b|\bconfirm\b/i.test(line)) return 'waiting'
+  // 大文字限定で誤検出を防ぐ（"bash", "toolchain" 等の小文字は除外）
+  if (/\bWriting\b|\bReading\b|\bEditing\b|\bBash\b|\bTool\b/.test(line)) return 'writing'
+  // "Press Enter" または "?" 終端のみ: \bEnter\b 単体は "Enter directory" 等に誤マッチするため除外
+  if (/\?$|Press Enter|\bConfirm\b/i.test(line)) return 'waiting'
   return null
 }
 

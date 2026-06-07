@@ -641,6 +641,61 @@ describe('session_list の claudePhase / lastOutputLine', () => {
     expect(response.sessions[0].claudePhase).toBe('writing')
   })
 
+  it('"?" で終わる行で claudePhase が "waiting" になる', () => {
+    startPtyServer()
+    const ws = createMockWs()
+    wssState.instance!.emit('connection', ws)
+    sendMessage(ws, { type: 'auth', token: 'test-token' })
+    sendMessage(ws, { type: 'session_create' })
+    ws.send.mockClear()
+
+    ptyState.lastShell._onDataCb('Do you want to continue?\n')
+
+    sendMessage(ws, { type: 'session_list_request' })
+    const calls = ws.send.mock.calls.map((c: any) => JSON.parse(c[0]))
+    const response = calls.find((m: any) => m.type === 'session_list_response')
+    expect(response.sessions[0].claudePhase).toBe('waiting')
+  })
+
+  it('小文字の "bash" / "toolchain" は claudePhase を変えない', () => {
+    startPtyServer()
+    const ws = createMockWs()
+    wssState.instance!.emit('connection', ws)
+    sendMessage(ws, { type: 'auth', token: 'test-token' })
+    sendMessage(ws, { type: 'session_create' })
+    ws.send.mockClear()
+
+    // 小文字 "bash" や "toolchain" は writing にマッチしてはいけない
+    ptyState.lastShell._onDataCb('bash: command not found\n')
+    sendMessage(ws, { type: 'session_list_request' })
+    const calls1 = ws.send.mock.calls.map((c: any) => JSON.parse(c[0]))
+    const res1 = calls1.find((m: any) => m.type === 'session_list_response')
+    expect(res1.sessions[0].claudePhase).toBeUndefined()
+
+    ws.send.mockClear()
+    ptyState.lastShell._onDataCb('toolchain version 1.2.3\n')
+    sendMessage(ws, { type: 'session_list_request' })
+    const calls2 = ws.send.mock.calls.map((c: any) => JSON.parse(c[0]))
+    const res2 = calls2.find((m: any) => m.type === 'session_list_response')
+    expect(res2.sessions[0].claudePhase).toBeUndefined()
+  })
+
+  it('"Enter" 単独では claudePhase が "waiting" にならない', () => {
+    startPtyServer()
+    const ws = createMockWs()
+    wssState.instance!.emit('connection', ws)
+    sendMessage(ws, { type: 'auth', token: 'test-token' })
+    sendMessage(ws, { type: 'session_create' })
+    ws.send.mockClear()
+
+    ptyState.lastShell._onDataCb('Enter the virtual environment\n')
+
+    sendMessage(ws, { type: 'session_list_request' })
+    const calls = ws.send.mock.calls.map((c: any) => JSON.parse(c[0]))
+    const response = calls.find((m: any) => m.type === 'session_list_response')
+    expect(response.sessions[0].claudePhase).toBeUndefined()
+  })
+
   it('30秒経過後に claudePhase が "idle" になる', () => {
     vi.useFakeTimers()
     startPtyServer()

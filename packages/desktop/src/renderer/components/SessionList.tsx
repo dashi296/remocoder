@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import type { SessionInfo, SessionSource, MultiplexerSessionInfo } from '@remocoder/shared'
 
 interface SessionListProps {
@@ -95,6 +95,13 @@ function SessionRow({
   const [isEditing, setIsEditing] = useState(false)
   const [labelValue, setLabelValue] = useState(() => loadLabel(session.id))
   const cancelEditRef = React.useRef(false)
+
+  // 経過時間を1分ごとに更新する
+  const [, forceUpdate] = useState(0)
+  useEffect(() => {
+    const id = setInterval(() => forceUpdate((n) => n + 1), 60_000)
+    return () => clearInterval(id)
+  }, [])
 
   const projectName = resolveProjectName(session)
   const displayName = labelValue || projectName || session.clientIP || `client_${session.id.slice(0, 6)}`

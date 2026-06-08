@@ -301,15 +301,19 @@ function updateSessionOutput(session: PtySession, data: string): void {
   const lines = clean.split('\n').map((l) => l.trim()).filter((l) => l.length > 0)
   if (lines.length === 0) return
 
+  const prevOutputLine = session.lastOutputLine
+  const prevPhase = session.claudePhase
+
   session.lastOutputAt = Date.now()
   session.lastOutputLine = lines[lines.length - 1].slice(0, 80)
 
   const phase = detectClaudePhase(session.lastOutputLine)
-  if (phase !== null && phase !== session.claudePhase) {
+  if (phase !== null) {
     session.claudePhase = phase
+  }
+
+  if (session.claudePhase !== prevPhase || session.lastOutputLine !== prevOutputLine) {
     notifySessions()
-  } else if (phase !== null) {
-    session.claudePhase = phase
   }
 
   if (session.claudeIdleTimeoutId) clearTimeout(session.claudeIdleTimeoutId)

@@ -84,6 +84,18 @@ export interface SessionInfo {
 
 export const DEFAULT_WS_PORT = 8080
 
+export function sessionSourceIcon(source?: SessionSource): string {
+  if (!source) return '🖥'
+  switch (source.kind) {
+    case 'claude': return '🤖'
+    case 'shell':  return '🐚'
+    case 'tmux':   return '📟'
+    case 'screen': return '🖥'
+    case 'zellij': return '🪟'
+    default:       return '🖥'
+  }
+}
+
 /** スリープ抑制設定 */
 export interface PowerSettings {
   /** AC電源（充電中）のときにスリープを抑制する */

@@ -13,23 +13,11 @@ import {
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { useLocalSearchParams, useRouter } from 'expo-router'
-import { MultiplexerSessionInfo, ProjectInfo, SessionInfo, SessionSource } from '@remocoder/shared'
+import { MultiplexerSessionInfo, ProjectInfo, SessionInfo, SessionSource, sessionSourceIcon } from '@remocoder/shared'
 import { firstParam, formatDate, getSessionDisplayName } from '../utils'
 import { useSessionPickerWs } from '../hooks/useSessionPickerWs'
 
 // ── モバイル用ヘルパー ──────────────────────────────────────────────────────
-
-function mobileSourceIcon(source?: SessionSource): string {
-  if (!source) return '🖥'
-  switch (source.kind) {
-    case 'claude': return '🤖'
-    case 'shell':  return '🐚'
-    case 'tmux':   return '📟'
-    case 'screen': return '🖥'
-    case 'zellij': return '🪟'
-    default:       return '🖥'
-  }
-}
 
 function mobileProjectName(session: SessionInfo): string | undefined {
   const path =
@@ -322,7 +310,7 @@ export function SessionPickerScreen() {
               const label = labels[session.id]
               const projectName = mobileProjectName(session)
               const displayName = label || projectName || getSessionDisplayName(session)
-              const icon = mobileSourceIcon(session.source)
+              const icon = sessionSourceIcon(session.source)
               const phaseBadge = mobilePhaseBadgeText(session.claudePhase)
               const isDeleting = isDeletingSession && deletingSessionId === session.id
               return (

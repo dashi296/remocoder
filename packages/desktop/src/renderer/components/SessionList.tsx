@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react'
-import type { SessionInfo, SessionSource, MultiplexerSessionInfo } from '@remocoder/shared'
+import type { SessionInfo, MultiplexerSessionInfo } from '@remocoder/shared'
+import { sessionSourceIcon } from '@remocoder/shared'
 
 interface SessionListProps {
   sessions: SessionInfo[]
@@ -11,18 +12,6 @@ interface SessionListProps {
 }
 
 // ── ヘルパー関数 ──────────────────────────────────────────────────────────────
-
-function sourceIcon(source?: SessionSource): string {
-  if (!source) return '🖥'
-  switch (source.kind) {
-    case 'claude': return '🤖'
-    case 'shell':  return '🐚'
-    case 'tmux':   return '📟'
-    case 'screen': return '🖥'
-    case 'zellij': return '🪟'
-    default:       return '🖥'
-  }
-}
 
 function resolveProjectName(session: SessionInfo): string | undefined {
   const path =
@@ -168,7 +157,7 @@ function SessionRow({
                 : 'pulse-amber 1.8s ease-in-out infinite',
             }}
           />
-          <span style={styles.icon}>{sourceIcon(session.source)}</span>
+          <span style={styles.icon}>{sessionSourceIcon(session.source)}</span>
           {isEditing ? (
             <input
               style={styles.labelInput}
@@ -228,7 +217,9 @@ function SessionRow({
       )}
 
       {/* アクティビティバー */}
-      {isThinking && <div style={styles.activityBar} />}
+      {isThinking && (
+        <div style={{ ...styles.activityBar, background: `linear-gradient(90deg, transparent, ${phaseColor} 50%, transparent)` }} />
+      )}
 
       {/* 最終出力プレビュー */}
       {session.lastOutputLine && (

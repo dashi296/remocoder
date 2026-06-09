@@ -731,4 +731,22 @@ describe('session_list の claudePhase / lastOutputLine', () => {
     expect(response.sessions[0].lastOutputLine).toBe('Writing file.ts')
     expect(response.sessions[0].claudePhase).toBe('writing')
   })
+
+  it('改行なしの入力待ちプロンプトでも claudePhase と lastOutputLine が更新される', async () => {
+    startPtyServer()
+    const ws = createMockWs()
+    wssState.instance!.emit('connection', ws)
+    sendMessage(ws, { type: 'auth', token: 'test-token' })
+    sendMessage(ws, { type: 'session_create' })
+    ws.send.mockClear()
+
+    // 改行なしで "?" 終端のプロンプト（入力待ち）
+    ptyState.lastShell._onDataCb('Do you want to continue?')
+
+    sendMessage(ws, { type: 'session_list_request' })
+    const calls = ws.send.mock.calls.map((c: any) => JSON.parse(c[0]))
+    const response = calls.find((m: any) => m.type === 'session_list_response')
+    expect(response.sessions[0].lastOutputLine).toBe('Do you want to continue?')
+    expect(response.sessions[0].claudePhase).toBe('waiting')
+  })
 })

@@ -322,7 +322,11 @@ function updateSessionOutput(session: PtySession, data: string): void {
   const parts = combined.split(/[\r\n]+/)
   // 末尾に改行がなければ最後の断片を次チャンクへ持ち越す
   session.outputLineBuffer = parts[parts.length - 1]
-  const lines = parts.slice(0, -1).map((l) => l.trim()).filter((l) => l.length > 0)
+  const completedLines = parts.slice(0, -1).map((l) => l.trim()).filter((l) => l.length > 0)
+  // 完了行がない場合でもバッファに内容があれば暫定的な最終行として扱う
+  // （改行なしの入力待ちプロンプトや streaming 出力でも更新できるようにする）
+  const bufferLine = session.outputLineBuffer.trim()
+  const lines = completedLines.length > 0 ? completedLines : (bufferLine ? [bufferLine] : [])
   if (lines.length === 0) return
 
   const prevPhase = session.claudePhase

@@ -177,11 +177,11 @@ function notifySessions() {
   const infos = getSessionInfos()
   serverCallbacks.onSessionsChange?.(infos)
   // 認証済み picker クライアントへセッション一覧をプッシュ
+  // useSessionPickerWs が処理する session_list 型で送る
   if (pickerSockets.size > 0) {
     const msg = JSON.stringify({
-      type: 'session_list_response',
+      type: 'session_list',
       sessions: infos,
-      projects: getRecentProjects(),
       multiplexerSessions: [],
     } satisfies WsMessage)
     for (const sock of pickerSockets) {

@@ -697,6 +697,7 @@ export function startPtyServer(port = DEFAULT_WS_PORT, callbacks: PtyServerCallb
       // ── 外部ターミナルがセッションをプロバイダー登録する ──────────────────
       if (msg.type === 'session_register') {
         isProvider = true
+        pickerSockets.delete(ws)
         const session = createExternalSession(ws)
         providerSessionId = session.id
         console.log(`[pty-server] External session registered: ${session.id.slice(0, 8)}`)

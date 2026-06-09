@@ -116,6 +116,9 @@ function createWindow(icon: Electron.NativeImage | null) {
       win?.hide()
     }
   })
+  win.on('closed', () => {
+    win = null
+  })
 }
 
 function resizeWindow(size: { width: number; height: number }): void {

@@ -761,7 +761,15 @@ export function startPtyServer(port = DEFAULT_WS_PORT, callbacks: PtyServerCallb
         }
         const source = rawSource as SessionSource
         pickerSockets.delete(ws)
-        const session = createPtySession(source, clientIP)
+        // マルチプレクサは同名セッションが既存なら再利用する（Desktop と同じ挙動）
+        const existingMux = isMultiplexer
+          ? Array.from(ptySessions.values()).find(
+              (s) => s.source?.kind === source.kind &&
+                (s.source as Extract<SessionSource, { sessionName: string }>).sessionName ===
+                (source as Extract<SessionSource, { sessionName: string }>).sessionName,
+            )
+          : undefined
+        const session = existingMux ?? createPtySession(source, clientIP)
         attachedSessionId = session.id
         session.wsClient = ws
         session.clientIP = clientIP

@@ -513,6 +513,7 @@ export function getSessions(): SessionInfo[] {
 export function shutdownPtyServer(wss: WebSocketServer): Promise<void> {
   for (const session of ptySessions.values()) {
     if (session.idleTimeoutId) clearTimeout(session.idleTimeoutId)
+    if (session.claudeIdleTimeoutId) clearTimeout(session.claudeIdleTimeoutId)
     if (session.detachCleanupId) clearTimeout(session.detachCleanupId)
     if (session.pendingPermission) clearTimeout(session.pendingPermission.timeoutId)
     session.wsClient?.terminate()

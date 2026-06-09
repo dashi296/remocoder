@@ -712,4 +712,23 @@ describe('session_list の claudePhase / lastOutputLine', () => {
     const response = calls.find((m: any) => m.type === 'session_list_response')
     expect(response.sessions[0].claudePhase).toBe('idle')
   })
+
+  it('チャンク境界で分割された出力でも lastOutputLine が正しく組み立てられる', async () => {
+    startPtyServer()
+    const ws = createMockWs()
+    wssState.instance!.emit('connection', ws)
+    sendMessage(ws, { type: 'auth', token: 'test-token' })
+    sendMessage(ws, { type: 'session_create' })
+    ws.send.mockClear()
+
+    // "Writing file.ts\n" が 2 チャンクに分割された場合
+    ptyState.lastShell._onDataCb('Wri')
+    ptyState.lastShell._onDataCb('ting file.ts\n')
+
+    sendMessage(ws, { type: 'session_list_request' })
+    const calls = ws.send.mock.calls.map((c: any) => JSON.parse(c[0]))
+    const response = calls.find((m: any) => m.type === 'session_list_response')
+    expect(response.sessions[0].lastOutputLine).toBe('Writing file.ts')
+    expect(response.sessions[0].claudePhase).toBe('writing')
+  })
 })

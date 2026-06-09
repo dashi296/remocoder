@@ -148,6 +148,8 @@ interface PtySession {
   claudeIdleTimeoutId: ReturnType<typeof setTimeout> | null
   /** 出力行変化の notifySessions デバウンスタイマー */
   notifyDebounceId: ReturnType<typeof setTimeout> | null
+  /** チャンク境界をまたぐ未完了行バッファ */
+  outputLineBuffer: string
   /** セッションが起動したプロジェクトパス */
   projectPath?: string
   /** セッションの起動元 */
@@ -315,7 +317,12 @@ function detectClaudePhase(line: string): Exclude<SessionInfo['claudePhase'], 'i
 
 function updateSessionOutput(session: PtySession, data: string): void {
   const clean = stripAnsi(data)
-  const lines = clean.split(/[\r\n]+/).map((l) => l.trim()).filter((l) => l.length > 0)
+  // 前回チャンクの未完了行と結合し、改行で分割する
+  const combined = session.outputLineBuffer + clean
+  const parts = combined.split(/[\r\n]+/)
+  // 末尾に改行がなければ最後の断片を次チャンクへ持ち越す
+  session.outputLineBuffer = parts[parts.length - 1]
+  const lines = parts.slice(0, -1).map((l) => l.trim()).filter((l) => l.length > 0)
   if (lines.length === 0) return
 
   const prevPhase = session.claudePhase
@@ -434,6 +441,7 @@ function createPtySession(source: SessionSource = { kind: 'claude' }, clientIP?:
     lastOutputAt: 0,
     claudeIdleTimeoutId: null,
     notifyDebounceId: null,
+    outputLineBuffer: '',
     projectPath,
     source,
     permissionBuffer: '',
@@ -483,6 +491,7 @@ function createExternalSession(providerWs: WebSocket): PtySession {
     lastOutputAt: 0,
     claudeIdleTimeoutId: null,
     notifyDebounceId: null,
+    outputLineBuffer: '',
     permissionBuffer: '',
     pendingPermission: null,
     detachCleanupId: null,

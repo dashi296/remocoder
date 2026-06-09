@@ -111,8 +111,12 @@ const SERVER_PING_INTERVAL = 30000
 const PONG_TIMEOUT = 10000
 // アイドル判定時間（ms）
 const IDLE_TIMEOUT = 300000
+// Claudeフェーズのアイドル判定時間（ms）
+const CLAUDE_IDLE_TIMEOUT = 30000
 // スクロールバックの最大バイト数（500KB）
 const SCROLLBACK_MAX_BYTES = 500_000
+// 改行なし出力が続いた場合の未完了行バッファ上限（4KB）
+const LINE_BUFFER_MAX_BYTES = 4096
 // アイドルタイマーを再スケジュールするまでの最小間隔（ms）
 const IDLE_TIMER_RESET_INTERVAL = 5000
 // クライアントがデタッチ後に再接続しない場合のセッション自動削除までの時間（ms）
@@ -136,6 +140,18 @@ interface PtySession {
   idleTimeoutId: ReturnType<typeof setTimeout> | null
   /** アイドルタイマーを最後にリセットした時刻（デバウンス用） */
   lastActiveAt: number
+  /** PTYへの最終出力時刻（ms） */
+  lastOutputAt: number
+  /** PTYの最終出力行（ANSI除去済み、最大80文字） */
+  lastOutputLine?: string
+  /** Claudeのフェーズ推定 */
+  claudePhase?: 'thinking' | 'writing' | 'waiting' | 'idle'
+  /** claudePhase を idle にするタイマー */
+  claudeIdleTimeoutId: ReturnType<typeof setTimeout> | null
+  /** 出力行変化の notifySessions デバウンスタイマー */
+  notifyDebounceId: ReturnType<typeof setTimeout> | null
+  /** チャンク境界をまたぐ未完了行バッファ */
+  outputLineBuffer: string
   /** セッションが起動したプロジェクトパス */
   projectPath?: string
   /** セッションの起動元 */
@@ -150,6 +166,8 @@ interface PtySession {
 
 /** 永続PTYセッションマップ（WS切断後も保持） */
 const ptySessions = new Map<string, PtySession>()
+/** 認証済みかつ未アタッチのモバイル picker 接続セット */
+const pickerSockets = new Set<WebSocket>()
 
 export interface PtyServerCallbacks {
   onSessionsChange?: (sessions: SessionInfo[]) => void
@@ -164,6 +182,18 @@ let serverCallbacks: PtyServerCallbacks = {}
 function notifySessions() {
   const infos = getSessionInfos()
   serverCallbacks.onSessionsChange?.(infos)
+  // 認証済み picker クライアントへセッション一覧をプッシュ
+  // useSessionPickerWs が処理する session_list 型で送る
+  if (pickerSockets.size > 0) {
+    // multiplexerSessions は非同期取得のため含めない（mobile 側でキャッシュ保持）
+    const msg = JSON.stringify({
+      type: 'session_list',
+      sessions: infos,
+    } satisfies WsMessage)
+    for (const sock of pickerSockets) {
+      if (sock.readyState === WebSocket.OPEN) sock.send(msg)
+    }
+  }
 }
 
 function getSessionInfos(): SessionInfo[] {
@@ -176,6 +206,9 @@ function getSessionInfos(): SessionInfo[] {
     isExternal: s.pty === null,
     projectPath: s.projectPath,
     source: s.source,
+    lastActiveAt: s.lastOutputAt > 0 ? new Date(s.lastOutputAt).toISOString() : undefined,
+    lastOutputLine: s.lastOutputLine,
+    claudePhase: s.claudePhase,
   }))
 }
 
@@ -185,6 +218,8 @@ function getSessionInfos(): SessionInfo[] {
  */
 function closeSession(session: PtySession, exitCode: number): void {
   if (session.idleTimeoutId) clearTimeout(session.idleTimeoutId)
+  if (session.claudeIdleTimeoutId) clearTimeout(session.claudeIdleTimeoutId)
+  if (session.notifyDebounceId) clearTimeout(session.notifyDebounceId)
   if (session.pendingPermission) clearTimeout(session.pendingPermission.timeoutId)
   if (session.detachCleanupId) clearTimeout(session.detachCleanupId)
   if (session.wsClient?.readyState === WebSocket.OPEN) {
@@ -273,6 +308,67 @@ function sendPermissionRequest(
   sendPermissionToClient(session.wsClient!, pending)
 }
 
+function detectClaudePhase(line: string): Exclude<SessionInfo['claudePhase'], 'idle' | undefined> | null {
+  if (/[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]/.test(line)) return 'thinking'
+  // 大文字限定で誤検出を防ぐ（"bash", "toolchain" 等の小文字は除外）
+  if (/\bWriting\b|\bReading\b|\bEditing\b|\bBash\b|\bTool\b/.test(line)) return 'writing'
+  // "Press Enter" または "?" 終端のみ: \bEnter\b 単体は "Enter directory" 等に誤マッチするため除外
+  if (/\?$|Press Enter|\bConfirm\b/i.test(line)) return 'waiting'
+  return null
+}
+
+function updateSessionOutput(session: PtySession, data: string): void {
+  const clean = stripAnsi(data)
+  // 前回チャンクの未完了行と結合し、改行で分割する
+  const combined = session.outputLineBuffer + clean
+  const parts = combined.split(/[\r\n]+/)
+  // 末尾に改行がなければ最後の断片を次チャンクへ持ち越す（上限超過時は末尾を保持）
+  const tail = parts[parts.length - 1]
+  session.outputLineBuffer =
+    tail.length > LINE_BUFFER_MAX_BYTES ? tail.slice(-LINE_BUFFER_MAX_BYTES) : tail
+  const completedLines = parts.slice(0, -1).map((l) => l.trim()).filter((l) => l.length > 0)
+  // 未完了バッファに内容があれば末尾に追加（完了行の有無に関わらず）
+  // 例: "Done\nDo you want to continue?" では bufferLine も判定対象にする
+  const bufferLine = session.outputLineBuffer.trim()
+  const lines = bufferLine ? [...completedLines, bufferLine] : completedLines
+  if (lines.length === 0) return
+
+  const prevPhase = session.claudePhase
+
+  session.lastOutputAt = Date.now()
+  session.lastOutputLine = lines[lines.length - 1].slice(0, 80)
+
+  const phase = detectClaudePhase(session.lastOutputLine)
+  if (phase !== null) {
+    session.claudePhase = phase
+  }
+
+  if (session.claudePhase !== prevPhase) {
+    // フェーズ変化は即時通知（デバウンスをキャンセル）
+    if (session.notifyDebounceId) {
+      clearTimeout(session.notifyDebounceId)
+      session.notifyDebounceId = null
+    }
+    notifySessions()
+  } else {
+    // 出力行のみの変化は 500ms デバウンスして通知頻度を抑える
+    if (session.notifyDebounceId) clearTimeout(session.notifyDebounceId)
+    session.notifyDebounceId = setTimeout(() => {
+      session.notifyDebounceId = null
+      notifySessions()
+    }, 500)
+  }
+
+  if (session.claudeIdleTimeoutId) clearTimeout(session.claudeIdleTimeoutId)
+  session.claudeIdleTimeoutId = setTimeout(() => {
+    const s = ptySessions.get(session.id)
+    if (s) {
+      s.claudePhase = 'idle'
+      notifySessions()
+    }
+  }, CLAUDE_IDLE_TIMEOUT)
+}
+
 /**
  * PTY出力データから承認プロンプトを検出し、モバイルクライアントへ通知する。
  * 既に pending な承認リクエストがある場合は何もしない。
@@ -350,6 +446,10 @@ function createPtySession(source: SessionSource = { kind: 'claude' }, clientIP?:
     clientIP,
     idleTimeoutId: null,
     lastActiveAt: 0,
+    lastOutputAt: 0,
+    claudeIdleTimeoutId: null,
+    notifyDebounceId: null,
+    outputLineBuffer: '',
     projectPath,
     source,
     permissionBuffer: '',
@@ -359,6 +459,7 @@ function createPtySession(source: SessionSource = { kind: 'claude' }, clientIP?:
 
   ptyProc.onData((data) => {
     appendScrollback(session, data)
+    updateSessionOutput(session, data)
     if (session.wsClient?.readyState === WebSocket.OPEN) {
       session.wsClient.send(JSON.stringify({ type: 'output', data } satisfies WsMessage))
     }
@@ -395,6 +496,10 @@ function createExternalSession(providerWs: WebSocket): PtySession {
     wsClient: null,
     idleTimeoutId: null,
     lastActiveAt: 0,
+    lastOutputAt: 0,
+    claudeIdleTimeoutId: null,
+    notifyDebounceId: null,
+    outputLineBuffer: '',
     permissionBuffer: '',
     pendingPermission: null,
     detachCleanupId: null,
@@ -455,6 +560,8 @@ export function getSessions(): SessionInfo[] {
 export function shutdownPtyServer(wss: WebSocketServer): Promise<void> {
   for (const session of ptySessions.values()) {
     if (session.idleTimeoutId) clearTimeout(session.idleTimeoutId)
+    if (session.claudeIdleTimeoutId) clearTimeout(session.claudeIdleTimeoutId)
+    if (session.notifyDebounceId) clearTimeout(session.notifyDebounceId)
     if (session.detachCleanupId) clearTimeout(session.detachCleanupId)
     if (session.pendingPermission) clearTimeout(session.pendingPermission.timeoutId)
     session.wsClient?.terminate()
@@ -462,6 +569,7 @@ export function shutdownPtyServer(wss: WebSocketServer): Promise<void> {
     session.pty?.kill()
   }
   ptySessions.clear()
+  pickerSockets.clear()
   // 認証前など ptySessions に未登録の接続も強制終了する
   for (const client of wss.clients) {
     client.terminate()
@@ -568,6 +676,7 @@ export function startPtyServer(port = DEFAULT_WS_PORT, callbacks: PtyServerCallb
       if (!authenticated) {
         if (msg.type === 'auth' && msg.token === AUTH_TOKEN) {
           authenticated = true
+          pickerSockets.add(ws)
           clearTimeout(authTimeout)
           startPingInterval()
           const projects = getRecentProjects()
@@ -605,6 +714,7 @@ export function startPtyServer(port = DEFAULT_WS_PORT, callbacks: PtyServerCallb
       // ── 外部ターミナルがセッションをプロバイダー登録する ──────────────────
       if (msg.type === 'session_register') {
         isProvider = true
+        pickerSockets.delete(ws)
         const session = createExternalSession(ws)
         providerSessionId = session.id
         console.log(`[pty-server] External session registered: ${session.id.slice(0, 8)}`)
@@ -619,6 +729,7 @@ export function startPtyServer(port = DEFAULT_WS_PORT, callbacks: PtyServerCallb
 
         if (msg.type === 'output') {
           appendScrollback(provSession, msg.data)
+          updateSessionOutput(provSession, msg.data)
           if (provSession.wsClient?.readyState === WebSocket.OPEN) {
             provSession.wsClient.send(JSON.stringify({ type: 'output', data: msg.data } satisfies WsMessage))
           }
@@ -649,6 +760,7 @@ export function startPtyServer(port = DEFAULT_WS_PORT, callbacks: PtyServerCallb
           return
         }
         const source = rawSource as SessionSource
+        pickerSockets.delete(ws)
         const session = createPtySession(source, clientIP)
         attachedSessionId = session.id
         session.wsClient = ws
@@ -682,6 +794,7 @@ export function startPtyServer(port = DEFAULT_WS_PORT, callbacks: PtyServerCallb
           clearTimeout(session.detachCleanupId)
           session.detachCleanupId = null
         }
+        pickerSockets.delete(ws)
         detachFromSession()
         // 既存のモバイルクライアントを切断（上書きアタッチ）
         if (
@@ -805,6 +918,7 @@ export function startPtyServer(port = DEFAULT_WS_PORT, callbacks: PtyServerCallb
 
     ws.on('close', () => {
       cleanup()
+      pickerSockets.delete(ws)
 
       // 外部プロバイダーが切断された場合はセッションを終了する
       if (isProvider && providerSessionId) {

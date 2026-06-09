@@ -1,12 +1,12 @@
 import { describe, it, expect } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, fireEvent } from '@testing-library/react'
 import type { SessionInfo } from '@remocoder/shared'
 import { SessionList } from '../components/SessionList'
 
 function makeSession(overrides: Partial<SessionInfo> = {}): SessionInfo {
   return {
     id: 'sess-001',
-    createdAt: '2026-03-12T10:00:00.000Z',
+    createdAt: new Date(Date.now() - 23 * 60 * 1000).toISOString(), // 23分前
     status: 'active',
     hasClient: false,
     ...overrides,
@@ -24,24 +24,13 @@ describe('SessionList', () => {
       render(<SessionList sessions={[]} />)
       expect(screen.getByText('—')).toBeInTheDocument()
     })
-
-    it('セッション行を表示しない', () => {
-      render(<SessionList sessions={[]} />)
-      expect(screen.queryByText('ACTIVE')).not.toBeInTheDocument()
-    })
   })
 
   describe('セッションが複数あるとき', () => {
     const sessions = [
-      makeSession({ id: 'sess-001', status: 'active', clientIP: '100.88.44.55' }),
-      makeSession({ id: 'sess-002', status: 'idle',   clientIP: '100.88.44.77' }),
+      makeSession({ id: 'sess-001', status: 'active', source: { kind: 'claude', projectPath: '/home/user/remocoder' } }),
+      makeSession({ id: 'sess-002', status: 'idle',   source: { kind: 'shell' } }),
     ]
-
-    it('すべてのクライアント IP を表示する', () => {
-      render(<SessionList sessions={sessions} />)
-      expect(screen.getByText('100.88.44.55')).toBeInTheDocument()
-      expect(screen.getByText('100.88.44.77')).toBeInTheDocument()
-    })
 
     it('件数を "N ACTIVE" 形式で表示する', () => {
       render(<SessionList sessions={sessions} />)
@@ -58,24 +47,47 @@ describe('SessionList', () => {
       expect(screen.getByText('IDLE')).toBeInTheDocument()
     })
 
-    it('接続待ちメッセージを表示しない', () => {
+    it('プロジェクト名を表示する', () => {
       render(<SessionList sessions={sessions} />)
-      expect(screen.queryByText('Waiting for connections')).not.toBeInTheDocument()
+      expect(screen.getByText('remocoder')).toBeInTheDocument()
     })
   })
 
-  describe('clientIP がないとき', () => {
-    it('client_ + id 先頭 6 文字をフォールバックで表示する', () => {
-      render(<SessionList sessions={[makeSession({ id: 'abcdef123', clientIP: undefined })]} />)
-      expect(screen.getByText('client_abcdef')).toBeInTheDocument()
+  describe('claudePhase 表示', () => {
+    it('claudePhase が "thinking" のとき THINKING バッジを表示する', () => {
+      render(<SessionList sessions={[makeSession({ claudePhase: 'thinking' })]} />)
+      expect(screen.getByText('THINKING')).toBeInTheDocument()
+    })
+
+    it('claudePhase が "writing" のとき WRITING バッジを表示する', () => {
+      render(<SessionList sessions={[makeSession({ claudePhase: 'writing' })]} />)
+      expect(screen.getByText('WRITING')).toBeInTheDocument()
+    })
+
+    it('claudePhase が "idle" または未設定のときフェーズバッジを表示しない', () => {
+      render(<SessionList sessions={[makeSession({ claudePhase: 'idle' })]} />)
+      expect(screen.queryByText('THINKING')).not.toBeInTheDocument()
+      expect(screen.queryByText('WRITING')).not.toBeInTheDocument()
+      expect(screen.queryByText('WAITING')).not.toBeInTheDocument()
     })
   })
 
-  describe('createdAt の時刻フォーマット', () => {
-    it('HH:MM:SS 形式で時刻を表示する', () => {
-      // UTC+0 で 10:00:00 → JST では環境依存のため正規表現で確認
-      render(<SessionList sessions={[makeSession({ createdAt: '2026-03-12T01:23:45.000Z' })]} />)
-      expect(screen.getByText(/\d{2}:\d{2}:\d{2}/)).toBeInTheDocument()
+  describe('lastOutputLine 表示', () => {
+    it('lastOutputLine があるとき出力プレビューを表示する', () => {
+      render(<SessionList sessions={[makeSession({ lastOutputLine: 'Analyzing src/index.ts' })]} />)
+      expect(screen.getByText('▸ Analyzing src/index.ts')).toBeInTheDocument()
+    })
+
+    it('lastOutputLine がないとき出力プレビューを表示しない', () => {
+      render(<SessionList sessions={[makeSession({ lastOutputLine: undefined })]} />)
+      expect(screen.queryByText(/▸/)).not.toBeInTheDocument()
+    })
+  })
+
+  describe('elapsed time', () => {
+    it('経過時間を表示する', () => {
+      render(<SessionList sessions={[makeSession()]} />)
+      expect(screen.getByText(/min ago/)).toBeInTheDocument()
     })
   })
 
@@ -83,6 +95,32 @@ describe('SessionList', () => {
     it('1 ACTIVE と表示する', () => {
       render(<SessionList sessions={[makeSession()]} />)
       expect(screen.getByText('1 ACTIVE')).toBeInTheDocument()
+    })
+  })
+
+  describe('インラインラベル編集', () => {
+    it('ラベルをクリックすると入力欄が表示される', () => {
+      render(<SessionList sessions={[makeSession()]} />)
+      fireEvent.click(screen.getByTitle('Click to rename'))
+      expect(screen.getByRole('textbox')).toBeInTheDocument()
+    })
+
+    it('Enter キーで編集を確定する', () => {
+      render(<SessionList sessions={[makeSession({ id: 'x1' })]} />)
+      fireEvent.click(screen.getByTitle('Click to rename'))
+      const input = screen.getByRole('textbox')
+      fireEvent.change(input, { target: { value: 'My Session' } })
+      fireEvent.keyDown(input, { key: 'Enter' })
+      expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
+    })
+
+    it('Escape キーで編集をキャンセルする', () => {
+      render(<SessionList sessions={[makeSession({ id: 'x2' })]} />)
+      fireEvent.click(screen.getByTitle('Click to rename'))
+      const input = screen.getByRole('textbox')
+      fireEvent.change(input, { target: { value: 'Unwanted Name' } })
+      fireEvent.keyDown(input, { key: 'Escape' })
+      expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
     })
   })
 })

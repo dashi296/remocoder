@@ -83,10 +83,10 @@ export function useSessionPickerWs(ip: string, token: string, profileId: string 
             })
           }
         } else if (msg.type === 'session_list') {
-          queryClient.setQueryData(sessionPickerKeys.sessions(ip, token), {
+          queryClient.setQueryData(sessionPickerKeys.sessions(ip, token), (old: SessionsData | undefined) => ({
             sessions: msg.sessions,
-            multiplexerSessions: msg.multiplexerSessions ?? [],
-          } satisfies SessionsData)
+            multiplexerSessions: msg.multiplexerSessions ?? old?.multiplexerSessions ?? [],
+          } satisfies SessionsData))
         } else if (msg.type === 'project_list') {
           queryClient.setQueryData(sessionPickerKeys.projects(ip, token), msg.projects)
         } else if (msg.type === 'session_deleted') {

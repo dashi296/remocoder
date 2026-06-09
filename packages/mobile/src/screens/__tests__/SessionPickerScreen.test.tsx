@@ -89,7 +89,7 @@ describe('SessionPickerScreen', () => {
     triggerMessage({ type: 'project_list', projects: [] })
 
     await waitFor(() => expect(screen.getByText('Active Sessions')).toBeTruthy())
-    expect(screen.getByText('myapp')).toBeTruthy()
+    expect(screen.getByText('myapp', { exact: false })).toBeTruthy()
   })
 
   it('project_list を受信すると「新規セッション」セクションにプロジェクトが表示される', async () => {
@@ -117,8 +117,8 @@ describe('SessionPickerScreen', () => {
     })
     triggerMessage({ type: 'project_list', projects: [] })
 
-    await waitFor(() => expect(screen.getByText('myapp')).toBeTruthy())
-    fireEvent.press(screen.getByText('myapp'))
+    await waitFor(() => expect(screen.getByText('myapp', { exact: false })).toBeTruthy())
+    fireEvent.press(screen.getByText('myapp', { exact: false }))
 
     expect(mockRouterPush).toHaveBeenCalledWith({
       pathname: '/terminal',
@@ -238,7 +238,7 @@ describe('SessionPickerScreen', () => {
     })
     triggerMessage({ type: 'project_list', projects: [] })
 
-    await waitFor(() => expect(screen.getByText('Active')).toBeTruthy())
+    await waitFor(() => expect(screen.getByText(/^Active\b(?! Sessions)/, { exact: false })).toBeTruthy())
   })
 
   it('セッションの hasClient が true のとき「· 接続中」と表示される', async () => {
@@ -253,7 +253,7 @@ describe('SessionPickerScreen', () => {
     })
     triggerMessage({ type: 'project_list', projects: [] })
 
-    await waitFor(() => expect(screen.getByText('Active · Connected')).toBeTruthy())
+    await waitFor(() => expect(screen.getByText('Active · Connected', { exact: false })).toBeTruthy())
   })
 
   describe('セッション削除', () => {
@@ -266,18 +266,34 @@ describe('SessionPickerScreen', () => {
       triggerMessage({ type: 'auth_ok' })
       triggerMessage({ type: 'session_list', sessions: [session] })
       triggerMessage({ type: 'project_list', projects: [] })
-      await waitFor(() => expect(screen.getByText('app')).toBeTruthy())
+      await waitFor(() => expect(screen.getByText('app', { exact: false })).toBeTruthy())
     }
 
-    function confirmDelete() {
-      // Alert.alert に渡されたボタン定義から「削除」ボタンの onPress を呼ぶ
-      const [, , buttons] = Alert.alert.mock.lastCall
-      buttons.find((b: { text: string; onPress?: () => void }) => b.text === 'Delete')?.onPress?.()
+    function pressDeleteInActionSheet() {
+      // ステップ1: アクションシートの「Delete」ボタンを押して確認 Alert を表示する
+      const firstCallButtons = Alert.alert.mock.calls[Alert.alert.mock.calls.length - 1][2]
+      firstCallButtons.find((b: { text: string; onPress?: () => void }) => b.text === 'Delete')?.onPress?.()
+    }
+
+    function confirmDeleteInConfirmation() {
+      // ステップ2: 確認 Alert の「Delete」ボタンを押して削除を実行する
+      const lastCallButtons = Alert.alert.mock.calls[Alert.alert.mock.calls.length - 1][2]
+      lastCallButtons.find((b: { text: string; onPress?: () => void }) => b.text === 'Delete')?.onPress?.()
     }
 
     it('ロングプレスで Alert が表示され、確認すると session_delete を送信する', async () => {
       await renderWithSession()
-      fireEvent(screen.getByText('app'), 'longPress')
+      fireEvent(screen.getByText('app', { exact: false }), 'longPress')
+
+      // ステップ1: アクションシート Alert が表示される
+      expect(Alert.alert).toHaveBeenCalledWith(
+        expect.any(String),
+        'Choose an action',
+        expect.any(Array),
+      )
+
+      // ステップ2: アクションシートの「Delete」を押すと確認 Alert が表示される
+      act(() => pressDeleteInActionSheet())
 
       expect(Alert.alert).toHaveBeenCalledWith(
         'Delete Session',
@@ -285,7 +301,8 @@ describe('SessionPickerScreen', () => {
         expect.any(Array),
       )
 
-      act(() => confirmDelete())
+      // ステップ3: 確認 Alert の「Delete」を押すと session_delete が送信される
+      act(() => confirmDeleteInConfirmation())
 
       await waitFor(() =>
         expect(mockWs.send).toHaveBeenCalledWith(
@@ -296,20 +313,21 @@ describe('SessionPickerScreen', () => {
 
     it('session_deleted 受信でセッション行がリストから消える', async () => {
       await renderWithSession()
-      fireEvent(screen.getByText('app'), 'longPress')
-      act(() => confirmDelete())
+      fireEvent(screen.getByText('app', { exact: false }), 'longPress')
+      act(() => pressDeleteInActionSheet())
+      act(() => confirmDeleteInConfirmation())
 
       triggerMessage({ type: 'session_deleted', sessionId: 'sid-del' })
 
-      await waitFor(() => expect(screen.queryByText('app')).toBeNull(), { timeout: 5000 })
+      await waitFor(() => expect(screen.queryByText('app', { exact: false })).toBeNull(), { timeout: 5000 })
     })
 
     it('キャンセルを選ぶと session_delete は送信されない', async () => {
       await renderWithSession()
       mockWs.send.mockClear()
-      fireEvent(screen.getByText('app'), 'longPress')
+      fireEvent(screen.getByText('app', { exact: false }), 'longPress')
 
-      // キャンセルボタンの onPress は undefined（style: 'cancel'）なので送信されない
+      // アクションシートの「Cancel」を押す（onPress は undefined のため何も起きない）
       const [, , buttons] = Alert.alert.mock.lastCall
       buttons.find((b: { text: string; onPress?: () => void }) => b.text === 'Cancel')?.onPress?.()
 

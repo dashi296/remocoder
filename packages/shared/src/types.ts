@@ -74,9 +74,45 @@ export interface SessionInfo {
   projectPath?: string
   /** セッションの起動元 */
   source?: SessionSource
+  /** PTYへの最終出力時刻 (ISO 8601) */
+  lastActiveAt?: string
+  /** PTYの最終出力行（ANSI除去済み、最大80文字） */
+  lastOutputLine?: string
+  /** Claudeの処理フェーズ推定 */
+  claudePhase?: 'thinking' | 'writing' | 'waiting' | 'idle'
 }
 
 export const DEFAULT_WS_PORT = 8080
+
+export function sessionProjectName(session: SessionInfo): string | undefined {
+  const path =
+    (session.source?.kind === 'claude' ? session.source.projectPath : undefined) ??
+    session.projectPath
+  if (!path) return undefined
+  return path.split(/[/\\]/).filter(Boolean).pop()
+}
+
+export function formatSessionElapsed(isoString: string): string {
+  const ms = Date.now() - new Date(isoString).getTime()
+  const s = Math.floor(ms / 1000)
+  if (s < 60) return `${s}s ago`
+  const m = Math.floor(s / 60)
+  if (m < 60) return `${m} min ago`
+  const h = Math.floor(m / 60)
+  return `${h} hr ago`
+}
+
+export function sessionSourceIcon(source?: SessionSource): string {
+  if (!source) return '🖥'
+  switch (source.kind) {
+    case 'claude': return '🤖'
+    case 'shell':  return '🐚'
+    case 'tmux':   return '📟'
+    case 'screen': return '🖥'
+    case 'zellij': return '🪟'
+    default:       return '🖥'
+  }
+}
 
 /** スリープ抑制設定 */
 export interface PowerSettings {

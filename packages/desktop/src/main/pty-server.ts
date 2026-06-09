@@ -160,6 +160,8 @@ interface PtySession {
 
 /** 永続PTYセッションマップ（WS切断後も保持） */
 const ptySessions = new Map<string, PtySession>()
+/** 認証済みかつ未アタッチのモバイル picker 接続セット */
+const pickerSockets = new Set<WebSocket>()
 
 export interface PtyServerCallbacks {
   onSessionsChange?: (sessions: SessionInfo[]) => void
@@ -174,6 +176,18 @@ let serverCallbacks: PtyServerCallbacks = {}
 function notifySessions() {
   const infos = getSessionInfos()
   serverCallbacks.onSessionsChange?.(infos)
+  // 認証済み picker クライアントへセッション一覧をプッシュ
+  if (pickerSockets.size > 0) {
+    const msg = JSON.stringify({
+      type: 'session_list_response',
+      sessions: infos,
+      projects: getRecentProjects(),
+      multiplexerSessions: [],
+    } satisfies WsMessage)
+    for (const sock of pickerSockets) {
+      if (sock.readyState === WebSocket.OPEN) sock.send(msg)
+    }
+  }
 }
 
 function getSessionInfos(): SessionInfo[] {
@@ -298,7 +312,7 @@ function detectClaudePhase(line: string): Exclude<SessionInfo['claudePhase'], 'i
 
 function updateSessionOutput(session: PtySession, data: string): void {
   const clean = stripAnsi(data)
-  const lines = clean.split('\n').map((l) => l.trim()).filter((l) => l.length > 0)
+  const lines = clean.split(/[\r\n]+/).map((l) => l.trim()).filter((l) => l.length > 0)
   if (lines.length === 0) return
 
   const prevOutputLine = session.lastOutputLine
@@ -521,6 +535,7 @@ export function shutdownPtyServer(wss: WebSocketServer): Promise<void> {
     session.pty?.kill()
   }
   ptySessions.clear()
+  pickerSockets.clear()
   // 認証前など ptySessions に未登録の接続も強制終了する
   for (const client of wss.clients) {
     client.terminate()
@@ -627,6 +642,7 @@ export function startPtyServer(port = DEFAULT_WS_PORT, callbacks: PtyServerCallb
       if (!authenticated) {
         if (msg.type === 'auth' && msg.token === AUTH_TOKEN) {
           authenticated = true
+          pickerSockets.add(ws)
           clearTimeout(authTimeout)
           startPingInterval()
           const projects = getRecentProjects()
@@ -709,6 +725,7 @@ export function startPtyServer(port = DEFAULT_WS_PORT, callbacks: PtyServerCallb
           return
         }
         const source = rawSource as SessionSource
+        pickerSockets.delete(ws)
         const session = createPtySession(source, clientIP)
         attachedSessionId = session.id
         session.wsClient = ws
@@ -742,6 +759,7 @@ export function startPtyServer(port = DEFAULT_WS_PORT, callbacks: PtyServerCallb
           clearTimeout(session.detachCleanupId)
           session.detachCleanupId = null
         }
+        pickerSockets.delete(ws)
         detachFromSession()
         // 既存のモバイルクライアントを切断（上書きアタッチ）
         if (
@@ -865,6 +883,7 @@ export function startPtyServer(port = DEFAULT_WS_PORT, callbacks: PtyServerCallb
 
     ws.on('close', () => {
       cleanup()
+      pickerSockets.delete(ws)
 
       // 外部プロバイダーが切断された場合はセッションを終了する
       if (isProvider && providerSessionId) {

@@ -146,6 +146,8 @@ interface PtySession {
   claudePhase?: 'thinking' | 'writing' | 'waiting' | 'idle'
   /** claudePhase を idle にするタイマー */
   claudeIdleTimeoutId: ReturnType<typeof setTimeout> | null
+  /** 出力行変化の notifySessions デバウンスタイマー */
+  notifyDebounceId: ReturnType<typeof setTimeout> | null
   /** セッションが起動したプロジェクトパス */
   projectPath?: string
   /** セッションの起動元 */
@@ -213,6 +215,7 @@ function getSessionInfos(): SessionInfo[] {
 function closeSession(session: PtySession, exitCode: number): void {
   if (session.idleTimeoutId) clearTimeout(session.idleTimeoutId)
   if (session.claudeIdleTimeoutId) clearTimeout(session.claudeIdleTimeoutId)
+  if (session.notifyDebounceId) clearTimeout(session.notifyDebounceId)
   if (session.pendingPermission) clearTimeout(session.pendingPermission.timeoutId)
   if (session.detachCleanupId) clearTimeout(session.detachCleanupId)
   if (session.wsClient?.readyState === WebSocket.OPEN) {
@@ -315,7 +318,6 @@ function updateSessionOutput(session: PtySession, data: string): void {
   const lines = clean.split(/[\r\n]+/).map((l) => l.trim()).filter((l) => l.length > 0)
   if (lines.length === 0) return
 
-  const prevOutputLine = session.lastOutputLine
   const prevPhase = session.claudePhase
 
   session.lastOutputAt = Date.now()
@@ -326,8 +328,20 @@ function updateSessionOutput(session: PtySession, data: string): void {
     session.claudePhase = phase
   }
 
-  if (session.claudePhase !== prevPhase || session.lastOutputLine !== prevOutputLine) {
+  if (session.claudePhase !== prevPhase) {
+    // フェーズ変化は即時通知（デバウンスをキャンセル）
+    if (session.notifyDebounceId) {
+      clearTimeout(session.notifyDebounceId)
+      session.notifyDebounceId = null
+    }
     notifySessions()
+  } else {
+    // 出力行のみの変化は 500ms デバウンスして通知頻度を抑える
+    if (session.notifyDebounceId) clearTimeout(session.notifyDebounceId)
+    session.notifyDebounceId = setTimeout(() => {
+      session.notifyDebounceId = null
+      notifySessions()
+    }, 500)
   }
 
   if (session.claudeIdleTimeoutId) clearTimeout(session.claudeIdleTimeoutId)
@@ -419,6 +433,7 @@ function createPtySession(source: SessionSource = { kind: 'claude' }, clientIP?:
     lastActiveAt: 0,
     lastOutputAt: 0,
     claudeIdleTimeoutId: null,
+    notifyDebounceId: null,
     projectPath,
     source,
     permissionBuffer: '',
@@ -467,6 +482,7 @@ function createExternalSession(providerWs: WebSocket): PtySession {
     lastActiveAt: 0,
     lastOutputAt: 0,
     claudeIdleTimeoutId: null,
+    notifyDebounceId: null,
     permissionBuffer: '',
     pendingPermission: null,
     detachCleanupId: null,
@@ -528,6 +544,7 @@ export function shutdownPtyServer(wss: WebSocketServer): Promise<void> {
   for (const session of ptySessions.values()) {
     if (session.idleTimeoutId) clearTimeout(session.idleTimeoutId)
     if (session.claudeIdleTimeoutId) clearTimeout(session.claudeIdleTimeoutId)
+    if (session.notifyDebounceId) clearTimeout(session.notifyDebounceId)
     if (session.detachCleanupId) clearTimeout(session.detachCleanupId)
     if (session.pendingPermission) clearTimeout(session.pendingPermission.timeoutId)
     session.wsClient?.terminate()

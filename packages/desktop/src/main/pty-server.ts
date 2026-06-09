@@ -761,7 +761,29 @@ export function startPtyServer(port = DEFAULT_WS_PORT, callbacks: PtyServerCallb
         }
         const source = rawSource as SessionSource
         pickerSockets.delete(ws)
-        const session = createPtySession(source, clientIP)
+        // マルチプレクサは同名セッションが既存なら再利用する（Desktop と同じ挙動）
+        const existingMux = isMultiplexer
+          ? Array.from(ptySessions.values()).find(
+              (s) => s.source?.kind === source.kind &&
+                (s.source as Extract<SessionSource, { sessionName: string }>).sessionName ===
+                (source as Extract<SessionSource, { sessionName: string }>).sessionName,
+            )
+          : undefined
+        const session = existingMux ?? createPtySession(source, clientIP)
+        // 既存セッションを再利用する場合は session_attach と同じ手順で安全にアタッチする
+        if (existingMux) {
+          if (existingMux.detachCleanupId) {
+            clearTimeout(existingMux.detachCleanupId)
+            existingMux.detachCleanupId = null
+          }
+          if (
+            existingMux.wsClient &&
+            existingMux.wsClient !== ws &&
+            existingMux.wsClient.readyState === WebSocket.OPEN
+          ) {
+            existingMux.wsClient.close()
+          }
+        }
         attachedSessionId = session.id
         session.wsClient = ws
         session.clientIP = clientIP
@@ -770,7 +792,7 @@ export function startPtyServer(port = DEFAULT_WS_PORT, callbacks: PtyServerCallb
           JSON.stringify({
             type: 'session_attached',
             sessionId: session.id,
-            scrollback: '',
+            scrollback: existingMux ? getScrollback(session) : '',
             source: session.source,
           } satisfies WsMessage),
         )

@@ -89,7 +89,7 @@ export function sessionProjectName(session: SessionInfo): string | undefined {
     (session.source?.kind === 'claude' ? session.source.projectPath : undefined) ??
     session.projectPath
   if (!path) return undefined
-  return path.split('/').filter(Boolean).pop()
+  return path.split(/[/\\]/).filter(Boolean).pop()
 }
 
 export function formatSessionElapsed(isoString: string): string {

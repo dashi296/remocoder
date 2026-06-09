@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import type { SessionInfo, MultiplexerSessionInfo } from '@remocoder/shared'
-import { sessionSourceIcon } from '@remocoder/shared'
+import { sessionSourceIcon, sessionProjectName, formatSessionElapsed } from '@remocoder/shared'
 
 interface SessionListProps {
   sessions: SessionInfo[]
@@ -12,24 +12,6 @@ interface SessionListProps {
 }
 
 // ── ヘルパー関数 ──────────────────────────────────────────────────────────────
-
-function resolveProjectName(session: SessionInfo): string | undefined {
-  const path =
-    (session.source?.kind === 'claude' ? session.source.projectPath : undefined) ??
-    session.projectPath
-  if (!path) return undefined
-  return path.split('/').filter(Boolean).pop()
-}
-
-function formatElapsed(isoString: string): string {
-  const ms = Date.now() - new Date(isoString).getTime()
-  const s = Math.floor(ms / 1000)
-  if (s < 60) return `${s}s ago`
-  const m = Math.floor(s / 60)
-  if (m < 60) return `${m} min ago`
-  const h = Math.floor(m / 60)
-  return `${h} hr ago`
-}
 
 function formatLastActive(isoString?: string): string | undefined {
   if (!isoString) return undefined
@@ -92,7 +74,7 @@ function SessionRow({
     return () => clearInterval(id)
   }, [])
 
-  const projectName = resolveProjectName(session)
+  const projectName = sessionProjectName(session)
   const displayName = labelValue || projectName || session.clientIP || `client_${session.id.slice(0, 6)}`
 
   const handleLabelBlur = () => {
@@ -138,7 +120,7 @@ function SessionRow({
   const lastActiveText = formatLastActive(session.lastActiveAt)
   const metaParts = [
     session.isExternal ? 'EXTERNAL' : session.clientIP,
-    formatElapsed(session.createdAt),
+    formatSessionElapsed(session.createdAt),
     lastActiveText,
   ].filter(Boolean)
 

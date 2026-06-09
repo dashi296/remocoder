@@ -84,6 +84,24 @@ export interface SessionInfo {
 
 export const DEFAULT_WS_PORT = 8080
 
+export function sessionProjectName(session: SessionInfo): string | undefined {
+  const path =
+    (session.source?.kind === 'claude' ? session.source.projectPath : undefined) ??
+    session.projectPath
+  if (!path) return undefined
+  return path.split('/').filter(Boolean).pop()
+}
+
+export function formatSessionElapsed(isoString: string): string {
+  const ms = Date.now() - new Date(isoString).getTime()
+  const s = Math.floor(ms / 1000)
+  if (s < 60) return `${s}s ago`
+  const m = Math.floor(s / 60)
+  if (m < 60) return `${m} min ago`
+  const h = Math.floor(m / 60)
+  return `${h} hr ago`
+}
+
 export function sessionSourceIcon(source?: SessionSource): string {
   if (!source) return '🖥'
   switch (source.kind) {

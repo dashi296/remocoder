@@ -13,29 +13,11 @@ import {
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { useLocalSearchParams, useRouter } from 'expo-router'
-import { MultiplexerSessionInfo, ProjectInfo, SessionInfo, SessionSource, sessionSourceIcon } from '@remocoder/shared'
+import { MultiplexerSessionInfo, ProjectInfo, SessionInfo, SessionSource, sessionSourceIcon, sessionProjectName, formatSessionElapsed } from '@remocoder/shared'
 import { firstParam, formatDate, getSessionDisplayName } from '../utils'
 import { useSessionPickerWs } from '../hooks/useSessionPickerWs'
 
 // ── モバイル用ヘルパー ──────────────────────────────────────────────────────
-
-function mobileProjectName(session: SessionInfo): string | undefined {
-  const path =
-    (session.source?.kind === 'claude' ? session.source.projectPath : undefined) ??
-    session.projectPath
-  if (!path) return undefined
-  return path.split('/').filter(Boolean).pop()
-}
-
-function mobileFormatElapsed(isoString: string): string {
-  const ms = Date.now() - new Date(isoString).getTime()
-  const s = Math.floor(ms / 1000)
-  if (s < 60) return `${s}s ago`
-  const m = Math.floor(s / 60)
-  if (m < 60) return `${m} min ago`
-  const h = Math.floor(m / 60)
-  return `${h} hr ago`
-}
 
 function mobilePhaseBadgeText(phase?: SessionInfo['claudePhase']): string | null {
   switch (phase) {
@@ -308,7 +290,7 @@ export function SessionPickerScreen() {
             if (item.kind === 'session') {
               const { session } = item
               const label = labels[session.id]
-              const projectName = mobileProjectName(session)
+              const projectName = sessionProjectName(session)
               const displayName = label || projectName || getSessionDisplayName(session)
               const icon = sessionSourceIcon(session.source)
               const phaseBadge = mobilePhaseBadgeText(session.claudePhase)
@@ -336,7 +318,7 @@ export function SessionPickerScreen() {
                     <Text style={styles.sessionMeta}>
                       {session.status === 'active' ? 'Active' : 'Idle'}
                       {session.hasClient ? ' · Connected' : ''}
-                      {' · '}{mobileFormatElapsed(session.createdAt)}
+                      {' · '}{formatSessionElapsed(session.createdAt)}
                     </Text>
                     {session.lastOutputLine && (
                       <Text style={mobileSessionStyles.outputPreview} numberOfLines={1}>

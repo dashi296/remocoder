@@ -115,6 +115,8 @@ const IDLE_TIMEOUT = 300000
 const CLAUDE_IDLE_TIMEOUT = 30000
 // スクロールバックの最大バイト数（500KB）
 const SCROLLBACK_MAX_BYTES = 500_000
+// 改行なし出力が続いた場合の未完了行バッファ上限（4KB）
+const LINE_BUFFER_MAX_BYTES = 4096
 // アイドルタイマーを再スケジュールするまでの最小間隔（ms）
 const IDLE_TIMER_RESET_INTERVAL = 5000
 // クライアントがデタッチ後に再接続しない場合のセッション自動削除までの時間（ms）
@@ -320,8 +322,10 @@ function updateSessionOutput(session: PtySession, data: string): void {
   // 前回チャンクの未完了行と結合し、改行で分割する
   const combined = session.outputLineBuffer + clean
   const parts = combined.split(/[\r\n]+/)
-  // 末尾に改行がなければ最後の断片を次チャンクへ持ち越す
-  session.outputLineBuffer = parts[parts.length - 1]
+  // 末尾に改行がなければ最後の断片を次チャンクへ持ち越す（上限超過時は末尾を保持）
+  const tail = parts[parts.length - 1]
+  session.outputLineBuffer =
+    tail.length > LINE_BUFFER_MAX_BYTES ? tail.slice(-LINE_BUFFER_MAX_BYTES) : tail
   const completedLines = parts.slice(0, -1).map((l) => l.trim()).filter((l) => l.length > 0)
   // 未完了バッファに内容があれば末尾に追加（完了行の有無に関わらず）
   // 例: "Done\nDo you want to continue?" では bufferLine も判定対象にする

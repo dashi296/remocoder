@@ -323,10 +323,10 @@ function updateSessionOutput(session: PtySession, data: string): void {
   // 末尾に改行がなければ最後の断片を次チャンクへ持ち越す
   session.outputLineBuffer = parts[parts.length - 1]
   const completedLines = parts.slice(0, -1).map((l) => l.trim()).filter((l) => l.length > 0)
-  // 完了行がない場合でもバッファに内容があれば暫定的な最終行として扱う
-  // （改行なしの入力待ちプロンプトや streaming 出力でも更新できるようにする）
+  // 未完了バッファに内容があれば末尾に追加（完了行の有無に関わらず）
+  // 例: "Done\nDo you want to continue?" では bufferLine も判定対象にする
   const bufferLine = session.outputLineBuffer.trim()
-  const lines = completedLines.length > 0 ? completedLines : (bufferLine ? [bufferLine] : [])
+  const lines = bufferLine ? [...completedLines, bufferLine] : completedLines
   if (lines.length === 0) return
 
   const prevPhase = session.claudePhase

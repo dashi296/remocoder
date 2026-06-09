@@ -749,4 +749,22 @@ describe('session_list の claudePhase / lastOutputLine', () => {
     expect(response.sessions[0].lastOutputLine).toBe('Do you want to continue?')
     expect(response.sessions[0].claudePhase).toBe('waiting')
   })
+
+  it('完了行と改行なしプロンプトが同一チャンクの場合、プロンプト側が lastOutputLine になる', async () => {
+    startPtyServer()
+    const ws = createMockWs()
+    wssState.instance!.emit('connection', ws)
+    sendMessage(ws, { type: 'auth', token: 'test-token' })
+    sendMessage(ws, { type: 'session_create' })
+    ws.send.mockClear()
+
+    // "Done\n" (完了行) + "Do you want to continue?" (改行なしプロンプト) が同一チャンク
+    ptyState.lastShell._onDataCb('Done\nDo you want to continue?')
+
+    sendMessage(ws, { type: 'session_list_request' })
+    const calls = ws.send.mock.calls.map((c: any) => JSON.parse(c[0]))
+    const response = calls.find((m: any) => m.type === 'session_list_response')
+    expect(response.sessions[0].lastOutputLine).toBe('Do you want to continue?')
+    expect(response.sessions[0].claudePhase).toBe('waiting')
+  })
 })

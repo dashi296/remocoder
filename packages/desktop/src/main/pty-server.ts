@@ -770,6 +770,20 @@ export function startPtyServer(port = DEFAULT_WS_PORT, callbacks: PtyServerCallb
             )
           : undefined
         const session = existingMux ?? createPtySession(source, clientIP)
+        // 既存セッションを再利用する場合は session_attach と同じ手順で安全にアタッチする
+        if (existingMux) {
+          if (existingMux.detachCleanupId) {
+            clearTimeout(existingMux.detachCleanupId)
+            existingMux.detachCleanupId = null
+          }
+          if (
+            existingMux.wsClient &&
+            existingMux.wsClient !== ws &&
+            existingMux.wsClient.readyState === WebSocket.OPEN
+          ) {
+            existingMux.wsClient.close()
+          }
+        }
         attachedSessionId = session.id
         session.wsClient = ws
         session.clientIP = clientIP
@@ -778,7 +792,7 @@ export function startPtyServer(port = DEFAULT_WS_PORT, callbacks: PtyServerCallb
           JSON.stringify({
             type: 'session_attached',
             sessionId: session.id,
-            scrollback: '',
+            scrollback: existingMux ? getScrollback(session) : '',
             source: session.source,
           } satisfies WsMessage),
         )

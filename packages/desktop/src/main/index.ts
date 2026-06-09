@@ -274,16 +274,22 @@ app.whenReady().then(async () => {
 
   initToken(loadOrCreateToken())
 
+  const sendToRenderer = (channel: string, ...args: unknown[]) => {
+    if (win && !win.isDestroyed() && !win.webContents.isDestroyed()) {
+      win.webContents.send(channel, ...args)
+    }
+  }
+
   const { wss, getToken } = startPtyServer(undefined, {
     onSessionsChange: (sessions) => {
       currentSessions = sessions
-      win?.webContents.send('sessions-update', sessions)
+      sendToRenderer('sessions-update', sessions)
     },
     onPtyOutput: (sessionId, data) => {
-      win?.webContents.send('pty-output', { sessionId, data })
+      sendToRenderer('pty-output', { sessionId, data })
     },
     onPtyExit: (sessionId, exitCode) => {
-      win?.webContents.send('pty-exit', { sessionId, exitCode })
+      sendToRenderer('pty-exit', { sessionId, exitCode })
     },
   })
 

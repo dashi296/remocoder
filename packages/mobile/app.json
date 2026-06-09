@@ -3,7 +3,7 @@
     "name": "RemoCoder",
     "slug": "remocoder",
     "scheme": "remocoder",
-    "version": "0.1.1",
+    "version": "0.1.2",
     "orientation": "portrait",
     "userInterfaceStyle": "dark",
     "ios": {

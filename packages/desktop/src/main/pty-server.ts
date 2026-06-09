@@ -179,10 +179,10 @@ function notifySessions() {
   // 認証済み picker クライアントへセッション一覧をプッシュ
   // useSessionPickerWs が処理する session_list 型で送る
   if (pickerSockets.size > 0) {
+    // multiplexerSessions は非同期取得のため含めない（mobile 側でキャッシュ保持）
     const msg = JSON.stringify({
       type: 'session_list',
       sessions: infos,
-      multiplexerSessions: [],
     } satisfies WsMessage)
     for (const sock of pickerSockets) {
       if (sock.readyState === WebSocket.OPEN) sock.send(msg)

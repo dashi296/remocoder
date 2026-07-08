@@ -4,7 +4,7 @@ import type { IncomingMessage } from 'http'
 import { existsSync, readdirSync, statSync } from 'fs'
 import { join } from 'path'
 import { homedir, hostname as osHostname } from 'os'
-import { WsMessage, SessionInfo, ProjectInfo, MultiplexerSessionInfo, SessionSource, DEFAULT_WS_PORT } from '@remocoder/shared'
+import { WsMessage, SessionInfo, ProjectInfo, MultiplexerSessionInfo, SessionSource, DEFAULT_WS_PORT, MULTIPLEXER_KINDS, isMultiplexerKind, isMultiplexerSource } from '@remocoder/shared'
 import { v4 as uuidv4 } from 'uuid'
 import { tryParsePermission, stripAnsi } from './permission-parser'
 import { execAsync, EXEC_ENV } from './exec-env'
@@ -517,7 +517,7 @@ function createExternalSession(providerWs: WebSocket): PtySession {
 /** デスクトップから新規PTYセッションを作成する */
 export function desktopCreateSession(source: SessionSource = { kind: 'claude' }): string {
   // マルチプレクサの場合、同じセッションにアタッチ済みのPTYセッションがあれば再利用する
-  if (source.kind === 'tmux' || source.kind === 'screen' || source.kind === 'zellij' || source.kind === 'herdr') {
+  if (isMultiplexerSource(source)) {
     const { kind, sessionName } = source
     const existing = Array.from(ptySessions.values()).find(
       (s) => s.source?.kind === kind && (s.source as typeof source).sessionName === sessionName,
@@ -749,11 +749,12 @@ export function startPtyServer(port = DEFAULT_WS_PORT, callbacks: PtyServerCallb
         detachFromSession()
         // source が指定されていればそれを使用、なければ後方互換で claude として扱う
         const rawSource = msg.source ?? { kind: 'claude', projectPath: msg.projectPath }
-        const allowedKinds = ['claude', 'tmux', 'screen', 'zellij', 'herdr', 'shell'] as const
-        const isMultiplexer = rawSource.kind === 'tmux' || rawSource.kind === 'screen' || rawSource.kind === 'zellij' || rawSource.kind === 'herdr'
+        const allowedKinds = ['claude', ...MULTIPLEXER_KINDS, 'shell'] as const
+        const isMultiplexer = isMultiplexerKind(rawSource.kind)
+        const rawName = (rawSource as Record<string, unknown>).sessionName
         const isInvalid =
           !allowedKinds.includes(rawSource.kind as (typeof allowedKinds)[number]) ||
-          (isMultiplexer && (typeof rawSource.sessionName !== 'string' || rawSource.sessionName.length === 0))
+          (isMultiplexer && (typeof rawName !== 'string' || rawName.length === 0))
         if (isInvalid) {
           console.warn(`[pty-server] Rejected session_create: invalid source ${JSON.stringify(rawSource)}`)
           ws.send(JSON.stringify({ type: 'auth_error', reason: 'invalid session source' } satisfies WsMessage))
@@ -1025,10 +1026,9 @@ function spawnSource(source: SessionSource): pty.IPty {
 export async function getMultiplexerSessions(): Promise<MultiplexerSessionInfo[]> {
   const results: MultiplexerSessionInfo[] = []
 
-  // tmux
-  // TERM を明示的に設定することで tmux の vis(3) エンコードを抑制し、
-  // タブ区切り出力が正しく得られるようにする（GUI 起動時は TERM が未設定になる）
-  try {
+  async function collectTmux(): Promise<void> {
+    // TERM を明示的に設定することで tmux の vis(3) エンコードを抑制し、
+    // タブ区切り出力が正しく得られるようにする（GUI 起動時は TERM が未設定になる）
     const { stdout } = await execAsync(
       'tmux list-panes -a -F "#{session_name}\t#{session_windows}\t#{pane_current_path}"',
       { env: { ...EXEC_ENV, TERM: 'xterm-256color' } },
@@ -1048,12 +1048,9 @@ export async function getMultiplexerSessions(): Promise<MultiplexerSessionInfo[]
         workingDirectory: paneCurrentPath || undefined,
       })
     }
-  } catch {
-    // tmux未インストールまたはセッションなし
   }
 
-  // screen
-  try {
+  async function collectScreen(): Promise<void> {
     // screen -ls は接続中セッションがある場合に exit code 1 を返すため stdout を取り出す
     const screenOutput = await execAsync('screen -ls', { env: EXEC_ENV }).then(
       (r) => r.stdout,
@@ -1067,26 +1064,19 @@ export async function getMultiplexerSessions(): Promise<MultiplexerSessionInfo[]
         results.push({ tool: 'screen', sessionName, detail: match[2] })
       }
     }
-  } catch {
-    // screen未インストール
   }
 
-  // zellij
-  try {
+  async function collectZellij(): Promise<void> {
     const { stdout } = await execAsync('zellij list-sessions', { env: EXEC_ENV })
     for (const line of stdout.trim().split('\n').filter(Boolean)) {
-      // "session-name [Created...]" 形式の場合もあるため最初のトークンだけ取得
       const sessionName = line.trim().split(/\s+/)[0]
       if (sessionName && SAFE_SESSION_NAME_RE.test(sessionName)) {
         results.push({ tool: 'zellij', sessionName })
       }
     }
-  } catch {
-    // zellij未インストールまたはセッションなし
   }
 
-  // herdr
-  try {
+  async function collectHerdr(): Promise<void> {
     const { stdout } = await execAsync('herdr session list --json', { env: EXEC_ENV })
     const sessions: Array<{ name: string; running: boolean; session_dir?: string }> = JSON.parse(stdout)
     for (const s of sessions) {
@@ -1097,9 +1087,8 @@ export async function getMultiplexerSessions(): Promise<MultiplexerSessionInfo[]
         detail: s.running ? 'running' : 'stopped',
       })
     }
-  } catch {
-    // herdr未インストールまたはセッションなし
   }
 
+  await Promise.allSettled([collectTmux(), collectScreen(), collectZellij(), collectHerdr()])
   return results
 }

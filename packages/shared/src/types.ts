@@ -4,11 +4,12 @@ export type SessionSource =
   | { kind: 'tmux'; sessionName: string }
   | { kind: 'screen'; sessionName: string }
   | { kind: 'zellij'; sessionName: string }
+  | { kind: 'herdr'; sessionName: string }
   | { kind: 'shell'; cwd?: string }
 
-/** tmux / screen / zellij のセッション情報 */
+/** tmux / screen / zellij / herdr のセッション情報 */
 export interface MultiplexerSessionInfo {
-  tool: 'tmux' | 'screen' | 'zellij'
+  tool: 'tmux' | 'screen' | 'zellij' | 'herdr'
   sessionName: string
   /** セッションの追加情報（例: ウィンドウ数、状態） */
   detail?: string
@@ -110,6 +111,7 @@ export function sessionSourceIcon(source?: SessionSource): string {
     case 'tmux':   return '📟'
     case 'screen': return '🖥'
     case 'zellij': return '🪟'
+    case 'herdr':  return '🐑'
     default:       return '🖥'
   }
 }

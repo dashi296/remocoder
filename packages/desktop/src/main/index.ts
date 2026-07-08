@@ -197,7 +197,7 @@ function setupIpc(getToken: () => string) {
     return desktopCreateSession(source)
   })
 
-  /** tmux / screen / zellij のセッション一覧を返す */
+  /** tmux / screen / zellij / herdr のセッション一覧を返す */
   ipcMain.handle('get-multiplexer-sessions', () => {
     return getMultiplexerSessions()
   })

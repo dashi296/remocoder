@@ -68,7 +68,7 @@ export function buildTerminalHtml(
         const bufType = term.buffer && term.buffer.active && term.buffer.active.type
         const src = currentSource || SESSION_SOURCE
         const isMultiplexer = src &&
-          (src.kind === 'tmux' || src.kind === 'screen' || src.kind === 'zellij')
+          (src.kind === 'tmux' || src.kind === 'screen' || src.kind === 'zellij' || src.kind === 'herdr')
         return { bufType, isMultiplexer }
       }
 

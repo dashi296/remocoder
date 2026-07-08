@@ -517,7 +517,7 @@ function createExternalSession(providerWs: WebSocket): PtySession {
 /** デスクトップから新規PTYセッションを作成する */
 export function desktopCreateSession(source: SessionSource = { kind: 'claude' }): string {
   // マルチプレクサの場合、同じセッションにアタッチ済みのPTYセッションがあれば再利用する
-  if (source.kind === 'tmux' || source.kind === 'screen' || source.kind === 'zellij') {
+  if (source.kind === 'tmux' || source.kind === 'screen' || source.kind === 'zellij' || source.kind === 'herdr') {
     const { kind, sessionName } = source
     const existing = Array.from(ptySessions.values()).find(
       (s) => s.source?.kind === kind && (s.source as typeof source).sessionName === sessionName,
@@ -749,8 +749,8 @@ export function startPtyServer(port = DEFAULT_WS_PORT, callbacks: PtyServerCallb
         detachFromSession()
         // source が指定されていればそれを使用、なければ後方互換で claude として扱う
         const rawSource = msg.source ?? { kind: 'claude', projectPath: msg.projectPath }
-        const allowedKinds = ['claude', 'tmux', 'screen', 'zellij', 'shell'] as const
-        const isMultiplexer = rawSource.kind === 'tmux' || rawSource.kind === 'screen' || rawSource.kind === 'zellij'
+        const allowedKinds = ['claude', 'tmux', 'screen', 'zellij', 'herdr', 'shell'] as const
+        const isMultiplexer = rawSource.kind === 'tmux' || rawSource.kind === 'screen' || rawSource.kind === 'zellij' || rawSource.kind === 'herdr'
         const isInvalid =
           !allowedKinds.includes(rawSource.kind as (typeof allowedKinds)[number]) ||
           (isMultiplexer && (typeof rawSource.sessionName !== 'string' || rawSource.sessionName.length === 0))
@@ -1003,6 +1003,11 @@ function spawnSource(source: SessionSource): pty.IPty {
       console.log(`[pty-server] Attaching to zellij session: ${source.sessionName}`)
       return pty.spawn('zellij', ['attach', source.sessionName], baseOpts)
     }
+    case 'herdr': {
+      assertSafeSessionName(source.sessionName, 'herdr')
+      console.log(`[pty-server] Attaching to herdr session: ${source.sessionName}`)
+      return pty.spawn('herdr', ['session', 'attach', source.sessionName], baseOpts)
+    }
     case 'shell': {
       const loginShell = resolveShell()
       const cwd = source.cwd && existsSync(source.cwd) ? source.cwd : undefined
@@ -1016,7 +1021,7 @@ function spawnSource(source: SessionSource): pty.IPty {
 
 // ─── マルチプレクサセッション一覧取得 ────────────────────────────────────────
 
-/** 利用可能な tmux / screen / zellij セッション一覧を取得する */
+/** 利用可能な tmux / screen / zellij / herdr セッション一覧を取得する */
 export async function getMultiplexerSessions(): Promise<MultiplexerSessionInfo[]> {
   const results: MultiplexerSessionInfo[] = []
 
@@ -1078,6 +1083,22 @@ export async function getMultiplexerSessions(): Promise<MultiplexerSessionInfo[]
     }
   } catch {
     // zellij未インストールまたはセッションなし
+  }
+
+  // herdr
+  try {
+    const { stdout } = await execAsync('herdr session list --json', { env: EXEC_ENV })
+    const sessions: Array<{ name: string; running: boolean; session_dir?: string }> = JSON.parse(stdout)
+    for (const s of sessions) {
+      if (!s.name || !SAFE_SESSION_NAME_RE.test(s.name)) continue
+      results.push({
+        tool: 'herdr',
+        sessionName: s.name,
+        detail: s.running ? 'running' : 'stopped',
+      })
+    }
+  } catch {
+    // herdr未インストールまたはセッションなし
   }
 
   return results

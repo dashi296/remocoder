@@ -27,7 +27,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   /** 新規PTYセッションを作成し、セッションIDを返す */
   ptyCreate: (source?: SessionSource): Promise<string> => ipcRenderer.invoke('pty-create', source),
 
-  /** tmux / screen / zellij のセッション一覧を返す */
+  /** tmux / screen / zellij / herdr のセッション一覧を返す */
   getMultiplexerSessions: (): Promise<MultiplexerSessionInfo[]> =>
     ipcRenderer.invoke('get-multiplexer-sessions'),
 

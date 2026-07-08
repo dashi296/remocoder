@@ -329,7 +329,7 @@ export function SessionList({
           {!hasMux ? (
             <div style={styles.empty}>
               <p style={styles.emptyText}>No sessions</p>
-              <p style={styles.emptySubText}>No tmux / screen / zellij sessions found</p>
+              <p style={styles.emptySubText}>No tmux / screen / zellij / herdr sessions found</p>
             </div>
           ) : (
             <div style={styles.list}>

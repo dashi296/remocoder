@@ -4,13 +4,14 @@ import type { IncomingMessage } from 'http'
 import { existsSync, readdirSync, statSync } from 'fs'
 import { join } from 'path'
 import { homedir, hostname as osHostname } from 'os'
-import { WsMessage, SessionInfo, ProjectInfo, MultiplexerSessionInfo, SessionSource, DEFAULT_WS_PORT, MULTIPLEXER_KINDS, isMultiplexerKind, isMultiplexerSource } from '@remocoder/shared'
+import { WsMessage, SessionInfo, ProjectInfo, MultiplexerSessionInfo, SessionSource, MultiplexerSource, DEFAULT_WS_PORT, MULTIPLEXER_KINDS, isMultiplexerKind, isMultiplexerSource } from '@remocoder/shared'
 import { v4 as uuidv4 } from 'uuid'
 import { tryParsePermission, stripAnsi } from './permission-parser'
 import { execAsync, EXEC_ENV } from './exec-env'
 
 let AUTH_TOKEN = process.env.REMOTE_TOKEN ?? uuidv4()
 const SERVER_NAME = osHostname()
+const ALLOWED_SOURCE_KINDS = ['claude', ...MULTIPLEXER_KINDS, 'shell'] as const
 
 // ─── Claude プロジェクト一覧取得 ───────────────────────────────────────────────
 
@@ -749,11 +750,10 @@ export function startPtyServer(port = DEFAULT_WS_PORT, callbacks: PtyServerCallb
         detachFromSession()
         // source が指定されていればそれを使用、なければ後方互換で claude として扱う
         const rawSource = msg.source ?? { kind: 'claude', projectPath: msg.projectPath }
-        const allowedKinds = ['claude', ...MULTIPLEXER_KINDS, 'shell'] as const
         const isMultiplexer = isMultiplexerKind(rawSource.kind)
         const rawName = (rawSource as Record<string, unknown>).sessionName
         const isInvalid =
-          !allowedKinds.includes(rawSource.kind as (typeof allowedKinds)[number]) ||
+          !ALLOWED_SOURCE_KINDS.includes(rawSource.kind as (typeof ALLOWED_SOURCE_KINDS)[number]) ||
           (isMultiplexer && (typeof rawName !== 'string' || rawName.length === 0))
         if (isInvalid) {
           console.warn(`[pty-server] Rejected session_create: invalid source ${JSON.stringify(rawSource)}`)
@@ -766,8 +766,8 @@ export function startPtyServer(port = DEFAULT_WS_PORT, callbacks: PtyServerCallb
         const existingMux = isMultiplexer
           ? Array.from(ptySessions.values()).find(
               (s) => s.source?.kind === source.kind &&
-                (s.source as Extract<SessionSource, { sessionName: string }>).sessionName ===
-                (source as Extract<SessionSource, { sessionName: string }>).sessionName,
+                (s.source as MultiplexerSource).sessionName ===
+                (source as MultiplexerSource).sessionName,
             )
           : undefined
         const session = existingMux ?? createPtySession(source, clientIP)

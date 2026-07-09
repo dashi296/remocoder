@@ -125,7 +125,10 @@ export function sessionSourceIcon(source?: SessionSource): string {
     case 'screen': return '🖥'
     case 'zellij': return '🪟'
     case 'herdr':  return '🐑'
-    default:       return '🖥'
+    default: {
+      const _exhaustive: never = source
+      return '🖥'
+    }
   }
 }
 

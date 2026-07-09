@@ -167,6 +167,14 @@ interface PtySession {
 
 /** 永続PTYセッションマップ（WS切断後も保持） */
 const ptySessions = new Map<string, PtySession>()
+
+function findExistingMuxSession(source: MultiplexerSource): PtySession | undefined {
+  return Array.from(ptySessions.values()).find(
+    (s) => s.source?.kind === source.kind &&
+      (s.source as MultiplexerSource).sessionName === source.sessionName,
+  )
+}
+
 /** 認証済みかつ未アタッチのモバイル picker 接続セット */
 const pickerSockets = new Set<WebSocket>()
 
@@ -519,12 +527,9 @@ function createExternalSession(providerWs: WebSocket): PtySession {
 export function desktopCreateSession(source: SessionSource = { kind: 'claude' }): string {
   // マルチプレクサの場合、同じセッションにアタッチ済みのPTYセッションがあれば再利用する
   if (isMultiplexerSource(source)) {
-    const { kind, sessionName } = source
-    const existing = Array.from(ptySessions.values()).find(
-      (s) => s.source?.kind === kind && (s.source as typeof source).sessionName === sessionName,
-    )
+    const existing = findExistingMuxSession(source)
     if (existing) {
-      console.log(`[pty-server] Reusing existing PTY session ${existing.id.slice(0, 8)} for ${kind}:${sessionName}`)
+      console.log(`[pty-server] Reusing existing PTY session ${existing.id.slice(0, 8)} for ${source.kind}:${source.sessionName}`)
       return existing.id
     }
   }
@@ -764,11 +769,7 @@ export function startPtyServer(port = DEFAULT_WS_PORT, callbacks: PtyServerCallb
         pickerSockets.delete(ws)
         // マルチプレクサは同名セッションが既存なら再利用する（Desktop と同じ挙動）
         const existingMux = isMultiplexer
-          ? Array.from(ptySessions.values()).find(
-              (s) => s.source?.kind === source.kind &&
-                (s.source as MultiplexerSource).sessionName ===
-                (source as MultiplexerSource).sessionName,
-            )
+          ? findExistingMuxSession(source as MultiplexerSource)
           : undefined
         const session = existingMux ?? createPtySession(source, clientIP)
         // 既存セッションを再利用する場合は session_attach と同じ手順で安全にアタッチする

@@ -4,7 +4,7 @@ import type { IncomingMessage } from 'http'
 import { existsSync, readdirSync, statSync } from 'fs'
 import { join } from 'path'
 import { homedir, hostname as osHostname } from 'os'
-import { WsMessage, SessionInfo, ProjectInfo, MultiplexerSessionInfo, SessionSource, MultiplexerSource, DEFAULT_WS_PORT, MULTIPLEXER_KINDS, isMultiplexerKind, isMultiplexerSource } from '@remocoder/shared'
+import { WsMessage, SessionInfo, ProjectInfo, MultiplexerSessionInfo, SessionSource, MultiplexerSource, MultiplexerKind, DEFAULT_WS_PORT, MULTIPLEXER_KINDS, isMultiplexerKind, isMultiplexerSource } from '@remocoder/shared'
 import { v4 as uuidv4 } from 'uuid'
 import { tryParsePermission, stripAnsi } from './permission-parser'
 import { execAsync, EXEC_ENV } from './exec-env'
@@ -12,6 +12,13 @@ import { execAsync, EXEC_ENV } from './exec-env'
 let AUTH_TOKEN = process.env.REMOTE_TOKEN ?? uuidv4()
 const SERVER_NAME = osHostname()
 const ALLOWED_SOURCE_KINDS = ['claude', ...MULTIPLEXER_KINDS, 'shell'] as const
+
+const MUX_SPAWN_CONFIG: Record<MultiplexerKind, { binary: string; args: (name: string) => string[] }> = {
+  tmux:   { binary: 'tmux',   args: (n) => ['attach-session', '-t', n] },
+  screen: { binary: 'screen', args: (n) => ['-r', n] },
+  zellij: { binary: 'zellij', args: (n) => ['attach', n] },
+  herdr:  { binary: 'herdr',  args: (n) => ['session', 'attach', n] },
+}
 
 // ─── Claude プロジェクト一覧取得 ───────────────────────────────────────────────
 
@@ -169,11 +176,14 @@ interface PtySession {
 const ptySessions = new Map<string, PtySession>()
 
 function findExistingMuxSession(source: MultiplexerSource): PtySession | undefined {
-  return Array.from(ptySessions.values()).find(
-    (s) => s.source && isMultiplexerSource(s.source) &&
+  for (const s of ptySessions.values()) {
+    if (s.source && isMultiplexerSource(s.source) &&
       s.source.kind === source.kind &&
-      s.source.sessionName === source.sessionName,
-  )
+      s.source.sessionName === source.sessionName) {
+      return s
+    }
+  }
+  return undefined
 }
 
 /** 認証済みかつ未アタッチのモバイル picker 接続セット */
@@ -991,25 +1001,14 @@ function spawnSource(source: SessionSource): pty.IPty {
       console.log(`[pty-server] Spawning claude via shell: ${loginShell}${cwd ? ` (cwd: ${cwd})` : ''}`)
       return pty.spawn(loginShell, ['-lc', 'exec claude'], { ...baseOpts, ...(cwd ? { cwd } : {}) })
     }
-    case 'tmux': {
-      assertSafeSessionName(source.sessionName, 'tmux')
-      console.log(`[pty-server] Attaching to tmux session: ${source.sessionName}`)
-      return pty.spawn('tmux', ['attach-session', '-t', source.sessionName], baseOpts)
-    }
-    case 'screen': {
-      assertSafeSessionName(source.sessionName, 'screen')
-      console.log(`[pty-server] Attaching to screen session: ${source.sessionName}`)
-      return pty.spawn('screen', ['-r', source.sessionName], baseOpts)
-    }
-    case 'zellij': {
-      assertSafeSessionName(source.sessionName, 'zellij')
-      console.log(`[pty-server] Attaching to zellij session: ${source.sessionName}`)
-      return pty.spawn('zellij', ['attach', source.sessionName], baseOpts)
-    }
+    case 'tmux':
+    case 'screen':
+    case 'zellij':
     case 'herdr': {
-      assertSafeSessionName(source.sessionName, 'herdr')
-      console.log(`[pty-server] Attaching to herdr session: ${source.sessionName}`)
-      return pty.spawn('herdr', ['session', 'attach', source.sessionName], baseOpts)
+      assertSafeSessionName(source.sessionName, source.kind)
+      console.log(`[pty-server] Attaching to ${source.kind} session: ${source.sessionName}`)
+      const { binary, args } = MUX_SPAWN_CONFIG[source.kind]
+      return pty.spawn(binary, args(source.sessionName), baseOpts)
     }
     case 'shell': {
       const loginShell = resolveShell()
@@ -1017,8 +1016,10 @@ function spawnSource(source: SessionSource): pty.IPty {
       console.log(`[pty-server] Spawning shell: ${loginShell}${cwd ? ` (cwd: ${cwd})` : ''}`)
       return pty.spawn(loginShell, ['-l'], { ...baseOpts, ...(cwd ? { cwd } : {}) })
     }
-    default:
+    default: {
+      const _exhaustive: never = source
       throw new Error(`[pty-server] Unknown session source kind: ${(source as { kind: string }).kind}`)
+    }
   }
 }
 
@@ -1099,6 +1100,12 @@ export async function getMultiplexerSessions(): Promise<MultiplexerSessionInfo[]
     return results
   }
 
-  const settled = await Promise.allSettled([collectTmux(), collectScreen(), collectZellij(), collectHerdr()])
+  const collectors: Record<MultiplexerKind, () => Promise<MultiplexerSessionInfo[]>> = {
+    tmux: collectTmux,
+    screen: collectScreen,
+    zellij: collectZellij,
+    herdr: collectHerdr,
+  }
+  const settled = await Promise.allSettled(MULTIPLEXER_KINDS.map((k) => collectors[k]()))
   return settled.flatMap((r) => r.status === 'fulfilled' ? r.value : [])
 }

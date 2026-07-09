@@ -8,10 +8,7 @@ export function isMultiplexerKind(kind: string): kind is MultiplexerKind {
 /** PTYセッションの起動元を表す型 */
 export type SessionSource =
   | { kind: 'claude'; projectPath?: string }
-  | { kind: 'tmux'; sessionName: string }
-  | { kind: 'screen'; sessionName: string }
-  | { kind: 'zellij'; sessionName: string }
-  | { kind: 'herdr'; sessionName: string }
+  | { kind: MultiplexerKind; sessionName: string }
   | { kind: 'shell'; cwd?: string }
 
 export type MultiplexerSource = Extract<SessionSource, { sessionName: string }>

@@ -1025,9 +1025,8 @@ function spawnSource(source: SessionSource): pty.IPty {
 
 /** 利用可能な tmux / screen / zellij / herdr セッション一覧を取得する */
 export async function getMultiplexerSessions(): Promise<MultiplexerSessionInfo[]> {
-  const results: MultiplexerSessionInfo[] = []
-
-  async function collectTmux(): Promise<void> {
+  async function collectTmux(): Promise<MultiplexerSessionInfo[]> {
+    const results: MultiplexerSessionInfo[] = []
     // TERM を明示的に設定することで tmux の vis(3) エンコードを抑制し、
     // タブ区切り出力が正しく得られるようにする（GUI 起動時は TERM が未設定になる）
     const { stdout } = await execAsync(
@@ -1049,9 +1048,11 @@ export async function getMultiplexerSessions(): Promise<MultiplexerSessionInfo[]
         workingDirectory: paneCurrentPath || undefined,
       })
     }
+    return results
   }
 
-  async function collectScreen(): Promise<void> {
+  async function collectScreen(): Promise<MultiplexerSessionInfo[]> {
+    const results: MultiplexerSessionInfo[] = []
     // screen -ls は接続中セッションがある場合に exit code 1 を返すため stdout を取り出す
     const screenOutput = await execAsync('screen -ls', { env: EXEC_ENV }).then(
       (r) => r.stdout,
@@ -1065,9 +1066,11 @@ export async function getMultiplexerSessions(): Promise<MultiplexerSessionInfo[]
         results.push({ tool: 'screen', sessionName, detail: match[2] })
       }
     }
+    return results
   }
 
-  async function collectZellij(): Promise<void> {
+  async function collectZellij(): Promise<MultiplexerSessionInfo[]> {
+    const results: MultiplexerSessionInfo[] = []
     const { stdout } = await execAsync('zellij list-sessions', { env: EXEC_ENV })
     for (const line of stdout.trim().split('\n').filter(Boolean)) {
       const sessionName = line.trim().split(/\s+/)[0]
@@ -1075,9 +1078,11 @@ export async function getMultiplexerSessions(): Promise<MultiplexerSessionInfo[]
         results.push({ tool: 'zellij', sessionName })
       }
     }
+    return results
   }
 
-  async function collectHerdr(): Promise<void> {
+  async function collectHerdr(): Promise<MultiplexerSessionInfo[]> {
+    const results: MultiplexerSessionInfo[] = []
     const { stdout } = await execAsync('herdr session list --json', { env: EXEC_ENV })
     const parsed = JSON.parse(stdout)
     const sessions: Array<{ name: string; running: boolean; session_dir?: string }> =
@@ -1090,8 +1095,9 @@ export async function getMultiplexerSessions(): Promise<MultiplexerSessionInfo[]
         detail: s.running ? 'running' : 'stopped',
       })
     }
+    return results
   }
 
-  await Promise.allSettled([collectTmux(), collectScreen(), collectZellij(), collectHerdr()])
-  return results
+  const settled = await Promise.allSettled([collectTmux(), collectScreen(), collectZellij(), collectHerdr()])
+  return settled.flatMap((r) => r.status === 'fulfilled' ? r.value : [])
 }

@@ -1,14 +1,25 @@
+export const MULTIPLEXER_KINDS = ['tmux', 'screen', 'zellij', 'herdr'] as const
+export type MultiplexerKind = (typeof MULTIPLEXER_KINDS)[number]
+
+export function isMultiplexerKind(kind: string): kind is MultiplexerKind {
+  return (MULTIPLEXER_KINDS as readonly string[]).includes(kind)
+}
+
 /** PTYセッションの起動元を表す型 */
 export type SessionSource =
   | { kind: 'claude'; projectPath?: string }
-  | { kind: 'tmux'; sessionName: string }
-  | { kind: 'screen'; sessionName: string }
-  | { kind: 'zellij'; sessionName: string }
+  | { kind: MultiplexerKind; sessionName: string }
   | { kind: 'shell'; cwd?: string }
 
-/** tmux / screen / zellij のセッション情報 */
+export type MultiplexerSource = Extract<SessionSource, { sessionName: string }>
+
+export function isMultiplexerSource(source: SessionSource): source is MultiplexerSource {
+  return isMultiplexerKind(source.kind)
+}
+
+/** マルチプレクサのセッション情報 */
 export interface MultiplexerSessionInfo {
-  tool: 'tmux' | 'screen' | 'zellij'
+  tool: MultiplexerKind
   sessionName: string
   /** セッションの追加情報（例: ウィンドウ数、状態） */
   detail?: string
@@ -110,7 +121,11 @@ export function sessionSourceIcon(source?: SessionSource): string {
     case 'tmux':   return '📟'
     case 'screen': return '🖥'
     case 'zellij': return '🪟'
-    default:       return '🖥'
+    case 'herdr':  return '🐑'
+    default: {
+      const _exhaustive: never = source
+      return '🖥'
+    }
   }
 }
 

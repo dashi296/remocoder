@@ -1,4 +1,4 @@
-import type { SessionSource } from '@remocoder/shared'
+import { MULTIPLEXER_KINDS, type SessionSource } from '@remocoder/shared'
 
 /**
  * @param wsUrl WebSocket URL
@@ -67,8 +67,7 @@ export function buildTerminalHtml(
       function getScrollTarget() {
         const bufType = term.buffer && term.buffer.active && term.buffer.active.type
         const src = currentSource || SESSION_SOURCE
-        const isMultiplexer = src &&
-          (src.kind === 'tmux' || src.kind === 'screen' || src.kind === 'zellij')
+        const isMultiplexer = src && MULTIPLEXER_KINDS.includes(src.kind)
         return { bufType, isMultiplexer }
       }
 
@@ -151,6 +150,7 @@ export function buildTerminalHtml(
     const ATTACH_SESSION_ID = ${sessionIdJs}
     // セッション起動元（null = projectPath を使用）
     const SESSION_SOURCE = ${sourceJs}
+    const MULTIPLEXER_KINDS = ${JSON.stringify(MULTIPLEXER_KINDS)}
 
     // 接続間でセッションIDを維持して再接続時に再アタッチする
     let currentSessionId = ATTACH_SESSION_ID

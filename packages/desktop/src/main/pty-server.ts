@@ -4,13 +4,21 @@ import type { IncomingMessage } from 'http'
 import { existsSync, readdirSync, statSync } from 'fs'
 import { join } from 'path'
 import { homedir, hostname as osHostname } from 'os'
-import { WsMessage, SessionInfo, ProjectInfo, MultiplexerSessionInfo, SessionSource, DEFAULT_WS_PORT } from '@remocoder/shared'
+import { WsMessage, SessionInfo, ProjectInfo, MultiplexerSessionInfo, SessionSource, MultiplexerSource, MultiplexerKind, DEFAULT_WS_PORT, MULTIPLEXER_KINDS, isMultiplexerKind, isMultiplexerSource } from '@remocoder/shared'
 import { v4 as uuidv4 } from 'uuid'
 import { tryParsePermission, stripAnsi } from './permission-parser'
 import { execAsync, EXEC_ENV } from './exec-env'
 
 let AUTH_TOKEN = process.env.REMOTE_TOKEN ?? uuidv4()
 const SERVER_NAME = osHostname()
+const ALLOWED_SOURCE_KINDS = ['claude', ...MULTIPLEXER_KINDS, 'shell'] as const
+
+const MUX_SPAWN_CONFIG: Record<MultiplexerKind, { binary: string; args: (name: string) => string[] }> = {
+  tmux:   { binary: 'tmux',   args: (n) => ['attach-session', '-t', n] },
+  screen: { binary: 'screen', args: (n) => ['-r', n] },
+  zellij: { binary: 'zellij', args: (n) => ['attach', n] },
+  herdr:  { binary: 'herdr',  args: (n) => ['session', 'attach', n] },
+}
 
 // ─── Claude プロジェクト一覧取得 ───────────────────────────────────────────────
 
@@ -166,6 +174,18 @@ interface PtySession {
 
 /** 永続PTYセッションマップ（WS切断後も保持） */
 const ptySessions = new Map<string, PtySession>()
+
+function findExistingMuxSession(source: MultiplexerSource): PtySession | undefined {
+  for (const s of ptySessions.values()) {
+    if (s.source && isMultiplexerSource(s.source) &&
+      s.source.kind === source.kind &&
+      s.source.sessionName === source.sessionName) {
+      return s
+    }
+  }
+  return undefined
+}
+
 /** 認証済みかつ未アタッチのモバイル picker 接続セット */
 const pickerSockets = new Set<WebSocket>()
 
@@ -517,13 +537,10 @@ function createExternalSession(providerWs: WebSocket): PtySession {
 /** デスクトップから新規PTYセッションを作成する */
 export function desktopCreateSession(source: SessionSource = { kind: 'claude' }): string {
   // マルチプレクサの場合、同じセッションにアタッチ済みのPTYセッションがあれば再利用する
-  if (source.kind === 'tmux' || source.kind === 'screen' || source.kind === 'zellij') {
-    const { kind, sessionName } = source
-    const existing = Array.from(ptySessions.values()).find(
-      (s) => s.source?.kind === kind && (s.source as typeof source).sessionName === sessionName,
-    )
+  if (isMultiplexerSource(source)) {
+    const existing = findExistingMuxSession(source)
     if (existing) {
-      console.log(`[pty-server] Reusing existing PTY session ${existing.id.slice(0, 8)} for ${kind}:${sessionName}`)
+      console.log(`[pty-server] Reusing existing PTY session ${existing.id.slice(0, 8)} for ${source.kind}:${source.sessionName}`)
       return existing.id
     }
   }
@@ -749,11 +766,11 @@ export function startPtyServer(port = DEFAULT_WS_PORT, callbacks: PtyServerCallb
         detachFromSession()
         // source が指定されていればそれを使用、なければ後方互換で claude として扱う
         const rawSource = msg.source ?? { kind: 'claude', projectPath: msg.projectPath }
-        const allowedKinds = ['claude', 'tmux', 'screen', 'zellij', 'shell'] as const
-        const isMultiplexer = rawSource.kind === 'tmux' || rawSource.kind === 'screen' || rawSource.kind === 'zellij'
+        const isMultiplexer = isMultiplexerKind(rawSource.kind)
+        const rawName = (rawSource as Record<string, unknown>).sessionName
         const isInvalid =
-          !allowedKinds.includes(rawSource.kind as (typeof allowedKinds)[number]) ||
-          (isMultiplexer && (typeof rawSource.sessionName !== 'string' || rawSource.sessionName.length === 0))
+          !ALLOWED_SOURCE_KINDS.includes(rawSource.kind as (typeof ALLOWED_SOURCE_KINDS)[number]) ||
+          (isMultiplexer && (typeof rawName !== 'string' || rawName.length === 0))
         if (isInvalid) {
           console.warn(`[pty-server] Rejected session_create: invalid source ${JSON.stringify(rawSource)}`)
           ws.send(JSON.stringify({ type: 'auth_error', reason: 'invalid session source' } satisfies WsMessage))
@@ -762,12 +779,8 @@ export function startPtyServer(port = DEFAULT_WS_PORT, callbacks: PtyServerCallb
         const source = rawSource as SessionSource
         pickerSockets.delete(ws)
         // マルチプレクサは同名セッションが既存なら再利用する（Desktop と同じ挙動）
-        const existingMux = isMultiplexer
-          ? Array.from(ptySessions.values()).find(
-              (s) => s.source?.kind === source.kind &&
-                (s.source as Extract<SessionSource, { sessionName: string }>).sessionName ===
-                (source as Extract<SessionSource, { sessionName: string }>).sessionName,
-            )
+        const existingMux = isMultiplexerSource(source)
+          ? findExistingMuxSession(source)
           : undefined
         const session = existingMux ?? createPtySession(source, clientIP)
         // 既存セッションを再利用する場合は session_attach と同じ手順で安全にアタッチする
@@ -980,7 +993,7 @@ function assertSafeSessionName(name: string, tool: string): void {
 }
 
 function spawnSource(source: SessionSource): pty.IPty {
-  const baseOpts = { name: 'xterm-color', cols: 80, rows: 30, env: { ...process.env } }
+  const baseOpts = { name: 'xterm-color', cols: 80, rows: 30, env: { ...EXEC_ENV } }
   switch (source.kind) {
     case 'claude': {
       const loginShell = resolveShell()
@@ -988,20 +1001,14 @@ function spawnSource(source: SessionSource): pty.IPty {
       console.log(`[pty-server] Spawning claude via shell: ${loginShell}${cwd ? ` (cwd: ${cwd})` : ''}`)
       return pty.spawn(loginShell, ['-lc', 'exec claude'], { ...baseOpts, ...(cwd ? { cwd } : {}) })
     }
-    case 'tmux': {
-      assertSafeSessionName(source.sessionName, 'tmux')
-      console.log(`[pty-server] Attaching to tmux session: ${source.sessionName}`)
-      return pty.spawn('tmux', ['attach-session', '-t', source.sessionName], baseOpts)
-    }
-    case 'screen': {
-      assertSafeSessionName(source.sessionName, 'screen')
-      console.log(`[pty-server] Attaching to screen session: ${source.sessionName}`)
-      return pty.spawn('screen', ['-r', source.sessionName], baseOpts)
-    }
-    case 'zellij': {
-      assertSafeSessionName(source.sessionName, 'zellij')
-      console.log(`[pty-server] Attaching to zellij session: ${source.sessionName}`)
-      return pty.spawn('zellij', ['attach', source.sessionName], baseOpts)
+    case 'tmux':
+    case 'screen':
+    case 'zellij':
+    case 'herdr': {
+      assertSafeSessionName(source.sessionName, source.kind)
+      console.log(`[pty-server] Attaching to ${source.kind} session: ${source.sessionName}`)
+      const { binary, args } = MUX_SPAWN_CONFIG[source.kind]
+      return pty.spawn(binary, args(source.sessionName), baseOpts)
     }
     case 'shell': {
       const loginShell = resolveShell()
@@ -1009,21 +1016,21 @@ function spawnSource(source: SessionSource): pty.IPty {
       console.log(`[pty-server] Spawning shell: ${loginShell}${cwd ? ` (cwd: ${cwd})` : ''}`)
       return pty.spawn(loginShell, ['-l'], { ...baseOpts, ...(cwd ? { cwd } : {}) })
     }
-    default:
+    default: {
+      const _exhaustive: never = source
       throw new Error(`[pty-server] Unknown session source kind: ${(source as { kind: string }).kind}`)
+    }
   }
 }
 
 // ─── マルチプレクサセッション一覧取得 ────────────────────────────────────────
 
-/** 利用可能な tmux / screen / zellij セッション一覧を取得する */
+/** 利用可能なマルチプレクサセッション一覧を取得する */
 export async function getMultiplexerSessions(): Promise<MultiplexerSessionInfo[]> {
-  const results: MultiplexerSessionInfo[] = []
-
-  // tmux
-  // TERM を明示的に設定することで tmux の vis(3) エンコードを抑制し、
-  // タブ区切り出力が正しく得られるようにする（GUI 起動時は TERM が未設定になる）
-  try {
+  async function collectTmux(): Promise<MultiplexerSessionInfo[]> {
+    const results: MultiplexerSessionInfo[] = []
+    // TERM を明示的に設定することで tmux の vis(3) エンコードを抑制し、
+    // タブ区切り出力が正しく得られるようにする（GUI 起動時は TERM が未設定になる）
     const { stdout } = await execAsync(
       'tmux list-panes -a -F "#{session_name}\t#{session_windows}\t#{pane_current_path}"',
       { env: { ...EXEC_ENV, TERM: 'xterm-256color' } },
@@ -1043,12 +1050,11 @@ export async function getMultiplexerSessions(): Promise<MultiplexerSessionInfo[]
         workingDirectory: paneCurrentPath || undefined,
       })
     }
-  } catch {
-    // tmux未インストールまたはセッションなし
+    return results
   }
 
-  // screen
-  try {
+  async function collectScreen(): Promise<MultiplexerSessionInfo[]> {
+    const results: MultiplexerSessionInfo[] = []
     // screen -ls は接続中セッションがある場合に exit code 1 を返すため stdout を取り出す
     const screenOutput = await execAsync('screen -ls', { env: EXEC_ENV }).then(
       (r) => r.stdout,
@@ -1062,23 +1068,44 @@ export async function getMultiplexerSessions(): Promise<MultiplexerSessionInfo[]
         results.push({ tool: 'screen', sessionName, detail: match[2] })
       }
     }
-  } catch {
-    // screen未インストール
+    return results
   }
 
-  // zellij
-  try {
+  async function collectZellij(): Promise<MultiplexerSessionInfo[]> {
+    const results: MultiplexerSessionInfo[] = []
     const { stdout } = await execAsync('zellij list-sessions', { env: EXEC_ENV })
     for (const line of stdout.trim().split('\n').filter(Boolean)) {
-      // "session-name [Created...]" 形式の場合もあるため最初のトークンだけ取得
       const sessionName = line.trim().split(/\s+/)[0]
       if (sessionName && SAFE_SESSION_NAME_RE.test(sessionName)) {
         results.push({ tool: 'zellij', sessionName })
       }
     }
-  } catch {
-    // zellij未インストールまたはセッションなし
+    return results
   }
 
-  return results
+  async function collectHerdr(): Promise<MultiplexerSessionInfo[]> {
+    const results: MultiplexerSessionInfo[] = []
+    const { stdout } = await execAsync('herdr session list --json', { env: EXEC_ENV })
+    const parsed = JSON.parse(stdout)
+    const sessions: Array<{ name: string; running: boolean; session_dir?: string }> =
+      Array.isArray(parsed) ? parsed : parsed.sessions ?? []
+    for (const s of sessions) {
+      if (!s.name || !SAFE_SESSION_NAME_RE.test(s.name)) continue
+      results.push({
+        tool: 'herdr',
+        sessionName: s.name,
+        detail: s.running ? 'running' : 'stopped',
+      })
+    }
+    return results
+  }
+
+  const collectors: Record<MultiplexerKind, () => Promise<MultiplexerSessionInfo[]>> = {
+    tmux: collectTmux,
+    screen: collectScreen,
+    zellij: collectZellij,
+    herdr: collectHerdr,
+  }
+  const settled = await Promise.allSettled(MULTIPLEXER_KINDS.map((k) => collectors[k]()))
+  return settled.flatMap((r) => r.status === 'fulfilled' ? r.value : [])
 }

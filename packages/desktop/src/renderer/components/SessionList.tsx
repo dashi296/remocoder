@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import type { SessionInfo, MultiplexerSessionInfo } from '@remocoder/shared'
-import { sessionSourceIcon, sessionProjectName, formatSessionElapsed } from '@remocoder/shared'
+import { MULTIPLEXER_KINDS, sessionSourceIcon, sessionProjectName, formatSessionElapsed } from '@remocoder/shared'
 
 interface SessionListProps {
   sessions: SessionInfo[]
@@ -329,7 +329,7 @@ export function SessionList({
           {!hasMux ? (
             <div style={styles.empty}>
               <p style={styles.emptyText}>No sessions</p>
-              <p style={styles.emptySubText}>No tmux / screen / zellij sessions found</p>
+              <p style={styles.emptySubText}>No {MULTIPLEXER_KINDS.join(' / ')} sessions found</p>
             </div>
           ) : (
             <div style={styles.list}>

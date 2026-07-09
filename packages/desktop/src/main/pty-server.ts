@@ -170,8 +170,9 @@ const ptySessions = new Map<string, PtySession>()
 
 function findExistingMuxSession(source: MultiplexerSource): PtySession | undefined {
   return Array.from(ptySessions.values()).find(
-    (s) => s.source?.kind === source.kind &&
-      (s.source as MultiplexerSource).sessionName === source.sessionName,
+    (s) => s.source && isMultiplexerSource(s.source) &&
+      s.source.kind === source.kind &&
+      s.source.sessionName === source.sessionName,
   )
 }
 
@@ -1023,7 +1024,7 @@ function spawnSource(source: SessionSource): pty.IPty {
 
 // ─── マルチプレクサセッション一覧取得 ────────────────────────────────────────
 
-/** 利用可能な tmux / screen / zellij / herdr セッション一覧を取得する */
+/** 利用可能なマルチプレクサセッション一覧を取得する */
 export async function getMultiplexerSessions(): Promise<MultiplexerSessionInfo[]> {
   async function collectTmux(): Promise<MultiplexerSessionInfo[]> {
     const results: MultiplexerSessionInfo[] = []

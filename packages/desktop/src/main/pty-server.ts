@@ -769,8 +769,8 @@ export function startPtyServer(port = DEFAULT_WS_PORT, callbacks: PtyServerCallb
         const source = rawSource as SessionSource
         pickerSockets.delete(ws)
         // マルチプレクサは同名セッションが既存なら再利用する（Desktop と同じ挙動）
-        const existingMux = isMultiplexer
-          ? findExistingMuxSession(source as MultiplexerSource)
+        const existingMux = isMultiplexerSource(source)
+          ? findExistingMuxSession(source)
           : undefined
         const session = existingMux ?? createPtySession(source, clientIP)
         // 既存セッションを再利用する場合は session_attach と同じ手順で安全にアタッチする

@@ -1079,7 +1079,9 @@ export async function getMultiplexerSessions(): Promise<MultiplexerSessionInfo[]
 
   async function collectHerdr(): Promise<void> {
     const { stdout } = await execAsync('herdr session list --json', { env: EXEC_ENV })
-    const sessions: Array<{ name: string; running: boolean; session_dir?: string }> = JSON.parse(stdout)
+    const parsed = JSON.parse(stdout)
+    const sessions: Array<{ name: string; running: boolean; session_dir?: string }> =
+      Array.isArray(parsed) ? parsed : parsed.sessions ?? []
     for (const s of sessions) {
       if (!s.name || !SAFE_SESSION_NAME_RE.test(s.name)) continue
       results.push({

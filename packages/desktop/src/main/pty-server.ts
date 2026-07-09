@@ -1089,12 +1089,22 @@ export async function getMultiplexerSessions(): Promise<MultiplexerSessionInfo[]
     const parsed = JSON.parse(stdout)
     const sessions: Array<{ name: string; running: boolean; session_dir?: string }> =
       Array.isArray(parsed) ? parsed : parsed.sessions ?? []
+
+    let paneCwd: string | undefined
+    try {
+      const { stdout: paneOut } = await execAsync('herdr pane list', { env: EXEC_ENV })
+      const paneData = JSON.parse(paneOut)
+      const panes: Array<{ cwd?: string }> = paneData?.result?.panes ?? []
+      paneCwd = panes[0]?.cwd
+    } catch { /* pane list unavailable — skip */ }
+
     for (const s of sessions) {
       if (!s.name || !SAFE_SESSION_NAME_RE.test(s.name)) continue
       results.push({
         tool: 'herdr',
         sessionName: s.name,
         detail: s.running ? 'running' : 'stopped',
+        ...(paneCwd ? { workingDirectory: paneCwd } : {}),
       })
     }
     return results

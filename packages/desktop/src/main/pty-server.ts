@@ -1100,17 +1100,13 @@ export async function getMultiplexerSessions(): Promise<MultiplexerSessionInfo[]
       }
     } catch { /* pane list parse failure — proceed without workingDirectory */ }
 
-    const results: MultiplexerSessionInfo[] = []
-    for (const s of sessions) {
-      if (!s.name || !SAFE_SESSION_NAME_RE.test(s.name)) continue
-      results.push({
-        tool: 'herdr',
-        sessionName: s.name,
-        detail: s.running ? 'running' : 'stopped',
-        workingDirectory: paneCwd,
-      })
-    }
-    return results
+    const validSessions = sessions.filter((s) => s.name && SAFE_SESSION_NAME_RE.test(s.name))
+    return validSessions.map((s) => ({
+      tool: 'herdr' as const,
+      sessionName: s.name,
+      detail: s.running ? 'running' : 'stopped',
+      workingDirectory: validSessions.length === 1 ? paneCwd : undefined,
+    }))
   }
 
   const collectors: Record<MultiplexerKind, () => Promise<MultiplexerSessionInfo[]>> = {

@@ -1084,27 +1084,30 @@ export async function getMultiplexerSessions(): Promise<MultiplexerSessionInfo[]
   }
 
   async function collectHerdr(): Promise<MultiplexerSessionInfo[]> {
-    const results: MultiplexerSessionInfo[] = []
-    const { stdout } = await execAsync('herdr session list --json', { env: EXEC_ENV })
-    const parsed = JSON.parse(stdout)
+    const [sessionResult, paneResult] = await Promise.all([
+      execAsync('herdr session list --json', { env: EXEC_ENV }),
+      execAsync('herdr pane list', { env: EXEC_ENV }).catch(() => null),
+    ])
+
+    const parsed = JSON.parse(sessionResult.stdout)
     const sessions: Array<{ name: string; running: boolean; session_dir?: string }> =
       Array.isArray(parsed) ? parsed : parsed.sessions ?? []
 
     let paneCwd: string | undefined
     try {
-      const { stdout: paneOut } = await execAsync('herdr pane list', { env: EXEC_ENV })
-      const paneData = JSON.parse(paneOut)
-      const panes: Array<{ cwd?: string }> = paneData?.result?.panes ?? []
-      paneCwd = panes[0]?.cwd
-    } catch { /* pane list unavailable — skip */ }
+      if (paneResult) {
+        paneCwd = (JSON.parse(paneResult.stdout)?.result?.panes as Array<{ cwd?: string }> | undefined)?.[0]?.cwd
+      }
+    } catch { /* pane list parse failure — proceed without workingDirectory */ }
 
+    const results: MultiplexerSessionInfo[] = []
     for (const s of sessions) {
       if (!s.name || !SAFE_SESSION_NAME_RE.test(s.name)) continue
       results.push({
         tool: 'herdr',
         sessionName: s.name,
         detail: s.running ? 'running' : 'stopped',
-        ...(paneCwd ? { workingDirectory: paneCwd } : {}),
+        workingDirectory: paneCwd,
       })
     }
     return results

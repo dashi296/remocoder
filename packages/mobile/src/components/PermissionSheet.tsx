@@ -1,7 +1,6 @@
 import React, { useEffect, useMemo, useRef } from 'react'
 import { Animated, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { useKeyboardHeight } from '../hooks/useKeyboardHeight'
 
 export interface PermissionRequest {
   requestId: string
@@ -48,7 +47,6 @@ function isDangerous(details: string[]): boolean {
 
 export function PermissionSheet({ request, onDecide }: Props) {
   const { bottom: bottomInset } = useSafeAreaInsets()
-  const keyboardHeight = useKeyboardHeight()
   const slideAnim = useRef(new Animated.Value(300)).current
   const progressAnim = useRef(new Animated.Value(1)).current
 
@@ -73,14 +71,13 @@ export function PermissionSheet({ request, onDecide }: Props) {
   if (!request) return null
   const decide = (decision: 'approve' | 'reject' | 'always') => onDecide(request.requestId, decision)
 
-  const sheetPaddingBottom = keyboardHeight > 0 ? 24 : 24 + bottomInset
+  const sheetPaddingBottom = 24 + bottomInset
 
   return (
     <Animated.View
       style={[
         styles.sheet,
-        // キーボード表示中は bottom をキーボード高さ分オフセットして隠れを防ぐ
-        { bottom: keyboardHeight, paddingBottom: sheetPaddingBottom, transform: [{ translateY: slideAnim }] },
+        { paddingBottom: sheetPaddingBottom, transform: [{ translateY: slideAnim }] },
       ]}
     >
       {/* Progress bar */}
@@ -142,10 +139,6 @@ export function PermissionSheet({ request, onDecide }: Props) {
 
 const styles = StyleSheet.create({
   sheet: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
     backgroundColor: '#0d1117',
     borderTopLeftRadius: 16,
     borderTopRightRadius: 16,

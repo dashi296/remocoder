@@ -180,7 +180,13 @@ export function TerminalScreen() {
       <KeyboardToolbar webViewRef={webViewRef} />
 
       {/* 承認ボトムシート */}
-      <PermissionSheet request={pendingPermission} onDecide={handlePermissionDecide} />
+      <View
+        testID="permission-overlay"
+        pointerEvents="box-none"
+        style={[styles.permissionOverlay, { bottom: keyboardHeight }]}
+      >
+        <PermissionSheet request={pendingPermission} onDecide={handlePermissionDecide} />
+      </View>
     </SafeAreaView>
   )
 }
@@ -216,5 +222,13 @@ const styles = StyleSheet.create({
   actionButtonText: {
     color: '#d4d4d4',
     fontSize: 12,
+  },
+  permissionOverlay: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    // Keep the permission sheet above the WebView/toolbar stack on mobile.
+    zIndex: 10,
+    elevation: 10,
   },
 })

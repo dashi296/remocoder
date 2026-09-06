@@ -12,8 +12,8 @@
 
 ## Global Constraints
 
-- 走査の上限: 最大深度 **3**、最大ファイル数 **500**、1ファイルの読み取りは先頭 **8192 バイト**、走査全体のタイムアウト **3000 ミリ秒**
-- キャッシュ TTL: **30000 ミリ秒**。キーは `projectPath ?? '<none>'`
+- 走査の上限: 最大深度 **3**（root を深さ 0 とし、深さ 3 のディレクトリには入らない = root + 2 階層まで走査する）、最大ファイル数 **500**、1ファイルの読み取りは先頭 **8192 バイト**、走査全体のタイムアウト **3000 ミリ秒**
+- キャッシュ TTL: **30000 ミリ秒**。キーは `${claudeDir}|${projectPath ?? '<none>'}`
 - `description` はデスクトップ側で **120 文字**に切り詰める
 - パス検証は**シンボリックリンクを解決する前の文字列**に対して行う。リンク自体は追う
 - サブディレクトリは呼び出し名に含めない。`commands/ci/build.md` → 名前は `build`、`namespace` は `project:ci`
@@ -341,11 +341,23 @@ Expected: FAIL（`createScanContext` などが export されていない）
 `packages/desktop/src/main/slash-command-scanner.ts` の `parseFrontmatter` の下に追加する:
 
 ```typescript
-import { readdirSync, openSync, readSync, closeSync, realpathSync, existsSync, statSync } from 'fs'
+import {
+  readdirSync,
+  openSync,
+  readSync,
+  closeSync,
+  realpathSync,
+  existsSync,
+  statSync,
+  type Dirent,
+} from 'fs'
 import { join, basename } from 'path'
 import { SlashCommandInfo } from '@remocoder/shared'
 
-/** 走査の最大深度 */
+/**
+ * 走査の最大深度。root を深さ 0 とし、深さ MAX_DEPTH のディレクトリには入らない。
+ * つまり root + 2 階層までを走査する。
+ */
 export const MAX_DEPTH = 3
 /** 走査で読むファイルの最大数 */
 export const MAX_FILES = 500
@@ -431,11 +443,11 @@ export function scanCommandsDir(
   const results: SlashCommandInfo[] = []
 
   function walk(dir: string, depth: number, relDir: string) {
-    if (depth > MAX_DEPTH) return
+    if (depth >= MAX_DEPTH) return
     if (isExhausted(ctx)) return
     if (!enterDirectory(dir, ctx)) return
 
-    let entries: ReturnType<typeof readdirSync>
+    let entries: Dirent[]
     try {
       entries = readdirSync(dir, { withFileTypes: true })
     } catch {
@@ -501,7 +513,7 @@ export function scanSkillsDir(
   if (isExhausted(ctx)) return []
   if (!enterDirectory(root, ctx)) return []
 
-  let entries: ReturnType<typeof readdirSync>
+  let entries: Dirent[]
   try {
     entries = readdirSync(root, { withFileTypes: true })
   } catch {
@@ -899,9 +911,10 @@ export function scanPlugins(roots: PluginRoot[], ctx: ScanContext): SlashCommand
   for (const root of roots) {
     for (const dir of root.commandsDirs) {
       for (const cmd of scanCommandsDir(dir, 'user', ctx)) {
+        // namespace など既存フィールドを落とさないよう先に展開する
         results.push({
+          ...cmd,
           name: `${root.name}:${cmd.name}`,
-          ...(cmd.description ? { description: cmd.description } : {}),
           scope: 'plugin',
           pluginName: root.name,
         })
@@ -940,9 +953,11 @@ git commit -m "feat: 有効なプラグインのコマンド/スキル走査を�
 **Interfaces:**
 - Consumes: `scanCommandsDir`, `scanSkillsDir`, `resolveEnabledPlugins`, `scanPlugins`, `createScanContext`
 - Produces:
-  - `getSlashCommands(source: SessionSource | undefined): { commands: SlashCommandInfo[]; truncated: boolean }`
+  - `getSlashCommands(source: SessionSource | undefined, options?: { claudeDir?: string }): { commands: SlashCommandInfo[]; truncated: boolean }`
   - `clearSlashCommandCache(): void`（テスト用）
   - `BUILTIN_COMMANDS: SlashCommandInfo[]`
+
+`claudeDir` は既定で `~/.claude` を指す。テストから一時ディレクトリを渡せるようにするための引数で、本番の呼び出し（Task 5）では省略する。
 
 - [ ] **Step 1: Write the failing test**
 
@@ -952,21 +967,48 @@ git commit -m "feat: 有効なプラグインのコマンド/スキル走査を�
 import { getSlashCommands, clearSlashCommandCache, BUILTIN_COMMANDS } from '../slash-command-scanner'
 
 describe('getSlashCommands', () => {
+  let tmp: string
+  /** テスト用の空の claudeDir。開発者の実 ~/.claude を走査させない */
+  let claudeDir: string
+
   beforeEach(() => {
     clearSlashCommandCache()
+    tmp = mkdtempSync(join(tmpdir(), 'scanner-get-'))
+    claudeDir = join(tmp, 'claude')
+    mkdirSync(claudeDir, { recursive: true })
   })
 
+  afterEach(() => {
+    rmSync(tmp, { recursive: true, force: true })
+  })
+
+  /** プロジェクトディレクトリを作り、任意のコマンドを置く */
+  function makeProject(commandNames: string[] = []): string {
+    const projectPath = join(tmp, `project-${commandNames.join('-') || 'empty'}`)
+    mkdirSync(join(projectPath, '.claude', 'commands'), { recursive: true })
+    for (const name of commandNames) {
+      writeFileSync(
+        join(projectPath, '.claude', 'commands', `${name}.md`),
+        '---\ndescription: project version\n---\n',
+        'utf-8',
+      )
+    }
+    return projectPath
+  }
+
   it('claude 以外のセッションでは空配列を返す', () => {
-    expect(getSlashCommands({ kind: 'shell' }).commands).toEqual([])
-    expect(getSlashCommands({ kind: 'tmux', sessionName: 's' }).commands).toEqual([])
+    expect(getSlashCommands({ kind: 'shell' }, { claudeDir }).commands).toEqual([])
+    expect(
+      getSlashCommands({ kind: 'tmux', sessionName: 's' }, { claudeDir }).commands,
+    ).toEqual([])
   })
 
   it('source が undefined のとき空配列を返す', () => {
-    expect(getSlashCommands(undefined).commands).toEqual([])
+    expect(getSlashCommands(undefined, { claudeDir }).commands).toEqual([])
   })
 
   it('claude セッションでは組み込みコマンドを含む', () => {
-    const { commands } = getSlashCommands({ kind: 'claude' })
+    const { commands } = getSlashCommands({ kind: 'claude' }, { claudeDir })
     expect(commands.some((c) => c.name === 'clear' && c.scope === 'builtin')).toBe(true)
   })
 
@@ -974,63 +1016,83 @@ describe('getSlashCommands', () => {
     expect(BUILTIN_COMMANDS.every((c) => !c.name.startsWith('/'))).toBe(true)
   })
 
+  it('claudeDir が空なら組み込みコマンドだけを返す', () => {
+    const { commands } = getSlashCommands({ kind: 'claude' }, { claudeDir })
+    expect(commands.map((c) => c.name).sort()).toEqual(
+      BUILTIN_COMMANDS.map((c) => c.name).sort(),
+    )
+  })
+
+  it('ユーザーのコマンドとスキルを含む', () => {
+    mkdirSync(join(claudeDir, 'commands'), { recursive: true })
+    mkdirSync(join(claudeDir, 'skills', 'my-skill'), { recursive: true })
+    writeFileSync(join(claudeDir, 'commands', 'my-cmd.md'), '---\ndescription: d\n---\n', 'utf-8')
+    writeFileSync(
+      join(claudeDir, 'skills', 'my-skill', 'SKILL.md'),
+      '---\ndescription: d\n---\n',
+      'utf-8',
+    )
+
+    const { commands } = getSlashCommands({ kind: 'claude' }, { claudeDir })
+    expect(commands.some((c) => c.name === 'my-cmd' && c.scope === 'user')).toBe(true)
+    expect(commands.some((c) => c.name === 'my-skill' && c.scope === 'user')).toBe(true)
+  })
+
   it('projectPath が相対パスのとき project スコープを走査しない', () => {
-    const { commands } = getSlashCommands({ kind: 'claude', projectPath: 'relative/path' })
+    const { commands } = getSlashCommands(
+      { kind: 'claude', projectPath: 'relative/path' },
+      { claudeDir },
+    )
     expect(commands.some((c) => c.scope === 'project')).toBe(false)
   })
 
   it('projectPath が存在しないディレクトリのとき project スコープを走査しない', () => {
-    const { commands } = getSlashCommands({ kind: 'claude', projectPath: '/nonexistent/dir/xyz' })
+    const { commands } = getSlashCommands(
+      { kind: 'claude', projectPath: '/nonexistent/dir/xyz' },
+      { claudeDir },
+    )
     expect(commands.some((c) => c.scope === 'project')).toBe(false)
   })
 
   it('同じ projectPath の2回目の呼び出しがキャッシュを返す', () => {
-    const first = getSlashCommands({ kind: 'claude' })
-    const second = getSlashCommands({ kind: 'claude' })
+    const first = getSlashCommands({ kind: 'claude' }, { claudeDir })
+    const second = getSlashCommands({ kind: 'claude' }, { claudeDir })
     expect(second.commands).toBe(first.commands)
   })
 
   it('projectPath ごとにキャッシュが分かれる', () => {
-    const tmp = mkdtempSync(join(tmpdir(), 'scanner-cache-'))
-    try {
-      mkdirSync(join(tmp, '.claude', 'commands'), { recursive: true })
-      writeFileSync(
-        join(tmp, '.claude', 'commands', 'only-here.md'),
-        '---\ndescription: d\n---\n',
-        'utf-8',
-      )
-      const withPath = getSlashCommands({ kind: 'claude', projectPath: tmp })
-      const withoutPath = getSlashCommands({ kind: 'claude' })
-      expect(withPath.commands.some((c) => c.name === 'only-here')).toBe(true)
-      expect(withoutPath.commands.some((c) => c.name === 'only-here')).toBe(false)
-    } finally {
-      rmSync(tmp, { recursive: true, force: true })
-    }
+    const projectPath = makeProject(['only-here'])
+    const withPath = getSlashCommands({ kind: 'claude', projectPath }, { claudeDir })
+    const withoutPath = getSlashCommands({ kind: 'claude' }, { claudeDir })
+    expect(withPath.commands.some((c) => c.name === 'only-here')).toBe(true)
+    expect(withoutPath.commands.some((c) => c.name === 'only-here')).toBe(false)
   })
 
-  it('同名は project > user > plugin > builtin の順に1件へ正規化する', () => {
-    const tmp = mkdtempSync(join(tmpdir(), 'scanner-dup-'))
-    try {
-      mkdirSync(join(tmp, '.claude', 'commands'), { recursive: true })
-      // 組み込みの clear と同名のプロジェクトコマンドを置く
-      writeFileSync(
-        join(tmp, '.claude', 'commands', 'clear.md'),
-        '---\ndescription: project version\n---\n',
-        'utf-8',
-      )
-      const { commands } = getSlashCommands({ kind: 'claude', projectPath: tmp })
-      const matched = commands.filter((c) => c.name === 'clear')
-      expect(matched.length).toBe(1)
-      expect(matched[0].scope).toBe('project')
-    } finally {
-      rmSync(tmp, { recursive: true, force: true })
-    }
+  it('同名は project > builtin の順に1件へ正規化する', () => {
+    // 組み込みの clear と同名のプロジェクトコマンドを置く
+    const projectPath = makeProject(['clear'])
+    const { commands } = getSlashCommands({ kind: 'claude', projectPath }, { claudeDir })
+    const matched = commands.filter((c) => c.name === 'clear')
+    expect(matched.length).toBe(1)
+    expect(matched[0].scope).toBe('project')
+  })
+
+  it('同名は project > user の順に1件へ正規化する', () => {
+    mkdirSync(join(claudeDir, 'commands'), { recursive: true })
+    writeFileSync(join(claudeDir, 'commands', 'dup.md'), '---\ndescription: user\n---\n', 'utf-8')
+    const projectPath = makeProject(['dup'])
+
+    const { commands } = getSlashCommands({ kind: 'claude', projectPath }, { claudeDir })
+    const matched = commands.filter((c) => c.name === 'dup')
+    expect(matched.length).toBe(1)
+    expect(matched[0].scope).toBe('project')
   })
 
   it('名前順にソートして返す', () => {
-    const { commands } = getSlashCommands({ kind: 'claude' })
+    const { commands } = getSlashCommands({ kind: 'claude' }, { claudeDir })
     const names = commands.map((c) => c.name)
-    expect(names).toEqual([...names].sort())
+    // 実装と同じ比較関数で期待値を作る
+    expect(names).toEqual([...names].sort((a, b) => a.localeCompare(b)))
   })
 })
 ```
@@ -1077,7 +1139,7 @@ const SCOPE_PRIORITY: Record<SlashCommandInfo['scope'], number> = {
   builtin: 3,
 }
 
-/** getSlashCommands のキャッシュ（30秒TTL）。projectPath ごとに分ける */
+/** getSlashCommands のキャッシュ（30秒TTL）。claudeDir と projectPath の組ごとに分ける */
 const commandsCache = new Map<
   string,
   { value: { commands: SlashCommandInfo[]; truncated: boolean }; expiry: number }
@@ -1106,7 +1168,11 @@ function validProjectPath(projectPath: unknown): string | null {
  *
  * Codex など別ツールに対応する場合は、この switch に case を足す。
  */
-export function getSlashCommands(source: SessionSource | undefined): {
+export function getSlashCommands(
+  source: SessionSource | undefined,
+  // claudeDir はテストから一時ディレクトリを渡すための引数。本番では省略する
+  options: { claudeDir?: string } = {},
+): {
   commands: SlashCommandInfo[]
   truncated: boolean
 } {
@@ -1117,15 +1183,14 @@ export function getSlashCommands(source: SessionSource | undefined): {
       return { commands: [], truncated: false }
   }
 
+  const claudeDir = options.claudeDir ?? join(homedir(), '.claude')
   const projectPath = validProjectPath(source.projectPath)
-  const cacheKey = projectPath ?? '<none>'
+  const cacheKey = `${claudeDir}|${projectPath ?? '<none>'}`
   const now = Date.now()
   const cached = commandsCache.get(cacheKey)
   if (cached && now < cached.expiry) return cached.value
 
   const ctx = createScanContext()
-  const home = homedir()
-  const claudeDir = join(home, '.claude')
 
   const collected: SlashCommandInfo[] = [
     ...scanCommandsDir(join(claudeDir, 'commands'), 'user', ctx),
@@ -1216,7 +1281,27 @@ git commit -m "feat: getSlashCommands で走査を統合しキャッシュと重
     }
 ```
 
-- [ ] **Step 2: Write the failing test**
+- [ ] **Step 2: scanner のモックを用意する**
+
+`vi.spyOn` は ESM の名前空間 export に対して不安定で、`pty-server.ts` は自前の束縛を持つため差し替わらない。既存の `uuid` / `ws` / `node-pty` と同じ hoisted state + `vi.mock` の方式を使う。
+
+`packages/desktop/src/main/__tests__/pty-server.test.ts` の既存 `vi.mock('node-pty', ...)` の直後に追加する:
+
+```typescript
+// 走査失敗のテストでだけ実装を差し替えるための状態。null なら本物を呼ぶ
+const scannerState = vi.hoisted(() => ({ impl: null as null | ((...args: any[]) => any) }))
+
+vi.mock('../slash-command-scanner', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../slash-command-scanner')>()
+  return {
+    ...actual,
+    getSlashCommands: (...args: any[]) =>
+      scannerState.impl ? scannerState.impl(...args) : (actual.getSlashCommands as any)(...args),
+  }
+})
+```
+
+- [ ] **Step 3: Write the failing test**
 
 `packages/desktop/src/main/__tests__/pty-server.test.ts` の `describe('session_list_request', ...)` の直後に追加する:
 
@@ -1268,11 +1353,10 @@ git commit -m "feat: getSlashCommands で走査を統合しキャッシュと重
       expect(response.sessionId).toBeTruthy()
     })
 
-    it('走査が失敗しても接続を切らず error を返す', async () => {
-      const scanner = await import('../slash-command-scanner')
-      const spy = vi.spyOn(scanner, 'getSlashCommands').mockImplementation(() => {
+    it('走査が失敗しても接続を切らず error を返す', () => {
+      scannerState.impl = () => {
         throw new Error('scan failed')
-      })
+      }
       try {
         const { ws } = connectAuthAndCreate(startPtyServer)
         sendMessage(ws, { type: 'command_list_request' })
@@ -1283,18 +1367,18 @@ git commit -m "feat: getSlashCommands で走査を統合しキャッシュと重
         expect(response.commands).toEqual([])
         expect(ws.close).not.toHaveBeenCalled()
       } finally {
-        spy.mockRestore()
+        scannerState.impl = null
       }
     })
   })
 ```
 
-- [ ] **Step 3: Run test to verify it fails**
+- [ ] **Step 4: Run test to verify it fails**
 
 Run: `pnpm --filter @remocoder/desktop test -- pty-server`
 Expected: FAIL（`command_list` の応答が見つからない）
 
-- [ ] **Step 4: Write minimal implementation**
+- [ ] **Step 5: Write minimal implementation**
 
 `packages/desktop/src/main/pty-server.ts` の import に追加する:
 
@@ -1358,17 +1442,17 @@ import { getSlashCommands } from './slash-command-scanner'
       }
 ```
 
-- [ ] **Step 5: Run test to verify it passes**
+- [ ] **Step 6: Run test to verify it passes**
 
 Run: `pnpm --filter @remocoder/desktop test -- pty-server`
 Expected: PASS（新規 5 件を含む）
 
-- [ ] **Step 6: Run the whole desktop suite**
+- [ ] **Step 7: Run the whole desktop suite**
 
 Run: `pnpm --filter @remocoder/desktop test`
 Expected: PASS（既存テストの退行なし）
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
 git add packages/shared/src/types.ts packages/desktop/src/main/pty-server.ts packages/desktop/src/main/__tests__/pty-server.test.ts
@@ -1917,58 +2001,65 @@ git commit -m "feat: スラッシュコマンド選択シートを追加"
 
 ```typescript
   describe('スラッシュコマンドシート', () => {
-    it('claude セッションでは / ボタンを表示する', async () => {
+    /** injectJavaScript に渡された全スクリプトを1つの文字列にまとめる */
+    function injectedText(): string {
+      return injectJavaScriptMock.mock.calls.map((c) => String(c[0])).join('\n')
+    }
+
+    it('claude セッションではコマンドボタンを表示する', () => {
       render(<TerminalScreen />)
-      emitWebViewMessage({ type: 'session_attached', sessionId: 's1', source: { kind: 'claude' } })
-      expect(await screen.findByText('/')).toBeTruthy()
+      sendFromWebView({ type: 'session_attached', sessionId: 's1', source: { kind: 'claude' } })
+      expect(screen.getByTestId('slash-command-button')).toBeTruthy()
     })
 
-    it('shell セッションでは / ボタンを表示しない', async () => {
+    it('shell セッションではコマンドボタンを表示しない', () => {
       render(<TerminalScreen />)
-      emitWebViewMessage({ type: 'session_attached', sessionId: 's1', source: { kind: 'shell' } })
-      await waitFor(() => expect(screen.queryByText('/')).toBeNull())
+      sendFromWebView({ type: 'session_attached', sessionId: 's1', source: { kind: 'shell' } })
+      expect(screen.queryByTestId('slash-command-button')).toBeNull()
     })
 
-    it('session_attached を受けると requestCommandList を注入する', async () => {
+    it('session_attached を受けると requestCommandList を注入する', () => {
       render(<TerminalScreen />)
-      emitWebViewMessage({ type: 'session_attached', sessionId: 's1', source: { kind: 'claude' } })
-      await waitFor(() =>
-        expect(injectedScripts.some((s) => s.includes('requestCommandList'))).toBe(true),
-      )
+      sendFromWebView({ type: 'session_attached', sessionId: 's1', source: { kind: 'claude' } })
+      expect(injectedText()).toContain('requestCommandList')
     })
 
     it('command_list を受け取るとシートに反映する', async () => {
       render(<TerminalScreen />)
-      emitWebViewMessage({ type: 'session_attached', sessionId: 's1', source: { kind: 'claude' } })
-      emitWebViewMessage({
+      sendFromWebView({ type: 'session_attached', sessionId: 's1', source: { kind: 'claude' } })
+      sendFromWebView({
         type: 'command_list',
         sessionId: 's1',
         commands: [{ name: 'commit', description: 'Create a git commit', scope: 'user' }],
       })
-      fireEvent.press(await screen.findByText('/'))
+      fireEvent.press(screen.getByTestId('slash-command-button'))
       expect(await screen.findByText('/commit')).toBeTruthy()
     })
 
     it('コマンドを選ぶと sendInput を注入してシートを閉じる', async () => {
       render(<TerminalScreen />)
-      emitWebViewMessage({ type: 'session_attached', sessionId: 's1', source: { kind: 'claude' } })
-      emitWebViewMessage({
+      sendFromWebView({ type: 'session_attached', sessionId: 's1', source: { kind: 'claude' } })
+      sendFromWebView({
         type: 'command_list',
         sessionId: 's1',
         commands: [{ name: 'commit', scope: 'user' }],
       })
-      fireEvent.press(await screen.findByText('/'))
+      fireEvent.press(screen.getByTestId('slash-command-button'))
       fireEvent.press(await screen.findByText('/commit'))
 
-      await waitFor(() =>
-        expect(injectedScripts.some((s) => s.includes('sendInput("/commit")'))).toBe(true),
-      )
+      expect(injectedText()).toContain('sendInput("/commit")')
       await waitFor(() => expect(screen.queryByText('Commands')).toBeNull())
     })
   })
 ```
 
-既存ファイルに `emitWebViewMessage` / `injectedScripts` のヘルパーがない場合は、既存の WebView モックの `onMessage` 呼び出しと `injectJavaScript` の記録を追加してから使うこと。
+このテストは既存ファイルの `sendFromWebView` ヘルパー（`:9-15`）と `injectJavaScriptMock`（`:4` で import 済み）をそのまま使う。`waitFor` は既存 import に含まれていないので、先頭の import に足すこと:
+
+```typescript
+import { render, screen, fireEvent, act, waitFor } from '@testing-library/react-native'
+```
+
+**ボタンのラベルについて:** `KeyboardToolbar` の `BASE_KEYS` には既に `{ label: '/', data: '/' }` というリテラルキーがある。コマンドボタンのラベルを `/` にすると画面上に `/` が2つ並び、`getByText('/')` も一意に解決できない。ラベルは `/…` とし、テストは `testID` で引く。
 
 - [ ] **Step 2: Run test to verify it fails**
 
@@ -1995,14 +2086,16 @@ export function KeyboardToolbar({ webViewRef, source, onOpenCommands }: Props) {
 CTRL トグルの `</TouchableOpacity>` の直後に追加する:
 
 ```typescript
-      {/* スラッシュコマンドボタン（claude セッションのみ） */}
+      {/* スラッシュコマンドボタン（claude セッションのみ）。
+          BASE_KEYS のリテラル '/' キーと見分けるためラベルは '/…' にする */}
       {source?.kind === 'claude' && onOpenCommands && (
         <TouchableOpacity
+          testID="slash-command-button"
           style={styles.ctrlToggle}
           onPress={onOpenCommands}
           activeOpacity={0.7}
         >
-          <Text style={styles.keyText}>/</Text>
+          <Text style={styles.keyText}>/…</Text>
         </TouchableOpacity>
       )}
 ```
@@ -2180,11 +2273,14 @@ git commit -m "fix: 実機確認の結果を反映"
 | 使用回数の保存 | Task 7 |
 | 実機で検証する項目 | Task 9 |
 
-`skillOverrides` による除外は、この環境の設定に存在せず形式を確認できなかったため実装しない。仕様書に記載があるので、Task 9 の実機確認時に `skillOverrides` を設定している環境があれば追加対応する。
+仕様書のうち、この計画で実装しない項目が2つある。
+
+- **`skillOverrides` による除外**: この環境の設定に存在せず形式を確認できなかったため実装しない。Task 9 の実機確認時に `skillOverrides` を設定している環境があれば追加対応する
+- **モバイル側での `command_list.sessionId` 検証**: セッション切替は `SessionPickerScreen` からの画面遷移で `TerminalScreen` が再マウントされるため、前のセッション宛の応答が現在の画面に届く経路が実際には無い。`sessionId` は応答に含めるが、モバイルでの照合は行わない
 
 **2. Placeholder scan**
 
-「適切なエラー処理」「必要に応じて」のような指示は使っていない。各ステップに実際のコードがある。Task 8 Step 1 の「既存ヘルパーがない場合は追加する」は、既存テストファイルの内容に依存するため実装者の確認が必要な唯一の箇所。
+「適切なエラー処理」「必要に応じて」のような指示は使っていない。各ステップに実際のコードがある。Task 8 のテストは既存ファイルの `sendFromWebView`（`TerminalScreen.test.tsx:9-15`）と `injectJavaScriptMock` をそのまま使う形に具体化済み。
 
 **3. Type consistency**
 

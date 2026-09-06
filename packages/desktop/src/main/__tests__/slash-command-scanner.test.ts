@@ -946,12 +946,35 @@ describe('getSlashCommands', () => {
     expect(second.commands).toBe(first.commands)
   })
 
-  it('キャッシュの件数が上限を超えない', () => {
+  it('キャッシュの件数が上限に達し、最も古いエントリを追い出しつつ直近のエントリは保持する', () => {
+    // 「上限を超えない」だけの検証だと、キャッシュを丸ごと無効化しても
+    // （サイズが常に 0 のため）通ってしまう。ここでは
+    // (1) ちょうど上限まで増えること（機能しているが上限は守っている）、
+    // (2) 直近のキーはまだキャッシュされていること（同一配列参照が返る）、
+    // (3) 最も古いキーは追い出されていること（再計算されて別参照になる）
+    // まで確認する。
+    const projectPaths: string[] = []
+    const firstResults: Array<{ commands: unknown[] }> = []
     for (let i = 0; i < MAX_CACHE_ENTRIES + 10; i++) {
       const projectPath = makeProject([`p${i}`])
-      getSlashCommands({ kind: 'claude', projectPath }, { claudeDir })
+      projectPaths.push(projectPath)
+      firstResults.push(getSlashCommands({ kind: 'claude', projectPath }, { claudeDir }))
     }
-    expect(getSlashCommandCacheSize()).toBeLessThanOrEqual(MAX_CACHE_ENTRIES)
+
+    expect(getSlashCommandCacheSize()).toBe(MAX_CACHE_ENTRIES)
+
+    const lastIndex = projectPaths.length - 1
+    const lastAgain = getSlashCommands(
+      { kind: 'claude', projectPath: projectPaths[lastIndex] },
+      { claudeDir },
+    )
+    expect(lastAgain.commands).toBe(firstResults[lastIndex].commands)
+
+    const oldestAgain = getSlashCommands(
+      { kind: 'claude', projectPath: projectPaths[0] },
+      { claudeDir },
+    )
+    expect(oldestAgain.commands).not.toBe(firstResults[0].commands)
   })
 
   it('ユーザーコマンドが走査上限を使い切ってもプロジェクトコマンドは残る（budget 優先度）', () => {

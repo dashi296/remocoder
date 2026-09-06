@@ -896,29 +896,38 @@ export function startPtyServer(port = DEFAULT_WS_PORT, callbacks: PtyServerCallb
           return
         }
 
-        try {
-          // source が保持するのはセッション作成時のプロジェクトパスであり、
-          // Claude Code 内で /cd した後の現在の cwd ではない
-          const { commands, truncated } = getSlashCommands(session.source)
-          ws.send(
-            JSON.stringify({
-              type: 'command_list',
-              sessionId: session.id,
-              commands,
-              truncated,
-            } satisfies WsMessage),
-          )
-        } catch (err) {
-          console.error('[pty-server] スラッシュコマンドの走査に失敗しました:', err)
-          ws.send(
-            JSON.stringify({
-              type: 'command_list',
-              sessionId: session.id,
-              commands: [],
-              error: 'scan_failed',
-            } satisfies WsMessage),
-          )
-        }
+        // source が保持するのはセッション作成時のプロジェクトパスであり、
+        // Claude Code 内で /cd した後の現在の cwd ではない。
+        // getSlashCommands は非同期の fs I/O（fs/promises）で走査するため、
+        // ここでの待ち時間中に接続が切れることがある。応答を送る前に
+        // readyState を確認し、切れていれば何もしない。
+        // Promise.resolve().then(...) で包むのは、モック等が同期的に throw する
+        // 場合でも rejected Promise として扱い、catch で確実に拾うため。
+        Promise.resolve()
+          .then(() => getSlashCommands(session.source))
+          .then(({ commands, truncated }) => {
+            if (ws.readyState !== WebSocket.OPEN) return
+            ws.send(
+              JSON.stringify({
+                type: 'command_list',
+                sessionId: session.id,
+                commands,
+                truncated,
+              } satisfies WsMessage),
+            )
+          })
+          .catch((err) => {
+            console.error('[pty-server] スラッシュコマンドの走査に失敗しました:', err)
+            if (ws.readyState !== WebSocket.OPEN) return
+            ws.send(
+              JSON.stringify({
+                type: 'command_list',
+                sessionId: session.id,
+                commands: [],
+                error: 'scan_failed',
+              } satisfies WsMessage),
+            )
+          })
         return
       }
 

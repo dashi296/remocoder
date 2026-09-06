@@ -4,21 +4,22 @@
  * 依存を増やさないため glob ライブラリは使わず Node の fs API のみで実装する。
  */
 
-import {
-  readdirSync,
-  openSync,
-  readSync,
-  closeSync,
-  fstatSync,
-  realpathSync,
-  existsSync,
-  statSync,
-  constants as fsConstants,
-  type Dirent,
-} from 'fs'
+import { constants as fsConstants } from 'fs'
+import { open, readdir, realpath, stat, type FileHandle } from 'fs/promises'
 import { join, basename, normalize, isAbsolute, relative, resolve } from 'path'
 import { homedir } from 'os'
 import { SlashCommandInfo, SessionSource } from '@remocoder/shared'
+
+// readdir(dir, { withFileTypes: true }) の要素型。
+// `typeof readdir` に対する ReturnType はオーバーロードの解決先が曖昧になり
+// （Buffer 版の戻り値型が選ばれてしまう）、'fs' から import した Dirent 型とも
+// 構造的に一致しないことがある（@types/node のバージョン差）。
+// そのため、実際に withFileTypes: true を渡す呼び出し1つを経由してオーバーロードを
+// 確定させ、そこから要素型を導出する
+function readDirWithTypes(path: string) {
+  return readdir(path, { withFileTypes: true })
+}
+type DirEntry = Awaited<ReturnType<typeof readDirWithTypes>>[number]
 
 /**
  * 先頭の YAML frontmatter から `key: value` を抽出する。
@@ -94,58 +95,73 @@ export function createScanContext(): ScanContext {
   }
 }
 
-// FIFO などの特殊ファイルを開くと、openSync が書き手が現れるまでブロックしうる。
-// pty-server.ts はこの走査を同期的に呼ぶため、ブロックすると PTY・WebSocket・
-// Electron のメインプロセス全体が止まる。
+// FIFO などの特殊ファイルを開くと、open() が書き手が現れるまで待ち続けうる。
+// また、ネットワークファイルシステムや FUSE マウント、応答しないデバイス上では、
+// open/fstat/read/readdir/realpath のいずれも長時間ブロックしうる。
+// O_NONBLOCK は FIFO の open 待ちを防ぐが、個々の I/O 呼び出しそのものを
+// 中断可能にはしない。それでも fs/promises を使って各 I/O を非同期化するのは、
+// 1回の遅い呼び出しが Electron のメインプロセス（PTY 中継・WebSocket・UI）を
+// 丸ごと停止させないようにするため、かつ await の間で deadline チェックが
+// 実際に働くようにするためである。
 //
-// statSync() で種別を確認してから openSync() で開く、という2段階の実装は
-// TOCTOU（Time-Of-Check to Time-Of-Use）で崩れる。statSync が通った直後に
+// stat() で種別を確認してから open() で開く、という2段階の実装は
+// TOCTOU（Time-Of-Check to Time-Of-Use）で崩れる。stat が通った直後に
 // 同じパスへ FIFO や巨大ファイルを差し替えられると、check は通過済みなので
-// openSync はチェックなしのパスをそのまま開いてしまう。
+// open はチェックなしのパスをそのまま開いてしまう。
 //
-// 対策として、種別の確認は「これから読むファイルディスクリプタ」自身に対して
-// fstatSync で行う。open した後に差し替えても、既に開いた fd が指す実体は
-// 変わらないため、この確認はすり替えの影響を受けない。
+// 対策として、種別の確認は「これから読むファイルハンドル」自身に対して
+// handle.stat() で行う。open した後に差し替えても、既に開いたハンドルが指す
+// 実体は変わらないため、この確認はすり替えの影響を受けない。
 // また open 自体に O_NONBLOCK を付け、FIFO を開いても待たされないようにする
 // （通常ファイルに対しては no-op）。O_NONBLOCK は Windows の fs.constants には
 // 存在しないため、その場合は 0 にフォールバックする。
 const O_NONBLOCK = fsConstants.O_NONBLOCK ?? 0
 
-/** チェック（fstat）と読み取りに使う fd を安全に開く。通常ファイルでなければ null */
-function openRegularFile(filePath: string): { fd: number; size: number } | null {
-  let fd: number
+/** チェック（stat）と読み取りに使う FileHandle を安全に開く。通常ファイルでなければ null */
+async function openRegularFile(filePath: string): Promise<{ handle: FileHandle; size: number } | null> {
+  let handle: FileHandle
   try {
-    fd = openSync(filePath, fsConstants.O_RDONLY | O_NONBLOCK)
+    handle = await open(filePath, fsConstants.O_RDONLY | O_NONBLOCK)
   } catch {
     // ENOENT・ENXIO・EACCES など。存在しない/開けない場合はスキップ扱いにする
     return null
   }
   try {
-    const st = fstatSync(fd)
+    const st = await handle.stat()
     if (!st.isFile()) {
-      closeSync(fd)
+      await handle.close()
       return null
     }
-    return { fd, size: st.size }
+    return { handle, size: st.size }
   } catch {
-    closeSync(fd)
+    await handle.close()
     return null
   }
 }
 
 /** ファイル先頭の maxBytes だけ読む。巨大な Markdown 全体を読まないため */
-function readHead(filePath: string, maxBytes = MAX_HEAD_BYTES): string {
-  const opened = openRegularFile(filePath)
+async function readHead(filePath: string, maxBytes = MAX_HEAD_BYTES): Promise<string> {
+  const opened = await openRegularFile(filePath)
   if (!opened) {
     throw new Error(`not a regular file: ${filePath}`)
   }
-  const { fd } = opened
+  const { handle } = opened
   try {
     const buf = Buffer.alloc(maxBytes)
-    const read = readSync(fd, buf, 0, maxBytes, 0)
-    return buf.subarray(0, read).toString('utf-8')
+    const { bytesRead } = await handle.read(buf, 0, maxBytes, 0)
+    return buf.subarray(0, bytesRead).toString('utf-8')
   } finally {
-    closeSync(fd)
+    await handle.close()
+  }
+}
+
+/** ファイルの存在確認だけを行う。読み取りはしない（existsSync の非同期版） */
+async function pathExists(filePath: string): Promise<boolean> {
+  try {
+    await stat(filePath)
+    return true
+  } catch {
+    return false
   }
 }
 
@@ -167,10 +183,10 @@ function isExhausted(ctx: ScanContext): boolean {
  * ディレクトリに入ってよいかを判定する。
  * realpath で訪問済みを記録し、シンボリックリンクによる循環を防ぐ。
  */
-function enterDirectory(dir: string, ctx: ScanContext): boolean {
+async function enterDirectory(dir: string, ctx: ScanContext): Promise<boolean> {
   let real: string
   try {
-    real = realpathSync(dir)
+    real = await realpath(dir)
   } catch {
     return false
   }
@@ -183,37 +199,37 @@ function enterDirectory(dir: string, ctx: ScanContext): boolean {
  * コマンド定義ディレクトリを走査する。
  * 呼び出し名はファイル名から決まり、サブディレクトリ名は namespace として表示にだけ使う。
  */
-export function scanCommandsDir(
+export async function scanCommandsDir(
   root: string,
   scope: 'user' | 'project' | 'plugin',
   ctx: ScanContext,
-): SlashCommandInfo[] {
+): Promise<SlashCommandInfo[]> {
   const results: SlashCommandInfo[] = []
 
-  function walk(dir: string, depth: number, relDir: string) {
+  async function walk(dir: string, depth: number, relDir: string): Promise<void> {
     if (depth >= MAX_DEPTH) return
     if (isExhausted(ctx)) return
-    if (!enterDirectory(dir, ctx)) return
+    if (!(await enterDirectory(dir, ctx))) return
 
-    let entries: Dirent[]
+    let entries: DirEntry[]
     try {
-      entries = readdirSync(dir, { withFileTypes: true })
+      entries = await readDirWithTypes(dir)
     } catch {
       return
     }
-    // readdirSync 自体に時間がかかった場合に備え、エントリを処理し始める前にも確認する
+    // readdir 自体に時間がかかった場合に備え、エントリを処理し始める前にも確認する
     if (isExhausted(ctx)) return
 
     for (const entry of entries) {
       if (isExhausted(ctx)) return
       const full = join(dir, entry.name)
 
-      // withFileTypes はリンクを解決しないので、リンクの場合は statSync で種別を判定する
+      // withFileTypes はリンクを解決しないので、リンクの場合は stat で種別を判定する
       let isDir = entry.isDirectory()
       let isFile = entry.isFile()
       if (entry.isSymbolicLink()) {
         try {
-          const st = statSync(full)
+          const st = await stat(full)
           isDir = st.isDirectory()
           isFile = st.isFile()
         } catch {
@@ -222,7 +238,7 @@ export function scanCommandsDir(
       }
 
       if (isDir) {
-        walk(full, depth + 1, relDir ? `${relDir}/${entry.name}` : entry.name)
+        await walk(full, depth + 1, relDir ? `${relDir}/${entry.name}` : entry.name)
         continue
       }
       if (!isFile || !entry.name.endsWith('.md')) continue
@@ -233,7 +249,7 @@ export function scanCommandsDir(
       ctx.fileCount++
       let front: Record<string, string> = {}
       try {
-        front = parseFrontmatter(readHead(full))
+        front = parseFrontmatter(await readHead(full))
       } catch {
         continue
       }
@@ -249,7 +265,7 @@ export function scanCommandsDir(
     }
   }
 
-  walk(root, 0, '')
+  await walk(root, 0, '')
   return results
 }
 
@@ -257,22 +273,22 @@ export function scanCommandsDir(
  * スキルディレクトリ（`<root>/<name>/SKILL.md`）を走査する。
  * 呼び出し名はディレクトリ名。`user-invocable: false` は除外する。
  */
-export function scanSkillsDir(
+export async function scanSkillsDir(
   root: string,
   scope: 'user' | 'project' | 'plugin',
   ctx: ScanContext,
   pluginName?: string,
-): SlashCommandInfo[] {
+): Promise<SlashCommandInfo[]> {
   if (isExhausted(ctx)) return []
-  if (!enterDirectory(root, ctx)) return []
+  if (!(await enterDirectory(root, ctx))) return []
 
-  let entries: Dirent[]
+  let entries: DirEntry[]
   try {
-    entries = readdirSync(root, { withFileTypes: true })
+    entries = await readDirWithTypes(root)
   } catch {
     return []
   }
-  // readdirSync 自体に時間がかかった場合に備え、エントリを処理し始める前にも確認する
+  // readdir 自体に時間がかかった場合に備え、エントリを処理し始める前にも確認する
   if (isExhausted(ctx)) return []
 
   const results: SlashCommandInfo[] = []
@@ -280,7 +296,7 @@ export function scanSkillsDir(
     if (isExhausted(ctx)) break
     const skillDir = join(root, entry.name)
     const skillFile = join(skillDir, 'SKILL.md')
-    if (!existsSync(skillFile)) continue
+    if (!(await pathExists(skillFile))) continue
 
     const name = pluginName ? `${pluginName}:${entry.name}` : entry.name
     if (!isSafeCommandName(name)) continue
@@ -288,7 +304,7 @@ export function scanSkillsDir(
     ctx.fileCount++
     let front: Record<string, string> = {}
     try {
-      front = parseFrontmatter(readHead(skillFile))
+      front = parseFrontmatter(await readHead(skillFile))
     } catch {
       continue
     }
@@ -315,19 +331,19 @@ export function scanSkillsDir(
  * ただし SKILL.md の frontmatter に `name` があれば、skills/ 配下のスキルと
  * 同じ命名パターン（`<pluginName>:<name>`）に揃えるためそちらを使う。
  */
-export function scanPluginRootSkill(
+export async function scanPluginRootSkill(
   installPath: string,
   pluginName: string,
   ctx: ScanContext,
-): SlashCommandInfo[] {
+): Promise<SlashCommandInfo[]> {
   if (isExhausted(ctx)) return []
   const skillFile = join(installPath, 'SKILL.md')
-  if (!existsSync(skillFile)) return []
+  if (!(await pathExists(skillFile))) return []
 
   ctx.fileCount++
   let front: Record<string, string> = {}
   try {
-    front = parseFrontmatter(readHead(skillFile))
+    front = parseFrontmatter(await readHead(skillFile))
   } catch {
     return []
   }
@@ -370,7 +386,7 @@ export const MAX_MANIFEST_DIRS = 16
  * JSON ファイルを読む。存在しない・壊れている・通常ファイルでない・
  * サイズが上限を超える場合は null（読まない）。
  *
- * readHead と同様、種別とサイズの確認は開いた fd に対して fstatSync で行う
+ * readHead と同様、種別とサイズの確認は開いた FileHandle に対して handle.stat() で行う
  * （TOCTOU 対策）。stat してから別途 open/read するとパスを差し替えられうる。
  *
  * ctx を渡した場合は budget（ファイル数・deadline）を消費する。
@@ -380,20 +396,20 @@ export const MAX_MANIFEST_DIRS = 16
  * ファイルを開こうとした時点で1ファイルとして数える。存在しない・壊れているなど
  * 結局読めなかった場合も「読もうとした」試行として数える。
  */
-function readJson(filePath: string, ctx?: ScanContext): unknown {
+async function readJson(filePath: string, ctx?: ScanContext): Promise<unknown> {
   if (ctx) {
     if (isExhausted(ctx)) return null
     ctx.fileCount++
   }
-  const opened = openRegularFile(filePath)
+  const opened = await openRegularFile(filePath)
   if (!opened) return null
-  const { fd, size } = opened
+  const { handle, size } = opened
   try {
     if (size > MAX_JSON_BYTES) return null
     const buf = Buffer.alloc(size)
     let offset = 0
     while (offset < size) {
-      const bytesRead = readSync(fd, buf, offset, size - offset, offset)
+      const { bytesRead } = await handle.read(buf, offset, size - offset, offset)
       if (bytesRead === 0) break
       offset += bytesRead
     }
@@ -401,7 +417,7 @@ function readJson(filePath: string, ctx?: ScanContext): unknown {
   } catch {
     return null
   } finally {
-    closeSync(fd)
+    await handle.close()
   }
 }
 
@@ -410,11 +426,14 @@ function readJson(filePath: string, ctx?: ScanContext): unknown {
  * settingsPaths は優先度の低い順に渡す（後ろが前を上書きする）。
  * ctx の budget が尽きた時点で以降の設定ファイルは読まない。
  */
-function mergeEnabledPlugins(settingsPaths: string[], ctx: ScanContext): Record<string, boolean> {
+async function mergeEnabledPlugins(
+  settingsPaths: string[],
+  ctx: ScanContext,
+): Promise<Record<string, boolean>> {
   const merged: Record<string, boolean> = {}
   for (const path of settingsPaths) {
     if (isExhausted(ctx)) break
-    const json = readJson(path, ctx) as { enabledPlugins?: Record<string, boolean> } | null
+    const json = (await readJson(path, ctx)) as { enabledPlugins?: Record<string, boolean> } | null
     if (!json || typeof json.enabledPlugins !== 'object' || json.enabledPlugins === null) continue
     for (const [key, value] of Object.entries(json.enabledPlugins)) {
       if (typeof value === 'boolean') merged[key] = value
@@ -426,6 +445,8 @@ function mergeEnabledPlugins(settingsPaths: string[], ctx: ScanContext): Record<
 /**
  * manifest のパス指定を絶対パスの配列にする。未指定なら defaultDir を使う。
  * MAX_MANIFEST_DIRS を超える指定は切り捨てる（budget を無制限に予約させないため）。
+ *
+ * ファイルシステムに触れない純粋な文字列操作なので、非同期化の対象ではない。
  */
 function resolveManifestDirs(
   installPath: string,
@@ -457,19 +478,19 @@ function resolveManifestDirs(
  * （getSlashCommands）が「最大 500 ファイル / 3 秒」を守るには、ここでの読み取りも
  * その budget に含める必要がある。
  */
-export function resolveEnabledPlugins(
+export async function resolveEnabledPlugins(
   pluginsDir: string,
   settingsPaths: string[],
   ctx: ScanContext,
-): PluginRoot[] {
+): Promise<PluginRoot[]> {
   if (isExhausted(ctx)) return []
 
-  const installed = readJson(join(pluginsDir, 'installed_plugins.json'), ctx) as
+  const installed = (await readJson(join(pluginsDir, 'installed_plugins.json'), ctx)) as
     | { plugins?: Record<string, Array<{ installPath?: unknown }>> }
     | null
   if (!installed || typeof installed.plugins !== 'object' || installed.plugins === null) return []
 
-  const enabled = mergeEnabledPlugins(settingsPaths, ctx)
+  const enabled = await mergeEnabledPlugins(settingsPaths, ctx)
   const roots: PluginRoot[] = []
   // normalize はファイルシステムに触れずシンボリックリンクも解決しない純粋な文字列操作なので、
   // 「リンク解決前の文字列で判定する」というルールに反しない
@@ -496,7 +517,7 @@ export function resolveEnabledPlugins(
       const rel = relative(normalizedPluginsDir, installPath)
       if (rel === '' || rel.startsWith('..') || isAbsolute(rel)) continue
 
-      const manifest = readJson(join(installPath, '.claude-plugin', 'plugin.json'), ctx) as
+      const manifest = (await readJson(join(installPath, '.claude-plugin', 'plugin.json'), ctx)) as
         | { name?: unknown; commands?: unknown; skills?: unknown }
         | null
       if (!manifest || typeof manifest.name !== 'string' || !manifest.name) continue
@@ -517,7 +538,7 @@ export function resolveEnabledPlugins(
 }
 
 /** 有効なプラグインのコマンドとスキルを走査する */
-export function scanPlugins(roots: PluginRoot[], ctx: ScanContext): SlashCommandInfo[] {
+export async function scanPlugins(roots: PluginRoot[], ctx: ScanContext): Promise<SlashCommandInfo[]> {
   const results: SlashCommandInfo[] = []
   for (const root of roots) {
     // budget が尽きていれば残りのプラグインには入らない
@@ -525,7 +546,7 @@ export function scanPlugins(roots: PluginRoot[], ctx: ScanContext): SlashCommand
     for (const dir of root.commandsDirs) {
       // scope に 'plugin' を渡すことで、サブディレクトリ由来の namespace も
       // 'plugin:<subdir>' として正しく組み立てられる
-      for (const cmd of scanCommandsDir(dir, 'plugin', ctx)) {
+      for (const cmd of await scanCommandsDir(dir, 'plugin', ctx)) {
         const name = `${root.name}:${cmd.name}`
         // root.name・cmd.name はそれぞれ既に検証済みだが、連結すると
         // 100文字上限を超えうるため、連結後の名前も改めて検証する
@@ -539,9 +560,9 @@ export function scanPlugins(roots: PluginRoot[], ctx: ScanContext): SlashCommand
       }
     }
     for (const dir of root.skillsDirs) {
-      results.push(...scanSkillsDir(dir, 'plugin', ctx, root.name))
+      results.push(...(await scanSkillsDir(dir, 'plugin', ctx, root.name)))
     }
-    results.push(...scanPluginRootSkill(root.installPath, root.name, ctx))
+    results.push(...(await scanPluginRootSkill(root.installPath, root.name, ctx)))
   }
   return results
 }
@@ -578,10 +599,21 @@ const SCOPE_PRIORITY: Record<SlashCommandInfo['scope'], number> = {
   builtin: 3,
 }
 
-/** getSlashCommands のキャッシュ（30秒TTL）。claudeDir と projectPath の組ごとに分ける */
+type SlashCommandsResult = { commands: SlashCommandInfo[]; truncated: boolean }
+
+/**
+ * getSlashCommands のキャッシュ（30秒TTL）。claudeDir と projectPath の組ごとに分ける。
+ *
+ * 値は走査結果そのものではなく Promise を持つ。これにより、同じキーへの
+ * リクエストが走査の完了前に重ねて届いても、2回目以降は同じ Promise を
+ * 待つだけになり、重複した走査（ファイルシステムへの二重アクセス）が起きない。
+ * 走査が失敗した場合は poisonEntry() がこのエントリ自体を削除するため、
+ * 次の呼び出しは新しい走査からやり直す（失敗した Promise がキャッシュに残り
+ * 続けることはない）。
+ */
 const commandsCache = new Map<
   string,
-  { value: { commands: SlashCommandInfo[]; truncated: boolean }; expiry: number }
+  { promise: Promise<SlashCommandsResult>; expiry: number }
 >()
 
 const CACHE_TTL_MS = 30000
@@ -618,11 +650,11 @@ function pruneCache(now: number, newKey: string): void {
 }
 
 /** projectPath が走査してよい値か検証する。絶対パスかつ実在するディレクトリのみ許す */
-function validProjectPath(projectPath: unknown): string | null {
+async function validProjectPath(projectPath: unknown): Promise<string | null> {
   // isAbsolute は Windows の 'C:\...' もカバーする（startsWith('/') は POSIX 専用だった）
   if (typeof projectPath !== 'string' || !isAbsolute(projectPath)) return null
   try {
-    if (!statSync(projectPath).isDirectory()) return null
+    if (!(await stat(projectPath)).isDirectory()) return null
   } catch {
     return null
   }
@@ -634,63 +666,45 @@ function validProjectPath(projectPath: unknown): string | null {
   // 異なるシンボリックリンク経由のパスがそれぞれ別のキャッシュキーになり、
   // 認証済みクライアントが symlink のエイリアスを次々作ることで
   // キャッシュ（最大 MAX_CACHE_ENTRIES 件）を無限に追い出させ、走査を
-  // 再実行させ続けられてしまう。realpathSync が失敗した場合（レース等）は
+  // 再実行させ続けられてしまう。realpath が失敗した場合（レース等）は
   // lexical にフォールバックする。上記の絶対パス・ディレクトリ判定は
   // 解決前の文字列に対して行っており、ここでの解決はキャッシュキー・走査対象の
   // 決定にのみ影響する。
   try {
-    return realpathSync(lexical)
+    return await realpath(lexical)
   } catch {
     return lexical
   }
 }
 
 /**
- * セッションの起動元に応じたスラッシュコマンド一覧を返す。
- *
- * Codex など別ツールに対応する場合は、この switch に case を足す。
+ * 実際の走査本体。キャッシュや重複排除には関与しない
+ * （それらは getSlashCommands 側の責務）。
  */
-export function getSlashCommands(
-  source: SessionSource | undefined,
-  // claudeDir はテストから一時ディレクトリを渡すための引数。本番では省略する
-  options: { claudeDir?: string } = {},
-): {
-  commands: SlashCommandInfo[]
-  truncated: boolean
-} {
-  switch (source?.kind) {
-    case 'claude':
-      break
-    default:
-      return { commands: [], truncated: false }
-  }
-
-  const claudeDir = options.claudeDir ?? join(homedir(), '.claude')
-  const projectPath = validProjectPath(source.projectPath)
-  const cacheKey = `${claudeDir}|${projectPath ?? '<none>'}`
-  const now = Date.now()
-  const cached = commandsCache.get(cacheKey)
-  if (cached && now < cached.expiry) return cached.value
-
-  const ctx = createScanContext()
-
+async function performScan(
+  claudeDir: string,
+  projectPath: string | null,
+  ctx: ScanContext,
+): Promise<SlashCommandsResult> {
   // 走査の順序は「500ファイル/3秒」の budget を優先度の高いスコープから
   // 消費させるためのものであり、同名の重複解決とは無関係（重複解決は下の
   // SCOPE_PRIORITY テーブルで名前ごとに行うため順序に依存しない）。
   // project を先頭に置かないと、user・plugin の走査だけで budget を使い切った
   // 場合に最優先スコープの project が丸ごと落ちてしまう。
   // 「読みやすさ」のために project スコープをここから動かさないこと。
+  // 配列リテラル内の各要素は左から右へ順に評価されるため、await を挟んでも
+  // このスコープ順（project → user → plugin → builtin）は保たれる。
   const collected: SlashCommandInfo[] = [
     ...(projectPath
       ? [
-          ...scanCommandsDir(join(projectPath, '.claude', 'commands'), 'project', ctx),
-          ...scanSkillsDir(join(projectPath, '.claude', 'skills'), 'project', ctx),
+          ...(await scanCommandsDir(join(projectPath, '.claude', 'commands'), 'project', ctx)),
+          ...(await scanSkillsDir(join(projectPath, '.claude', 'skills'), 'project', ctx)),
         ]
       : []),
-    ...scanCommandsDir(join(claudeDir, 'commands'), 'user', ctx),
-    ...scanSkillsDir(join(claudeDir, 'skills'), 'user', ctx),
-    ...scanPlugins(
-      resolveEnabledPlugins(
+    ...(await scanCommandsDir(join(claudeDir, 'commands'), 'user', ctx)),
+    ...(await scanSkillsDir(join(claudeDir, 'skills'), 'user', ctx)),
+    ...(await scanPlugins(
+      await resolveEnabledPlugins(
         join(claudeDir, 'plugins'),
         [
           join(claudeDir, 'settings.json'),
@@ -704,7 +718,7 @@ export function getSlashCommands(
         ctx,
       ),
       ctx,
-    ),
+    )),
     ...BUILTIN_COMMANDS,
   ]
 
@@ -717,11 +731,51 @@ export function getSlashCommands(
     }
   }
 
-  const value = {
+  return {
     commands: [...byName.values()].sort((a, b) => a.name.localeCompare(b.name)),
     truncated: ctx.truncated,
   }
+}
+
+/**
+ * セッションの起動元に応じたスラッシュコマンド一覧を返す。
+ *
+ * Codex など別ツールに対応する場合は、この switch に case を足す。
+ */
+export async function getSlashCommands(
+  source: SessionSource | undefined,
+  // claudeDir はテストから一時ディレクトリを渡すための引数。本番では省略する
+  options: { claudeDir?: string } = {},
+): Promise<SlashCommandsResult> {
+  switch (source?.kind) {
+    case 'claude':
+      break
+    default:
+      return { commands: [], truncated: false }
+  }
+
+  const claudeDir = options.claudeDir ?? join(homedir(), '.claude')
+  const projectPath = await validProjectPath(source.projectPath)
+  const cacheKey = `${claudeDir}|${projectPath ?? '<none>'}`
+  const now = Date.now()
+  const cached = commandsCache.get(cacheKey)
+  if (cached && now < cached.expiry) return cached.promise
+
+  const ctx = createScanContext()
+
+  // 走査中の Promise を即座にキャッシュへ入れる。cached の判定から
+  // ここまでの間に await を挟んでいないため、同じキーに対する後続の
+  // 呼び出しはこの Promise を見つけて相乗りできる（走査の二重実行を防ぐ）。
+  const scanPromise: Promise<SlashCommandsResult> = performScan(claudeDir, projectPath, ctx).catch((err) => {
+    // 走査が失敗した場合、失敗した Promise をキャッシュに残さない。
+    // 残すと、次の呼び出しも同じ rejected Promise を待つだけになり、
+    // TTL が切れるまで再走査の機会が失われてしまう。
+    const entry = commandsCache.get(cacheKey)
+    if (entry && entry.promise === scanPromise) commandsCache.delete(cacheKey)
+    throw err
+  })
+
   pruneCache(now, cacheKey)
-  commandsCache.set(cacheKey, { value, expiry: now + CACHE_TTL_MS })
-  return value
+  commandsCache.set(cacheKey, { promise: scanPromise, expiry: now + CACHE_TTL_MS })
+  return scanPromise
 }

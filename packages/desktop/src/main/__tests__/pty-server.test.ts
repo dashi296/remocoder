@@ -70,6 +70,14 @@ function sendMessage(ws: any, msg: object) {
   ws.emit('message', Buffer.from(JSON.stringify(msg)))
 }
 
+// Helper: getSlashCommands は非同期になったため、command_list_request の
+// ハンドラ内の Promise チェーン（Promise.resolve().then().then()/.catch()）が
+// 解決しきるまでマイクロタスクを空にする。setImmediate はマイクロタスクキューが
+// 空になった後のマクロタスクとして実行されるため、確実にチェーン全体を流し切れる。
+function flushAsync(): Promise<void> {
+  return new Promise((resolve) => setImmediate(resolve))
+}
+
 // Helper: connect + auth + get session list
 function connectAndAuth(startPtyServer: any) {
   startPtyServer()
@@ -335,16 +343,17 @@ describe('startPtyServer', () => {
   })
 
   describe('command_list_request', () => {
-    it('claude セッションにアタッチ済みなら command_list が返る', () => {
+    it('claude セッションにアタッチ済みなら command_list が返る', async () => {
       // getSlashCommands は本来 homedir()/.claude を走査するため、テスト環境の
       // 実ファイルに依存させないよう固定のフィクスチャに差し替える
-      scannerState.impl = () => ({
+      scannerState.impl = async () => ({
         commands: [{ name: 'fixture-cmd', scope: 'user' }],
         truncated: false,
       })
       try {
         const { ws } = connectAuthAndCreate(startPtyServer)
         sendMessage(ws, { type: 'command_list_request' })
+        await flushAsync()
 
         const calls = ws.send.mock.calls.map((c: any) => JSON.parse(c[0]))
         const response = calls.find((m: any) => m.type === 'command_list')
@@ -356,16 +365,17 @@ describe('startPtyServer', () => {
       }
     })
 
-    it('走査結果のコマンド名が command_list に含まれる', () => {
+    it('走査結果のコマンド名が command_list に含まれる', async () => {
       // 実マシンの ~/.claude を走査させず、ハンドラがスキャナの戻り値を
       // そのまま中継していることをフィクスチャで検証する
-      scannerState.impl = () => ({
+      scannerState.impl = async () => ({
         commands: [{ name: 'clear', scope: 'builtin' }],
         truncated: false,
       })
       try {
         const { ws } = connectAuthAndCreate(startPtyServer)
         sendMessage(ws, { type: 'command_list_request' })
+        await flushAsync()
 
         const calls = ws.send.mock.calls.map((c: any) => JSON.parse(c[0]))
         const response = calls.find((m: any) => m.type === 'command_list')
@@ -375,9 +385,10 @@ describe('startPtyServer', () => {
       }
     })
 
-    it('未アタッチのクライアントには error: not_attached を返す', () => {
+    it('未アタッチのクライアントには error: not_attached を返す', async () => {
       const { ws } = connectAndAuth(startPtyServer)
       sendMessage(ws, { type: 'command_list_request' })
+      await flushAsync()
 
       const calls = ws.send.mock.calls.map((c: any) => JSON.parse(c[0]))
       const response = calls.find((m: any) => m.type === 'command_list')
@@ -387,13 +398,14 @@ describe('startPtyServer', () => {
       expect(response.commands).toEqual([])
     })
 
-    it('shell セッションでは空の一覧を返す', () => {
+    it('shell セッションでは空の一覧を返す', async () => {
       startPtyServer()
       const ws = createMockWs()
       wssState.instance!.emit('connection', ws)
       sendMessage(ws, { type: 'auth', token: 'test-token' })
       sendMessage(ws, { type: 'session_create', source: { kind: 'shell' } })
       sendMessage(ws, { type: 'command_list_request' })
+      await flushAsync()
 
       const calls = ws.send.mock.calls.map((c: any) => JSON.parse(c[0]))
       const response = calls.find((m: any) => m.type === 'command_list')
@@ -401,19 +413,51 @@ describe('startPtyServer', () => {
       expect(response.sessionId).toBeTruthy()
     })
 
-    it('走査が失敗しても接続を切らず error を返す', () => {
-      scannerState.impl = () => {
+    it('走査が失敗しても接続を切らず error を返す', async () => {
+      // 実装が同期 throw / 非同期 reject のどちらであっても catch されることを
+      // あわせて確認するため、非同期関数（Promise を返し reject する）にしておく
+      scannerState.impl = async () => {
         throw new Error('scan failed')
       }
       try {
         const { ws } = connectAuthAndCreate(startPtyServer)
         sendMessage(ws, { type: 'command_list_request' })
+        await flushAsync()
 
         const calls = ws.send.mock.calls.map((c: any) => JSON.parse(c[0]))
         const response = calls.find((m: any) => m.type === 'command_list')
         expect(response.error).toBe('scan_failed')
         expect(response.commands).toEqual([])
         expect(ws.close).not.toHaveBeenCalled()
+      } finally {
+        scannerState.impl = null
+      }
+    })
+
+    it('走査中に接続が閉じた場合、応答を送らない', async () => {
+      // 走査が完了する前に readyState が変わる（切断される）ケースを、
+      // getSlashCommands の解決を1マイクロタスク遅らせることで再現する
+      let resolveScan!: (value: { commands: unknown[]; truncated: boolean }) => void
+      scannerState.impl = () =>
+        new Promise((resolve) => {
+          resolveScan = resolve
+        })
+      try {
+        const { ws } = connectAuthAndCreate(startPtyServer)
+        sendMessage(ws, { type: 'command_list_request' })
+
+        // getSlashCommands(mock) の呼び出し自体は Promise.resolve().then(...) の
+        // コールバックとして次のマイクロタスクで実行されるため、resolveScan が
+        // セットされるまで1tick 待つ
+        await Promise.resolve()
+
+        // 走査がまだ完了していない間に接続を閉じる
+        ws.readyState = 3 // WebSocket.CLOSED
+        resolveScan({ commands: [{ name: 'too-late', scope: 'user' }], truncated: false })
+        await flushAsync()
+
+        const calls = ws.send.mock.calls.map((c: any) => JSON.parse(c[0]))
+        expect(calls.some((m: any) => m.type === 'command_list')).toBe(false)
       } finally {
         scannerState.impl = null
       }

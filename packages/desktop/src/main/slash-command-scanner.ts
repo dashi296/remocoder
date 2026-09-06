@@ -15,7 +15,7 @@ import {
   readFileSync,
   type Dirent,
 } from 'fs'
-import { join, basename } from 'path'
+import { join, basename, normalize } from 'path'
 import { SlashCommandInfo } from '@remocoder/shared'
 
 /**
@@ -123,7 +123,7 @@ function enterDirectory(dir: string, ctx: ScanContext): boolean {
  */
 export function scanCommandsDir(
   root: string,
-  scope: 'user' | 'project',
+  scope: 'user' | 'project' | 'plugin',
   ctx: ScanContext,
 ): SlashCommandInfo[] {
   const results: SlashCommandInfo[] = []
@@ -299,17 +299,22 @@ export function resolveEnabledPlugins(pluginsDir: string, settingsPaths: string[
 
   const enabled = mergeEnabledPlugins(settingsPaths)
   const roots: PluginRoot[] = []
+  // normalize はファイルシステムに触れずシンボリックリンクも解決しない純粋な文字列操作なので、
+  // 「リンク解決前の文字列で判定する」というルールに反しない
+  const normalizedPluginsDir = normalize(pluginsDir)
 
   for (const [key, records] of Object.entries(installed.plugins)) {
     if (enabled[key] !== true) continue
     if (!Array.isArray(records)) continue
 
     for (const record of records) {
-      const installPath = record?.installPath
-      if (typeof installPath !== 'string') continue
-      if (!installPath.startsWith('/')) continue
-      // リンク解決前の文字列で pluginsDir 配下かを判定する
-      if (!installPath.startsWith(pluginsDir + '/')) continue
+      const rawInstallPath = record?.installPath
+      if (typeof rawInstallPath !== 'string') continue
+      if (!rawInstallPath.startsWith('/')) continue
+      // '..' を含む文字列がプレフィックス一致だけをすり抜けて pluginsDir の外を指さないよう、
+      // 判定にも以降の join にも正規化後のパスを使う
+      const installPath = normalize(rawInstallPath)
+      if (!installPath.startsWith(normalizedPluginsDir + '/')) continue
 
       const manifest = readJson(join(installPath, '.claude-plugin', 'plugin.json')) as
         | { name?: unknown; commands?: unknown; skills?: unknown }
@@ -333,12 +338,13 @@ export function scanPlugins(roots: PluginRoot[], ctx: ScanContext): SlashCommand
   const results: SlashCommandInfo[] = []
   for (const root of roots) {
     for (const dir of root.commandsDirs) {
-      for (const cmd of scanCommandsDir(dir, 'user', ctx)) {
+      // scope に 'plugin' を渡すことで、サブディレクトリ由来の namespace も
+      // 'plugin:<subdir>' として正しく組み立てられる
+      for (const cmd of scanCommandsDir(dir, 'plugin', ctx)) {
         // namespace など既存フィールドを落とさないよう先に展開する
         results.push({
           ...cmd,
           name: `${root.name}:${cmd.name}`,
-          scope: 'plugin',
           pluginName: root.name,
         })
       }

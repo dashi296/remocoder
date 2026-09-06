@@ -296,12 +296,45 @@ describe('resolveEnabledPlugins', () => {
     expect(roots[0].skillsDirs).toEqual([join(p, 'skills')])
   })
 
+  it('manifest の commands が ".." で脱出しようとする指定を無視する', () => {
+    const p = join(tmp, 'plugins', 'cache', 'mp', 'escape-cmd', '1.0.0')
+    makePlugin(p, { name: 'escape-cmd-plugin', commands: '../../../etc' })
+    const { pluginsDir, settingsPaths } = setup(
+      { version: 2, plugins: { 'ec@mp': [{ scope: 'user', installPath: p, version: '1.0.0' }] } },
+      [{ enabledPlugins: { 'ec@mp': true } }],
+    )
+    const roots = resolveEnabledPlugins(pluginsDir, settingsPaths)
+    expect(roots[0].commandsDirs).toEqual([])
+  })
+
+  it('manifest の skills が絶対パス指定を無視する', () => {
+    const p = join(tmp, 'plugins', 'cache', 'mp', 'escape-skill', '1.0.0')
+    makePlugin(p, { name: 'escape-skill-plugin', skills: '/etc' })
+    const { pluginsDir, settingsPaths } = setup(
+      { version: 2, plugins: { 'es@mp': [{ scope: 'user', installPath: p, version: '1.0.0' }] } },
+      [{ enabledPlugins: { 'es@mp': true } }],
+    )
+    const roots = resolveEnabledPlugins(pluginsDir, settingsPaths)
+    expect(roots[0].skillsDirs).toEqual([])
+  })
+
   it('pluginsDir の外を指す installPath を無視する', () => {
     const outside = join(tmp, 'outside', '1.0.0')
     makePlugin(outside, { name: 'outside-plugin' })
     const { pluginsDir, settingsPaths } = setup(
       { version: 2, plugins: { 'o@mp': [{ scope: 'user', installPath: outside, version: '1.0.0' }] } },
       [{ enabledPlugins: { 'o@mp': true } }],
+    )
+    expect(resolveEnabledPlugins(pluginsDir, settingsPaths)).toEqual([])
+  })
+
+  it('".." で pluginsDir 配下を装う installPath を無視する', () => {
+    const secret = join(tmp, 'secret', '1.0.0')
+    makePlugin(secret, { name: 'secret-plugin' })
+    const escaping = join(tmp, 'plugins', '..', 'secret', '1.0.0')
+    const { pluginsDir, settingsPaths } = setup(
+      { version: 2, plugins: { 'e@mp': [{ scope: 'user', installPath: escaping, version: '1.0.0' }] } },
+      [{ enabledPlugins: { 'e@mp': true } }],
     )
     expect(resolveEnabledPlugins(pluginsDir, settingsPaths)).toEqual([])
   })
@@ -373,6 +406,28 @@ describe('scanPlugins', () => {
     expect(result).toEqual([
       { name: 'my-plugin:commit', description: 'c', scope: 'plugin', pluginName: 'my-plugin' },
       { name: 'my-plugin:review', description: 's', scope: 'plugin', pluginName: 'my-plugin' },
+    ])
+  })
+
+  it('サブディレクトリのコマンドに正しい namespace (plugin:<subdir>) を付ける', () => {
+    const cmdDir = join(tmp, 'commands')
+    const subDir = join(cmdDir, 'sub')
+    mkdirSync(subDir, { recursive: true })
+    writeFileSync(join(subDir, 'nested.md'), '---\ndescription: n\n---\n', 'utf-8')
+
+    const result = scanPlugins(
+      [{ name: 'my-plugin', commandsDirs: [cmdDir], skillsDirs: [] }],
+      createScanContext(),
+    )
+
+    expect(result).toEqual([
+      {
+        name: 'my-plugin:nested',
+        description: 'n',
+        scope: 'plugin',
+        namespace: 'plugin:sub',
+        pluginName: 'my-plugin',
+      },
     ])
   })
 

@@ -14,6 +14,15 @@ import { useKeyboardHeight } from '../hooks/useKeyboardHeight'
 
 export const USAGE_STORAGE_KEY = 'slashCommandUsage'
 
+/**
+ * サーバー（command_list の error フィールド）ではなく、モバイル側だけで
+ * 判定するローカルなエラーコード。TerminalScreen が commandsError にセットする。
+ */
+/** session_attached から一定時間 command_list が届かなかった（TerminalScreen 側で判定） */
+export const ERROR_CLIENT_TIMEOUT = 'client_timeout'
+/** auth_error / shell_exit / session_not_found でセッションが終了した */
+export const ERROR_SESSION_ENDED = 'session_ended'
+
 interface Props {
   visible: boolean
   /**
@@ -105,14 +114,22 @@ export function SlashCommandSheet({
     )
   }, [commands, usage, query])
 
-  // 一覧本文の状態を「まだ届いていない」「取得失敗」「取得できたが空」
-  // 「表示できる項目がある」の4つに分ける。エラーは commands の有無より
-  // 優先する（pty-server は失敗時も commands: [] を送るため）。
+  // 一覧本文の状態を「まだ届いていない」「取得失敗」「セッションが終了した」
+  // 「応答が来ない（タイムアウト）」「取得できたが空」「表示できる項目がある」に
+  // 分ける。エラーは commands の有無より優先する
+  // （pty-server は失敗時も commands: [] を送るため）。
   let emptyMessage: string | null = null
   if (error === 'scan_failed') {
     emptyMessage = 'Failed to scan commands'
   } else if (error === 'not_attached') {
     emptyMessage = 'Not attached to a session'
+  } else if (error === ERROR_SESSION_ENDED) {
+    // auth_error / shell_exit / session_not_found のリセットによるもの。
+    // 「見つからない」ではなく「セッションが終了した」ことを伝える
+    emptyMessage = 'Session has ended'
+  } else if (error === ERROR_CLIENT_TIMEOUT) {
+    // 走査に時間がかかっているだけの可能性もあるため、断定はしない
+    emptyMessage = "Taking a while to respond. The desktop app may need updating."
   } else if (error) {
     emptyMessage = 'Failed to load commands'
   } else if (commands === null) {

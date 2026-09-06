@@ -1,5 +1,5 @@
 import React from 'react'
-import { render, screen, fireEvent, act, waitFor } from '@testing-library/react-native'
+import { render, screen, fireEvent, act, waitFor, cleanup } from '@testing-library/react-native'
 import { TerminalScreen } from '../TerminalScreen'
 import { injectJavaScriptMock } from '../../__mocks__/react-native-webview'
 import { useLocalSearchParams, mockRouterBack } from '../../__mocks__/expo-router'
@@ -20,6 +20,16 @@ describe('TerminalScreen', () => {
       ip: '100.64.0.1',
       token: 'test-token',
     })
+  })
+
+  // このプロジェクトの jest.config.js は @testing-library/react-native の
+  // jest-preset を使っておらず、テスト間の自動 unmount が行われない。
+  // TerminalScreen は session_attached のたびに実タイマー（5秒）を張るため、
+  // 明示的に unmount してエフェクトのクリーンアップ（clearCommandTimeout）を
+  // 走らせないと、そのタイマーが後続のテスト実行中に非同期で発火し、
+  // 「act(...) でラップされていない」という警告を引き起こす
+  afterEach(() => {
+    cleanup()
   })
 
   it('WebView が render される', () => {
@@ -189,6 +199,18 @@ describe('TerminalScreen', () => {
   })
 
   describe('スラッシュコマンドシート', () => {
+    /**
+     * シートを開く。SlashCommandSheet は visible になるたびに
+     * loadUsage()（AsyncStorage 読み取り、モックでは非同期に解決する）を呼ぶため、
+     * fireEvent.press 直後に同期的な assertion を続けると、その解決が
+     * act(...) の外側で起きて「not wrapped in act」警告が出る。
+     * ここで1tick 分 flush してから返す
+     */
+    async function openSheet(): Promise<void> {
+      fireEvent.press(screen.getByTestId('slash-command-button'))
+      await act(async () => {})
+    }
+
     /** injectJavaScript に渡された全スクリプトを1つの文字列にまとめる */
     function injectedText(): string {
       return injectJavaScriptMock.mock.calls.map((c) => String(c[0])).join('\n')
@@ -224,11 +246,11 @@ describe('TerminalScreen', () => {
       expect(await screen.findByText('/commit')).toBeTruthy()
     })
 
-    it('command_list の応答が届く前は「読み込み中」を表示し「見つからない」とは表示しない', () => {
+    it('command_list の応答が届く前は「読み込み中」を表示し「見つからない」とは表示しない', async () => {
       render(<TerminalScreen />)
       sendFromWebView({ type: 'session_attached', sessionId: 's1', source: { kind: 'claude' } })
       // command_list はまだ送っていない
-      fireEvent.press(screen.getByTestId('slash-command-button'))
+      await openSheet()
       expect(screen.getByText('Loading commands…')).toBeTruthy()
       expect(screen.queryByText('No commands found')).toBeNull()
     })
@@ -290,7 +312,7 @@ describe('TerminalScreen', () => {
       expect(screen.queryByText('Commands')).toBeNull()
     })
 
-    it('session_not_found を受けるとコマンド一覧がリセットされ、再度開くと空状態になる', async () => {
+    it('session_not_found を受けるとコマンド一覧がリセットされ、再度開くと「セッション終了」状態になる', async () => {
       render(<TerminalScreen />)
       sendFromWebView({ type: 'session_attached', sessionId: 's1', source: { kind: 'claude' } })
       sendFromWebView({
@@ -304,13 +326,15 @@ describe('TerminalScreen', () => {
       sendFromWebView({ type: 'session_not_found', sessionId: 's1' })
       expect(screen.queryByText('Commands')).toBeNull()
 
-      // シートを開き直しても、死んだセッションのコマンド一覧を選ばせない（空状態になる）
+      // シートを開き直しても、死んだセッションのコマンド一覧を選ばせない。
+      // 「見つからない（0件）」ではなく「セッションが終了した」ことを表示する
       fireEvent.press(screen.getByTestId('slash-command-button'))
-      expect(await screen.findByText('No commands found')).toBeTruthy()
+      expect(await screen.findByText('Session has ended')).toBeTruthy()
+      expect(screen.queryByText('No commands found')).toBeNull()
       expect(screen.queryByText('/commit')).toBeNull()
     })
 
-    it('auth_error を受けるとコマンド一覧がリセットされる', async () => {
+    it('auth_error を受けるとコマンド一覧がリセットされ「セッション終了」状態になる', async () => {
       render(<TerminalScreen />)
       sendFromWebView({ type: 'session_attached', sessionId: 's1', source: { kind: 'claude' } })
       sendFromWebView({
@@ -322,8 +346,147 @@ describe('TerminalScreen', () => {
       sendFromWebView({ type: 'auth_error', reason: 'invalid token' })
 
       fireEvent.press(screen.getByTestId('slash-command-button'))
-      expect(await screen.findByText('No commands found')).toBeTruthy()
+      expect(await screen.findByText('Session has ended')).toBeTruthy()
+      expect(screen.queryByText('No commands found')).toBeNull()
       expect(screen.queryByText('/commit')).toBeNull()
+    })
+
+    describe('command_list_request のタイムアウト（Finding 2）', () => {
+      beforeEach(() => {
+        jest.useFakeTimers()
+      })
+
+      afterEach(() => {
+        jest.useRealTimers()
+      })
+
+      it('session_attached から5秒経っても command_list が届かなければ、デスクトップの更新が必要かもしれないと表示する', async () => {
+        render(<TerminalScreen />)
+        sendFromWebView({ type: 'session_attached', sessionId: 's1', source: { kind: 'claude' } })
+        // command_list はまだ送っていない
+
+        await openSheet()
+        expect(screen.getByText('Loading commands…')).toBeTruthy()
+
+        await act(async () => {
+          jest.advanceTimersByTime(5000)
+        })
+
+        expect(
+          screen.getByText('Taking a while to respond. The desktop app may need updating.'),
+        ).toBeTruthy()
+        expect(screen.queryByText('Loading commands…')).toBeNull()
+      })
+
+      it('タイムアウト前に command_list が届けば、タイムアウト表示にならない', async () => {
+        render(<TerminalScreen />)
+        sendFromWebView({ type: 'session_attached', sessionId: 's1', source: { kind: 'claude' } })
+        sendFromWebView({
+          type: 'command_list',
+          sessionId: 's1',
+          commands: [{ name: 'commit', scope: 'user' }],
+        })
+
+        await act(async () => {
+          jest.advanceTimersByTime(5000)
+        })
+
+        await openSheet()
+        expect(
+          screen.queryByText('Taking a while to respond. The desktop app may need updating.'),
+        ).toBeNull()
+      })
+
+      it('新しい session_attached を受けるとタイマーが張り直される（古いタイマーでは発火しない）', async () => {
+        render(<TerminalScreen />)
+        sendFromWebView({ type: 'session_attached', sessionId: 's1', source: { kind: 'claude' } })
+
+        await act(async () => {
+          jest.advanceTimersByTime(4000)
+        })
+        // 別セッションへ再アタッチ（例: Retry 後）。タイマーは張り直される
+        sendFromWebView({ type: 'session_attached', sessionId: 's2', source: { kind: 'claude' } })
+
+        await act(async () => {
+          jest.advanceTimersByTime(4000)
+        })
+        // 新しいタイマーからはまだ4秒しか経っていないので発火しない
+        await openSheet()
+        expect(screen.getByText('Loading commands…')).toBeTruthy()
+
+        await act(async () => {
+          jest.advanceTimersByTime(1000)
+        })
+        expect(
+          screen.getByText('Taking a while to respond. The desktop app may need updating.'),
+        ).toBeTruthy()
+      })
+
+      it('タイムアウトが発火する前に shell_exit を受けると、後からタイムアウト表示に上書きされない', async () => {
+        // session_attached でタイマーが張られた後、走査を待たずにセッションが
+        // 終了した場合、resetCommandState がタイマーをクリアしないと、
+        // 後から発火したタイムアウトが「セッション終了」表示を
+        // 「デスクトップの更新が必要かも」に上書きしてしまう
+        render(<TerminalScreen />)
+        sendFromWebView({ type: 'session_attached', sessionId: 's1', source: { kind: 'claude' } })
+
+        await act(async () => {
+          jest.advanceTimersByTime(2000)
+        })
+        sendFromWebView({ type: 'shell_exit', exitCode: 0 })
+
+        await act(async () => {
+          jest.advanceTimersByTime(5000)
+        })
+
+        await openSheet()
+        expect(screen.getByText('Session has ended')).toBeTruthy()
+        expect(
+          screen.queryByText('Taking a while to respond. The desktop app may need updating.'),
+        ).toBeNull()
+      })
+    })
+
+    describe('command_list の sessionId 照合（Finding 4）', () => {
+      it('前のセッション宛ての command_list は無視される', async () => {
+        render(<TerminalScreen />)
+        sendFromWebView({ type: 'session_attached', sessionId: 's1', source: { kind: 'claude' } })
+        sendFromWebView({ type: 'session_attached', sessionId: 's2', source: { kind: 'claude' } })
+
+        // s1 宛ての遅延応答が s2 にアタッチした後に届く
+        sendFromWebView({
+          type: 'command_list',
+          sessionId: 's1',
+          commands: [{ name: 'stale-command', scope: 'user' }],
+        })
+
+        await openSheet()
+        expect(screen.getByText('Loading commands…')).toBeTruthy()
+        expect(screen.queryByText('/stale-command')).toBeNull()
+
+        // s2 宛ての応答は反映される
+        sendFromWebView({
+          type: 'command_list',
+          sessionId: 's2',
+          commands: [{ name: 'current-command', scope: 'user' }],
+        })
+        expect(await screen.findByText('/current-command')).toBeTruthy()
+      })
+
+      it('sessionId: null の not_attached は現在のセッションと無関係に反映される', async () => {
+        render(<TerminalScreen />)
+        sendFromWebView({ type: 'session_attached', sessionId: 's1', source: { kind: 'claude' } })
+
+        sendFromWebView({
+          type: 'command_list',
+          sessionId: null,
+          commands: [],
+          error: 'not_attached',
+        })
+
+        await openSheet()
+        expect(await screen.findByText('Not attached to a session')).toBeTruthy()
+      })
     })
   })
 })

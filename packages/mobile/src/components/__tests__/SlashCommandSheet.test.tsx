@@ -266,6 +266,24 @@ describe('SlashCommandSheet', () => {
     await flushPendingEffects()
   })
 
+  it('error: session_ended のとき「見つからない」ではなくセッション終了を表示する（Finding 3）', async () => {
+    // commands が空/null どちらであっても、error が優先して判定される
+    render(<SlashCommandSheet {...defaultProps} commands={null} error="session_ended" />)
+    expect(screen.getByText('Session has ended')).toBeTruthy()
+    expect(screen.queryByText('No commands found')).toBeNull()
+    expect(screen.queryByText('Loading commands…')).toBeNull()
+    await flushPendingEffects()
+  })
+
+  it('error: client_timeout のとき断定せずデスクトップの更新が必要かもしれない旨を表示する（Finding 2）', async () => {
+    render(<SlashCommandSheet {...defaultProps} commands={null} error="client_timeout" />)
+    expect(
+      screen.getByText('Taking a while to respond. The desktop app may need updating.'),
+    ).toBeTruthy()
+    expect(screen.queryByText('Loading commands…')).toBeNull()
+    await flushPendingEffects()
+  })
+
   it('保存済みの使用回数の順に並べて表示する', async () => {
     await AsyncStorage.setItem(USAGE_STORAGE_KEY, JSON.stringify({ review: 3 }))
     const commands = [makeCommand({ name: 'commit' }), makeCommand({ name: 'review' })]

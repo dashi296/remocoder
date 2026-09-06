@@ -331,7 +331,9 @@ describe('resolveEnabledPlugins', () => {
   it('".." で pluginsDir 配下を装う installPath を無視する', () => {
     const secret = join(tmp, 'secret', '1.0.0')
     makePlugin(secret, { name: 'secret-plugin' })
-    const escaping = join(tmp, 'plugins', '..', 'secret', '1.0.0')
+    // path.join は内部で '..' を正規化してしまうため、リテラルの '..' を残すために文字列結合で作る。
+    // join(tmp, 'plugins') から1階層上がると tmp になり、そこから secret/1.0.0 は実在する secret と一致する
+    const escaping = `${join(tmp, 'plugins')}/../secret/1.0.0`
     const { pluginsDir, settingsPaths } = setup(
       { version: 2, plugins: { 'e@mp': [{ scope: 'user', installPath: escaping, version: '1.0.0' }] } },
       [{ enabledPlugins: { 'e@mp': true } }],

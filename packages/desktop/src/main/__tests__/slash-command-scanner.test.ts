@@ -8,7 +8,9 @@ import {
   createScanContext,
   scanCommandsDir,
   scanSkillsDir,
+  scanPluginRootSkill,
   MAX_FILES,
+  isSafeCommandName,
   resolveEnabledPlugins,
   scanPlugins,
   getSlashCommands,
@@ -57,6 +59,32 @@ describe('parseFrontmatter', () => {
 
   it('空文字列を渡しても例外にならない', () => {
     expect(parseFrontmatter('')).toEqual({})
+  })
+})
+
+describe('isSafeCommandName', () => {
+  it('CR を含む名前を拒否する（PTY へ届いて Enter として解釈されるため）', () => {
+    expect(isSafeCommandName('evil\rcommit')).toBe(false)
+  })
+
+  it('ESC を含む名前を拒否する（端末エスケープシーケンス対策）', () => {
+    expect(isSafeCommandName('evil\x1bname')).toBe(false)
+  })
+
+  it('100文字を超える名前を拒否する', () => {
+    expect(isSafeCommandName('a'.repeat(101))).toBe(false)
+  })
+
+  it('100文字ちょうどの名前は受け入れる', () => {
+    expect(isSafeCommandName('a'.repeat(100))).toBe(true)
+  })
+
+  it('空文字列を拒否する', () => {
+    expect(isSafeCommandName('')).toBe(false)
+  })
+
+  it('ハイフン・アンダースコア・ドット・コロンを含む名前空間付き名を受け入れる', () => {
+    expect(isSafeCommandName('commit-commands:commit')).toBe(true)
   })
 })
 
@@ -189,6 +217,35 @@ describe('scanCommandsDir / scanSkillsDir', () => {
     expect(result).toEqual([
       { name: 'my-plugin:review', description: 'd', scope: 'plugin', pluginName: 'my-plugin' },
     ])
+  })
+
+  it('ESC を含むファイル名のコマンドを除外する', () => {
+    write('commands/normal.md', '---\ndescription: d\n---\n')
+    write('commands/evil\x1bname.md', '---\ndescription: d\n---\n')
+    const result = scanCommandsDir(join(tmp, 'commands'), 'user', createScanContext())
+    expect(result.map((c) => c.name)).toEqual(['normal'])
+  })
+
+  it('100文字を超えるファイル名のコマンドを除外する', () => {
+    const longName = 'a'.repeat(101)
+    write(`commands/${longName}.md`, '---\ndescription: d\n---\n')
+    const result = scanCommandsDir(join(tmp, 'commands'), 'user', createScanContext())
+    expect(result).toEqual([])
+  })
+
+  it('制御文字を含むディレクトリ名のスキルを除外する', () => {
+    write('skills/evil\rname/SKILL.md', '---\ndescription: d\n---\n')
+    const result = scanSkillsDir(join(tmp, 'skills'), 'user', createScanContext())
+    expect(result).toEqual([])
+  })
+
+  it('root SKILL.md の frontmatter name に制御文字が含まれる場合は除外する', () => {
+    // parseFrontmatter の value 抽出は正規表現の `.` を使っており、これは行末文字である
+    // \r を含められない（\r を含む行はそもそもマッチしない）。そのため、値の途中に
+    // 混入しても正規表現がそのまま通す制御文字である ESC (\x1b) で検証する。
+    write('install/SKILL.md', '---\nname: "evil\x1bname"\ndescription: d\n---\n')
+    const result = scanPluginRootSkill(join(tmp, 'install'), 'plugin', createScanContext())
+    expect(result).toEqual([])
   })
 })
 
@@ -352,6 +409,16 @@ describe('resolveEnabledPlugins', () => {
     expect(resolveEnabledPlugins(pluginsDir, settingsPaths)).toEqual([])
   })
 
+  it('plugin.json の name に CR を含む場合はプラグイン全体を除外する', () => {
+    const p = join(tmp, 'plugins', 'cache', 'mp', 'evil', '1.0.0')
+    makePlugin(p, { name: 'evil\rcommit' })
+    const { pluginsDir, settingsPaths } = setup(
+      { version: 2, plugins: { 'evil@mp': [{ scope: 'user', installPath: p, version: '1.0.0' }] } },
+      [{ enabledPlugins: { 'evil@mp': true } }],
+    )
+    expect(resolveEnabledPlugins(pluginsDir, settingsPaths)).toEqual([])
+  })
+
   it('installed_plugins.json がなくても空配列を返す', () => {
     expect(resolveEnabledPlugins(join(tmp, 'missing'), [])).toEqual([])
   })
@@ -441,6 +508,28 @@ describe('scanPlugins', () => {
         pluginName: 'my-plugin',
       },
     ])
+  })
+
+  it('プラグイン名とコマンド名の組み合わせが100文字を超える場合は除外する', () => {
+    const cmdDir = join(tmp, 'commands')
+    mkdirSync(cmdDir, { recursive: true })
+    const longCmdName = 'a'.repeat(90)
+    writeFileSync(join(cmdDir, `${longCmdName}.md`), '---\ndescription: c\n---\n', 'utf-8')
+    const longPluginName = 'b'.repeat(90)
+
+    const result = scanPlugins(
+      [
+        {
+          name: longPluginName,
+          installPath: join(tmp, 'install'),
+          commandsDirs: [cmdDir],
+          skillsDirs: [],
+        },
+      ],
+      createScanContext(),
+    )
+
+    expect(result).toEqual([])
   })
 
   it('存在しないディレクトリを無視する', () => {

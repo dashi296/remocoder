@@ -55,6 +55,23 @@ export const SCAN_TIMEOUT_MS = 3000
 /** description の最大長 */
 export const DESCRIPTION_MAX_LENGTH = 120
 
+/**
+ * 呼び出し名として安全な文字だけからなるかを判定する。
+ *
+ * この名前は最終的にモバイル側で `/${name}` として組み立てられ、
+ * `window.sendInput` 経由で PTY にそのまま書き込まれる（TerminalScreen.tsx）。
+ * CR がそこに混ざると、コマンドを選んだだけで Enter を押したのと同じ効果になり、
+ * ESC が混ざれば端末エスケープシーケンスを注入できてしまう。
+ * これはコマンド定義ファイル名・スキルディレクトリ名・プラグイン名など、
+ * SlashCommandInfo.name の元になりうるすべての入力から来る可能性があるため、
+ * それぞれの走査関数が SlashCommandInfo を組み立てる直前に、この許可リストで検証する。
+ */
+const SAFE_COMMAND_NAME_PATTERN = /^[A-Za-z0-9_.:-]{1,100}$/
+
+export function isSafeCommandName(name: string): boolean {
+  return SAFE_COMMAND_NAME_PATTERN.test(name)
+}
+
 /** 1回の走査で共有する状態。循環リンク・件数・時間の上限を持つ */
 export interface ScanContext {
   /** 訪問済みディレクトリの realpath。循環リンク対策 */
@@ -164,6 +181,9 @@ export function scanCommandsDir(
       }
       if (!isFile || !entry.name.endsWith('.md')) continue
 
+      const name = basename(entry.name, '.md')
+      if (!isSafeCommandName(name)) continue
+
       ctx.fileCount++
       let front: Record<string, string> = {}
       try {
@@ -173,7 +193,7 @@ export function scanCommandsDir(
       }
 
       const info: SlashCommandInfo = {
-        name: basename(entry.name, '.md'),
+        name,
         scope,
       }
       const description = truncateDescription(front.description)
@@ -214,6 +234,9 @@ export function scanSkillsDir(
     const skillFile = join(skillDir, 'SKILL.md')
     if (!existsSync(skillFile)) continue
 
+    const name = pluginName ? `${pluginName}:${entry.name}` : entry.name
+    if (!isSafeCommandName(name)) continue
+
     ctx.fileCount++
     let front: Record<string, string> = {}
     try {
@@ -224,7 +247,7 @@ export function scanSkillsDir(
     if (front['user-invocable'] === 'false') continue
 
     const info: SlashCommandInfo = {
-      name: pluginName ? `${pluginName}:${entry.name}` : entry.name,
+      name,
       scope,
     }
     const description = truncateDescription(front.description)
@@ -262,8 +285,11 @@ export function scanPluginRootSkill(
   }
   if (front['user-invocable'] === 'false') return []
 
+  const name = front.name ? `${pluginName}:${front.name}` : pluginName
+  if (!isSafeCommandName(name)) return []
+
   const info: SlashCommandInfo = {
-    name: front.name ? `${pluginName}:${front.name}` : pluginName,
+    name,
     scope: 'plugin',
     pluginName,
   }
@@ -367,6 +393,8 @@ export function resolveEnabledPlugins(pluginsDir: string, settingsPaths: string[
         | { name?: unknown; commands?: unknown; skills?: unknown }
         | null
       if (!manifest || typeof manifest.name !== 'string' || !manifest.name) continue
+      // 不正な name は呼び出し名の一部になるため、コマンド単位ではなくプラグイン単位で除外する
+      if (!isSafeCommandName(manifest.name)) continue
 
       roots.push({
         name: manifest.name,
@@ -389,10 +417,14 @@ export function scanPlugins(roots: PluginRoot[], ctx: ScanContext): SlashCommand
       // scope に 'plugin' を渡すことで、サブディレクトリ由来の namespace も
       // 'plugin:<subdir>' として正しく組み立てられる
       for (const cmd of scanCommandsDir(dir, 'plugin', ctx)) {
+        const name = `${root.name}:${cmd.name}`
+        // root.name・cmd.name はそれぞれ既に検証済みだが、連結すると
+        // 100文字上限を超えうるため、連結後の名前も改めて検証する
+        if (!isSafeCommandName(name)) continue
         // namespace など既存フィールドを落とさないよう先に展開する
         results.push({
           ...cmd,
-          name: `${root.name}:${cmd.name}`,
+          name,
           pluginName: root.name,
         })
       }

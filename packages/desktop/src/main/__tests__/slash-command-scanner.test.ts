@@ -593,6 +593,48 @@ describe('resolveEnabledPlugins', () => {
     expect(ctx.truncated).toBe(true)
   })
 
+  it('budget が manifest ループの途中で尽きた場合、それまでに見つかったプラグインは残し、以降は打ち切る', async () => {
+    // installed_plugins.json とsettings は正常に読み終え、manifest を読む
+    // ループの途中（1つ目のプラグインは成功、2つ目のプラグインの2レコード目）で
+    // budget が尽きるケースを再現する。
+    // 事前チェック（before の deadline / fileCount テスト）だけでは、ループ内の
+    // 途中チェック（record ごとの isExhausted）を消しても通ってしまうため、
+    // ここでは「1件は見つかる・残りは見つからない・truncated が立つ」という
+    // 部分的な結果まで検証する。
+    const earlierPath = join(tmp, 'plugins', 'cache', 'mp', 'earlier', '1.0.0')
+    makePlugin(earlierPath, { name: 'earlier-plugin' })
+    // dup@mp の1レコード目はわざと plugin.json を置かず、readJson を
+    // 「試みたが読めなかった」扱いにする（budget は消費するが roots には残らない）
+    const dupMissingPath = join(tmp, 'plugins', 'cache', 'mp', 'dup', '1.0.0')
+    const dupValidPath = join(tmp, 'plugins', 'cache', 'mp', 'dup', '2.0.0')
+    makePlugin(dupValidPath, { name: 'dup-plugin-valid' })
+
+    const { pluginsDir, settingsPaths } = setup(
+      {
+        version: 2,
+        plugins: {
+          'earlier@mp': [{ scope: 'user', installPath: earlierPath, version: '1.0.0' }],
+          'dup@mp': [
+            { scope: 'user', installPath: dupMissingPath, version: '1.0.0' },
+            { scope: 'project', installPath: dupValidPath, version: '2.0.0' },
+          ],
+        },
+      },
+      [{ enabledPlugins: { 'earlier@mp': true, 'dup@mp': true } }],
+    )
+
+    // 読み取り順序: installed_plugins.json(1) → settings(1) →
+    // earlier@mp の manifest(1, 成功) → dup@mp 1レコード目の manifest(1, 失敗) →
+    // ここで budget を使い切らせ、dup@mp 2レコード目（成功するはず）を防ぐ
+    const ctx = createScanContext()
+    ctx.fileCount = MAX_FILES - 4
+
+    const roots = await resolveEnabledPlugins(pluginsDir, settingsPaths, ctx)
+
+    expect(roots.map((r) => r.name)).toEqual(['earlier-plugin'])
+    expect(ctx.truncated).toBe(true)
+  })
+
   it('manifest が MAX_MANIFEST_DIRS を超える commands を指定しても、その件数までしか反映しない', async () => {
     const p = join(tmp, 'plugins', 'cache', 'mp', 'many', '1.0.0')
     const manyDirs = Array.from({ length: MAX_MANIFEST_DIRS + 10 }, (_, i) => `./dir${i}`)

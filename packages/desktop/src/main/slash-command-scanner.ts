@@ -4,6 +4,19 @@
  * 依存を増やさないため glob ライブラリは使わず Node の fs API のみで実装する。
  */
 
+import {
+  readdirSync,
+  openSync,
+  readSync,
+  closeSync,
+  realpathSync,
+  existsSync,
+  statSync,
+  type Dirent,
+} from 'fs'
+import { join, basename } from 'path'
+import { SlashCommandInfo } from '@remocoder/shared'
+
 /**
  * 先頭の YAML frontmatter から `key: value` を抽出する。
  * ネスト・配列・複数行値は扱わない（description と user-invocable は1行に収まる）。
@@ -24,4 +37,198 @@ export function parseFrontmatter(content: string): Record<string, string> {
     result[kv[1]] = value
   }
   return result
+}
+
+/**
+ * 走査の最大深度。root を深さ 0 とし、深さ MAX_DEPTH のディレクトリには入らない。
+ * つまり root + 2 階層までを走査する。
+ */
+export const MAX_DEPTH = 3
+/** 走査で読むファイルの最大数 */
+export const MAX_FILES = 500
+/** 1ファイルあたりの読み取りバイト数。frontmatter だけ読めば足りる */
+export const MAX_HEAD_BYTES = 8192
+/** 走査全体のタイムアウト（ms） */
+export const SCAN_TIMEOUT_MS = 3000
+/** description の最大長 */
+export const DESCRIPTION_MAX_LENGTH = 120
+
+/** 1回の走査で共有する状態。循環リンク・件数・時間の上限を持つ */
+export interface ScanContext {
+  /** 訪問済みディレクトリの realpath。循環リンク対策 */
+  visited: Set<string>
+  /** 読んだファイル数 */
+  fileCount: number
+  /** この時刻を過ぎたら打ち切る */
+  deadline: number
+  /** 上限に達して打ち切ったか */
+  truncated: boolean
+}
+
+export function createScanContext(): ScanContext {
+  return {
+    visited: new Set(),
+    fileCount: 0,
+    deadline: Date.now() + SCAN_TIMEOUT_MS,
+    truncated: false,
+  }
+}
+
+/** ファイル先頭の maxBytes だけ読む。巨大な Markdown 全体を読まないため */
+function readHead(filePath: string, maxBytes = MAX_HEAD_BYTES): string {
+  const fd = openSync(filePath, 'r')
+  try {
+    const buf = Buffer.alloc(maxBytes)
+    const read = readSync(fd, buf, 0, maxBytes, 0)
+    return buf.subarray(0, read).toString('utf-8')
+  } finally {
+    closeSync(fd)
+  }
+}
+
+function truncateDescription(value: string | undefined): string | undefined {
+  if (!value) return undefined
+  return value.length > DESCRIPTION_MAX_LENGTH ? value.slice(0, DESCRIPTION_MAX_LENGTH) : value
+}
+
+/** ctx が上限に達していれば true を返し、truncated を立てる */
+function isExhausted(ctx: ScanContext): boolean {
+  if (ctx.fileCount >= MAX_FILES || Date.now() > ctx.deadline) {
+    ctx.truncated = true
+    return true
+  }
+  return false
+}
+
+/**
+ * ディレクトリに入ってよいかを判定する。
+ * realpath で訪問済みを記録し、シンボリックリンクによる循環を防ぐ。
+ */
+function enterDirectory(dir: string, ctx: ScanContext): boolean {
+  let real: string
+  try {
+    real = realpathSync(dir)
+  } catch {
+    return false
+  }
+  if (ctx.visited.has(real)) return false
+  ctx.visited.add(real)
+  return true
+}
+
+/**
+ * コマンド定義ディレクトリを走査する。
+ * 呼び出し名はファイル名から決まり、サブディレクトリ名は namespace として表示にだけ使う。
+ */
+export function scanCommandsDir(
+  root: string,
+  scope: 'user' | 'project',
+  ctx: ScanContext,
+): SlashCommandInfo[] {
+  const results: SlashCommandInfo[] = []
+
+  function walk(dir: string, depth: number, relDir: string) {
+    if (depth >= MAX_DEPTH) return
+    if (isExhausted(ctx)) return
+    if (!enterDirectory(dir, ctx)) return
+
+    let entries: Dirent[]
+    try {
+      entries = readdirSync(dir, { withFileTypes: true })
+    } catch {
+      return
+    }
+
+    for (const entry of entries) {
+      if (isExhausted(ctx)) return
+      const full = join(dir, entry.name)
+
+      // withFileTypes はリンクを解決しないので、リンクの場合は statSync で種別を判定する
+      let isDir = entry.isDirectory()
+      let isFile = entry.isFile()
+      if (entry.isSymbolicLink()) {
+        try {
+          const st = statSync(full)
+          isDir = st.isDirectory()
+          isFile = st.isFile()
+        } catch {
+          continue
+        }
+      }
+
+      if (isDir) {
+        walk(full, depth + 1, relDir ? `${relDir}/${entry.name}` : entry.name)
+        continue
+      }
+      if (!isFile || !entry.name.endsWith('.md')) continue
+
+      ctx.fileCount++
+      let front: Record<string, string> = {}
+      try {
+        front = parseFrontmatter(readHead(full))
+      } catch {
+        continue
+      }
+
+      const info: SlashCommandInfo = {
+        name: basename(entry.name, '.md'),
+        scope,
+      }
+      const description = truncateDescription(front.description)
+      if (description) info.description = description
+      if (relDir) info.namespace = `${scope}:${relDir}`
+      results.push(info)
+    }
+  }
+
+  walk(root, 0, '')
+  return results
+}
+
+/**
+ * スキルディレクトリ（`<root>/<name>/SKILL.md`）を走査する。
+ * 呼び出し名はディレクトリ名。`user-invocable: false` は除外する。
+ */
+export function scanSkillsDir(
+  root: string,
+  scope: 'user' | 'project' | 'plugin',
+  ctx: ScanContext,
+  pluginName?: string,
+): SlashCommandInfo[] {
+  if (isExhausted(ctx)) return []
+  if (!enterDirectory(root, ctx)) return []
+
+  let entries: Dirent[]
+  try {
+    entries = readdirSync(root, { withFileTypes: true })
+  } catch {
+    return []
+  }
+
+  const results: SlashCommandInfo[] = []
+  for (const entry of entries) {
+    if (isExhausted(ctx)) break
+    const skillDir = join(root, entry.name)
+    const skillFile = join(skillDir, 'SKILL.md')
+    if (!existsSync(skillFile)) continue
+
+    ctx.fileCount++
+    let front: Record<string, string> = {}
+    try {
+      front = parseFrontmatter(readHead(skillFile))
+    } catch {
+      continue
+    }
+    if (front['user-invocable'] === 'false') continue
+
+    const info: SlashCommandInfo = {
+      name: pluginName ? `${pluginName}:${entry.name}` : entry.name,
+      scope,
+    }
+    const description = truncateDescription(front.description)
+    if (description) info.description = description
+    if (pluginName) info.pluginName = pluginName
+    results.push(info)
+  }
+  return results
 }

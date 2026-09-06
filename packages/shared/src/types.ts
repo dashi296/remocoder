@@ -63,6 +63,20 @@ export type WsMessage =
   /** session_delete への応答（削除完了） */
   | { type: 'session_deleted'; sessionId: string }
 
+/** スラッシュコマンド（コマンド定義またはスキル）の情報 */
+export interface SlashCommandInfo {
+  /** 呼び出し名（先頭の / は含まない）。例: "commit", "commit-commands:commit" */
+  name: string
+  /** frontmatter の description。デスクトップ側で 120 文字に切り詰め済み */
+  description?: string
+  /** 提供元 */
+  scope: 'builtin' | 'user' | 'project' | 'plugin'
+  /** 表示用の名前空間注記。例: "project:ci"。呼び出し名には含まれない */
+  namespace?: string
+  /** scope が 'plugin' のときの plugin.json の name */
+  pluginName?: string
+}
+
 export interface ProjectInfo {
   /** プロジェクトのフルパス */
   path: string

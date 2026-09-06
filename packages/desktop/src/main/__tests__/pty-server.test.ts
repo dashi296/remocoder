@@ -336,23 +336,43 @@ describe('startPtyServer', () => {
 
   describe('command_list_request', () => {
     it('claude セッションにアタッチ済みなら command_list が返る', () => {
-      const { ws } = connectAuthAndCreate(startPtyServer)
-      sendMessage(ws, { type: 'command_list_request' })
+      // getSlashCommands は本来 homedir()/.claude を走査するため、テスト環境の
+      // 実ファイルに依存させないよう固定のフィクスチャに差し替える
+      scannerState.impl = () => ({
+        commands: [{ name: 'fixture-cmd', scope: 'user' }],
+        truncated: false,
+      })
+      try {
+        const { ws } = connectAuthAndCreate(startPtyServer)
+        sendMessage(ws, { type: 'command_list_request' })
 
-      const calls = ws.send.mock.calls.map((c: any) => JSON.parse(c[0]))
-      const response = calls.find((m: any) => m.type === 'command_list')
-      expect(response).toBeDefined()
-      expect(Array.isArray(response.commands)).toBe(true)
-      expect(response.sessionId).toBeTruthy()
+        const calls = ws.send.mock.calls.map((c: any) => JSON.parse(c[0]))
+        const response = calls.find((m: any) => m.type === 'command_list')
+        expect(response).toBeDefined()
+        expect(Array.isArray(response.commands)).toBe(true)
+        expect(response.sessionId).toBeTruthy()
+      } finally {
+        scannerState.impl = null
+      }
     })
 
-    it('組み込みコマンドが含まれる', () => {
-      const { ws } = connectAuthAndCreate(startPtyServer)
-      sendMessage(ws, { type: 'command_list_request' })
+    it('走査結果のコマンド名が command_list に含まれる', () => {
+      // 実マシンの ~/.claude を走査させず、ハンドラがスキャナの戻り値を
+      // そのまま中継していることをフィクスチャで検証する
+      scannerState.impl = () => ({
+        commands: [{ name: 'clear', scope: 'builtin' }],
+        truncated: false,
+      })
+      try {
+        const { ws } = connectAuthAndCreate(startPtyServer)
+        sendMessage(ws, { type: 'command_list_request' })
 
-      const calls = ws.send.mock.calls.map((c: any) => JSON.parse(c[0]))
-      const response = calls.find((m: any) => m.type === 'command_list')
-      expect(response.commands.some((c: any) => c.name === 'clear')).toBe(true)
+        const calls = ws.send.mock.calls.map((c: any) => JSON.parse(c[0]))
+        const response = calls.find((m: any) => m.type === 'command_list')
+        expect(response.commands.some((c: any) => c.name === 'clear')).toBe(true)
+      } finally {
+        scannerState.impl = null
+      }
     })
 
     it('未アタッチのクライアントには error: not_attached を返す', () => {

@@ -4,10 +4,11 @@ import { useKeepAwake } from 'expo-keep-awake'
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { WebView, WebViewMessageEvent } from 'react-native-webview'
 import { useLocalSearchParams, useRouter } from 'expo-router'
-import { DEFAULT_WS_PORT, SessionSource } from '@remocoder/shared'
+import { DEFAULT_WS_PORT, SessionSource, SlashCommandInfo } from '@remocoder/shared'
 import { buildTerminalHtml } from '../assets/terminalHtml'
 import { PermissionSheet, PermissionRequest } from '../components/PermissionSheet'
 import { KeyboardToolbar } from '../components/KeyboardToolbar'
+import { SlashCommandSheet } from '../components/SlashCommandSheet'
 import { useKeyboardHeight } from '../hooks/useKeyboardHeight'
 import { firstParam } from '../utils'
 
@@ -50,6 +51,10 @@ export function TerminalScreen() {
     }
   }, [sourceJson])
 
+  useEffect(() => {
+    if (source) setCurrentSource(source)
+  }, [source])
+
   const wsUrl = useMemo(() => `ws://${ip}:${DEFAULT_WS_PORT}`, [ip])
   const keyboardHeight = useKeyboardHeight()
   const insets = useSafeAreaInsets()
@@ -58,6 +63,10 @@ export function TerminalScreen() {
   const [webViewKey, setWebViewKey] = useState(0)
   const [pendingPermission, setPendingPermission] = useState<PermissionRequest | null>(null)
   const webViewRef = useRef<WebView>(null)
+  const [currentSource, setCurrentSource] = useState<SessionSource | null>(null)
+  const [commands, setCommands] = useState<SlashCommandInfo[]>([])
+  const [commandsTruncated, setCommandsTruncated] = useState(false)
+  const [sheetVisible, setSheetVisible] = useState(false)
 
   useKeepAwake()
 
@@ -93,6 +102,9 @@ export function TerminalScreen() {
         case 'session_attached':
           setStatus('connected')
           setPendingPermission(null)
+          if (msg.source) setCurrentSource(msg.source as SessionSource)
+          // セッションが変わるとプロジェクトも変わるので一覧を取り直す
+          webViewRef.current?.injectJavaScript('window.requestCommandList(); true;')
           break
         case 'connected':
           setStatus('connected')
@@ -106,6 +118,10 @@ export function TerminalScreen() {
           break
         case 'session_not_found':
           setStatus('auth_error')
+          break
+        case 'command_list':
+          setCommands((msg.commands as SlashCommandInfo[]) ?? [])
+          setCommandsTruncated(Boolean(msg.truncated))
           break
         case 'permission_request':
           setPendingPermission({
@@ -136,6 +152,13 @@ export function TerminalScreen() {
   const handleRetry = useCallback(() => {
     setStatus('connecting')
     setWebViewKey((k) => k + 1)
+  }, [])
+
+  const handleSelectCommand = useCallback((name: string) => {
+    setSheetVisible(false)
+    webViewRef.current?.injectJavaScript(
+      `window.sendInput(${JSON.stringify(`/${name}`)}); true;`,
+    )
   }, [])
 
   const html = useMemo(
@@ -177,10 +200,23 @@ export function TerminalScreen() {
       />
 
       {/* カスタムキーボードツールバー */}
-      <KeyboardToolbar webViewRef={webViewRef} />
+      <KeyboardToolbar
+        webViewRef={webViewRef}
+        source={currentSource}
+        onOpenCommands={() => setSheetVisible(true)}
+      />
 
       {/* 承認ボトムシート */}
       <PermissionSheet request={pendingPermission} onDecide={handlePermissionDecide} />
+
+      {/* スラッシュコマンド選択シート */}
+      <SlashCommandSheet
+        visible={sheetVisible}
+        commands={commands}
+        truncated={commandsTruncated}
+        onClose={() => setSheetVisible(false)}
+        onSelect={handleSelectCommand}
+      />
     </SafeAreaView>
   )
 }

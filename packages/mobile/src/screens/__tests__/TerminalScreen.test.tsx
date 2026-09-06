@@ -1,5 +1,5 @@
 import React from 'react'
-import { render, screen, fireEvent, act } from '@testing-library/react-native'
+import { render, screen, fireEvent, act, waitFor } from '@testing-library/react-native'
 import { TerminalScreen } from '../TerminalScreen'
 import { injectJavaScriptMock } from '../../__mocks__/react-native-webview'
 import { useLocalSearchParams, mockRouterBack } from '../../__mocks__/expo-router'
@@ -185,6 +185,58 @@ describe('TerminalScreen', () => {
       expect(injectJavaScriptMock).toHaveBeenCalledWith(
         expect.stringContaining('window.sendPermissionResponse("req-005", "always")'),
       )
+    })
+  })
+
+  describe('スラッシュコマンドシート', () => {
+    /** injectJavaScript に渡された全スクリプトを1つの文字列にまとめる */
+    function injectedText(): string {
+      return injectJavaScriptMock.mock.calls.map((c) => String(c[0])).join('\n')
+    }
+
+    it('claude セッションではコマンドボタンを表示する', () => {
+      render(<TerminalScreen />)
+      sendFromWebView({ type: 'session_attached', sessionId: 's1', source: { kind: 'claude' } })
+      expect(screen.getByTestId('slash-command-button')).toBeTruthy()
+    })
+
+    it('shell セッションではコマンドボタンを表示しない', () => {
+      render(<TerminalScreen />)
+      sendFromWebView({ type: 'session_attached', sessionId: 's1', source: { kind: 'shell' } })
+      expect(screen.queryByTestId('slash-command-button')).toBeNull()
+    })
+
+    it('session_attached を受けると requestCommandList を注入する', () => {
+      render(<TerminalScreen />)
+      sendFromWebView({ type: 'session_attached', sessionId: 's1', source: { kind: 'claude' } })
+      expect(injectedText()).toContain('requestCommandList')
+    })
+
+    it('command_list を受け取るとシートに反映する', async () => {
+      render(<TerminalScreen />)
+      sendFromWebView({ type: 'session_attached', sessionId: 's1', source: { kind: 'claude' } })
+      sendFromWebView({
+        type: 'command_list',
+        sessionId: 's1',
+        commands: [{ name: 'commit', description: 'Create a git commit', scope: 'user' }],
+      })
+      fireEvent.press(screen.getByTestId('slash-command-button'))
+      expect(await screen.findByText('/commit')).toBeTruthy()
+    })
+
+    it('コマンドを選ぶと sendInput を注入してシートを閉じる', async () => {
+      render(<TerminalScreen />)
+      sendFromWebView({ type: 'session_attached', sessionId: 's1', source: { kind: 'claude' } })
+      sendFromWebView({
+        type: 'command_list',
+        sessionId: 's1',
+        commands: [{ name: 'commit', scope: 'user' }],
+      })
+      fireEvent.press(screen.getByTestId('slash-command-button'))
+      fireEvent.press(await screen.findByText('/commit'))
+
+      expect(injectedText()).toContain('sendInput("/commit")')
+      await waitFor(() => expect(screen.queryByText('Commands')).toBeNull())
     })
   })
 })

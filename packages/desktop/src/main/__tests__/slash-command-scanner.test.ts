@@ -11,6 +11,9 @@ import {
   MAX_FILES,
   resolveEnabledPlugins,
   scanPlugins,
+  getSlashCommands,
+  clearSlashCommandCache,
+  BUILTIN_COMMANDS,
 } from '../slash-command-scanner'
 
 describe('parseFrontmatter', () => {
@@ -439,5 +442,135 @@ describe('scanPlugins', () => {
       createScanContext(),
     )
     expect(result).toEqual([])
+  })
+})
+
+describe('getSlashCommands', () => {
+  let tmp: string
+  /** テスト用の空の claudeDir。開発者の実 ~/.claude を走査させない */
+  let claudeDir: string
+
+  beforeEach(() => {
+    clearSlashCommandCache()
+    tmp = mkdtempSync(join(tmpdir(), 'scanner-get-'))
+    claudeDir = join(tmp, 'claude')
+    mkdirSync(claudeDir, { recursive: true })
+  })
+
+  afterEach(() => {
+    rmSync(tmp, { recursive: true, force: true })
+  })
+
+  /** プロジェクトディレクトリを作り、任意のコマンドを置く */
+  function makeProject(commandNames: string[] = []): string {
+    const projectPath = join(tmp, `project-${commandNames.join('-') || 'empty'}`)
+    mkdirSync(join(projectPath, '.claude', 'commands'), { recursive: true })
+    for (const name of commandNames) {
+      writeFileSync(
+        join(projectPath, '.claude', 'commands', `${name}.md`),
+        '---\ndescription: project version\n---\n',
+        'utf-8',
+      )
+    }
+    return projectPath
+  }
+
+  it('claude 以外のセッションでは空配列を返す', () => {
+    expect(getSlashCommands({ kind: 'shell' }, { claudeDir }).commands).toEqual([])
+    expect(
+      getSlashCommands({ kind: 'tmux', sessionName: 's' }, { claudeDir }).commands,
+    ).toEqual([])
+  })
+
+  it('source が undefined のとき空配列を返す', () => {
+    expect(getSlashCommands(undefined, { claudeDir }).commands).toEqual([])
+  })
+
+  it('claude セッションでは組み込みコマンドを含む', () => {
+    const { commands } = getSlashCommands({ kind: 'claude' }, { claudeDir })
+    expect(commands.some((c) => c.name === 'clear' && c.scope === 'builtin')).toBe(true)
+  })
+
+  it('組み込みコマンドの名前に先頭の / を含まない', () => {
+    expect(BUILTIN_COMMANDS.every((c) => !c.name.startsWith('/'))).toBe(true)
+  })
+
+  it('claudeDir が空なら組み込みコマンドだけを返す', () => {
+    const { commands } = getSlashCommands({ kind: 'claude' }, { claudeDir })
+    expect(commands.map((c) => c.name).sort()).toEqual(
+      BUILTIN_COMMANDS.map((c) => c.name).sort(),
+    )
+  })
+
+  it('ユーザーのコマンドとスキルを含む', () => {
+    mkdirSync(join(claudeDir, 'commands'), { recursive: true })
+    mkdirSync(join(claudeDir, 'skills', 'my-skill'), { recursive: true })
+    writeFileSync(join(claudeDir, 'commands', 'my-cmd.md'), '---\ndescription: d\n---\n', 'utf-8')
+    writeFileSync(
+      join(claudeDir, 'skills', 'my-skill', 'SKILL.md'),
+      '---\ndescription: d\n---\n',
+      'utf-8',
+    )
+
+    const { commands } = getSlashCommands({ kind: 'claude' }, { claudeDir })
+    expect(commands.some((c) => c.name === 'my-cmd' && c.scope === 'user')).toBe(true)
+    expect(commands.some((c) => c.name === 'my-skill' && c.scope === 'user')).toBe(true)
+  })
+
+  it('projectPath が相対パスのとき project スコープを走査しない', () => {
+    const { commands } = getSlashCommands(
+      { kind: 'claude', projectPath: 'relative/path' },
+      { claudeDir },
+    )
+    expect(commands.some((c) => c.scope === 'project')).toBe(false)
+  })
+
+  it('projectPath が存在しないディレクトリのとき project スコープを走査しない', () => {
+    const { commands } = getSlashCommands(
+      { kind: 'claude', projectPath: '/nonexistent/dir/xyz' },
+      { claudeDir },
+    )
+    expect(commands.some((c) => c.scope === 'project')).toBe(false)
+  })
+
+  it('同じ projectPath の2回目の呼び出しがキャッシュを返す', () => {
+    const first = getSlashCommands({ kind: 'claude' }, { claudeDir })
+    const second = getSlashCommands({ kind: 'claude' }, { claudeDir })
+    expect(second.commands).toBe(first.commands)
+  })
+
+  it('projectPath ごとにキャッシュが分かれる', () => {
+    const projectPath = makeProject(['only-here'])
+    const withPath = getSlashCommands({ kind: 'claude', projectPath }, { claudeDir })
+    const withoutPath = getSlashCommands({ kind: 'claude' }, { claudeDir })
+    expect(withPath.commands.some((c) => c.name === 'only-here')).toBe(true)
+    expect(withoutPath.commands.some((c) => c.name === 'only-here')).toBe(false)
+  })
+
+  it('同名は project > builtin の順に1件へ正規化する', () => {
+    // 組み込みの clear と同名のプロジェクトコマンドを置く
+    const projectPath = makeProject(['clear'])
+    const { commands } = getSlashCommands({ kind: 'claude', projectPath }, { claudeDir })
+    const matched = commands.filter((c) => c.name === 'clear')
+    expect(matched.length).toBe(1)
+    expect(matched[0].scope).toBe('project')
+  })
+
+  it('同名は project > user の順に1件へ正規化する', () => {
+    mkdirSync(join(claudeDir, 'commands'), { recursive: true })
+    writeFileSync(join(claudeDir, 'commands', 'dup.md'), '---\ndescription: user\n---\n', 'utf-8')
+    const projectPath = makeProject(['dup'])
+
+    const { commands } = getSlashCommands({ kind: 'claude', projectPath }, { claudeDir })
+    const matched = commands.filter((c) => c.name === 'dup')
+    expect(matched.length).toBe(1)
+    expect(matched[0].scope).toBe('project')
+  })
+
+  it('名前順にソートして返す', () => {
+    const { commands } = getSlashCommands({ kind: 'claude' }, { claudeDir })
+    const names = commands.map((c) => c.name)
+    // 実装と同じ比較関数で期待値を作る
+    expect(names).toEqual([...names].sort((a, b) => a.localeCompare(b)))
   })
 })

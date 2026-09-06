@@ -16,7 +16,8 @@ import {
   type Dirent,
 } from 'fs'
 import { join, basename, normalize } from 'path'
-import { SlashCommandInfo } from '@remocoder/shared'
+import { homedir } from 'os'
+import { SlashCommandInfo, SessionSource } from '@remocoder/shared'
 
 /**
  * 先頭の YAML frontmatter から `key: value` を抽出する。
@@ -354,4 +355,131 @@ export function scanPlugins(roots: PluginRoot[], ctx: ScanContext): SlashCommand
     }
   }
   return results
+}
+
+/**
+ * Claude Code の組み込みスラッシュコマンド。
+ *
+ * Claude Code のバージョンアップで内容が変わる。実装時および保守時は
+ * `/help` の出力と突き合わせ、存在しないものを削り、足りないものを足すこと。
+ */
+export const BUILTIN_COMMANDS: SlashCommandInfo[] = [
+  { name: 'clear', description: 'Clear conversation history', scope: 'builtin' },
+  { name: 'compact', description: 'Compact conversation history', scope: 'builtin' },
+  { name: 'resume', description: 'Resume a previous conversation', scope: 'builtin' },
+  { name: 'init', description: 'Initialize CLAUDE.md for the project', scope: 'builtin' },
+  { name: 'review', description: 'Review a pull request', scope: 'builtin' },
+  { name: 'model', description: 'Change the active model', scope: 'builtin' },
+  { name: 'status', description: 'Show session status', scope: 'builtin' },
+  { name: 'memory', description: 'Edit memory files', scope: 'builtin' },
+  { name: 'permissions', description: 'Manage tool permissions', scope: 'builtin' },
+  { name: 'config', description: 'Open settings', scope: 'builtin' },
+  { name: 'cost', description: 'Show token usage and cost', scope: 'builtin' },
+  { name: 'agents', description: 'Manage subagents', scope: 'builtin' },
+  { name: 'mcp', description: 'Manage MCP servers', scope: 'builtin' },
+  { name: 'add-dir', description: 'Add a working directory', scope: 'builtin' },
+  { name: 'help', description: 'Show available commands', scope: 'builtin' },
+]
+
+/** scope の優先順位。数値が小さいほど優先する */
+const SCOPE_PRIORITY: Record<SlashCommandInfo['scope'], number> = {
+  project: 0,
+  user: 1,
+  plugin: 2,
+  builtin: 3,
+}
+
+/** getSlashCommands のキャッシュ（30秒TTL）。claudeDir と projectPath の組ごとに分ける */
+const commandsCache = new Map<
+  string,
+  { value: { commands: SlashCommandInfo[]; truncated: boolean }; expiry: number }
+>()
+
+const CACHE_TTL_MS = 30000
+
+/** テスト用にキャッシュを破棄する */
+export function clearSlashCommandCache(): void {
+  commandsCache.clear()
+}
+
+/** projectPath が走査してよい値か検証する。絶対パスかつ実在するディレクトリのみ許す */
+function validProjectPath(projectPath: unknown): string | null {
+  if (typeof projectPath !== 'string' || !projectPath.startsWith('/')) return null
+  try {
+    if (!statSync(projectPath).isDirectory()) return null
+  } catch {
+    return null
+  }
+  return projectPath
+}
+
+/**
+ * セッションの起動元に応じたスラッシュコマンド一覧を返す。
+ *
+ * Codex など別ツールに対応する場合は、この switch に case を足す。
+ */
+export function getSlashCommands(
+  source: SessionSource | undefined,
+  // claudeDir はテストから一時ディレクトリを渡すための引数。本番では省略する
+  options: { claudeDir?: string } = {},
+): {
+  commands: SlashCommandInfo[]
+  truncated: boolean
+} {
+  switch (source?.kind) {
+    case 'claude':
+      break
+    default:
+      return { commands: [], truncated: false }
+  }
+
+  const claudeDir = options.claudeDir ?? join(homedir(), '.claude')
+  const projectPath = validProjectPath(source.projectPath)
+  const cacheKey = `${claudeDir}|${projectPath ?? '<none>'}`
+  const now = Date.now()
+  const cached = commandsCache.get(cacheKey)
+  if (cached && now < cached.expiry) return cached.value
+
+  const ctx = createScanContext()
+
+  const collected: SlashCommandInfo[] = [
+    ...scanCommandsDir(join(claudeDir, 'commands'), 'user', ctx),
+    ...scanSkillsDir(join(claudeDir, 'skills'), 'user', ctx),
+    ...scanPlugins(
+      resolveEnabledPlugins(join(claudeDir, 'plugins'), [
+        join(claudeDir, 'settings.json'),
+        ...(projectPath
+          ? [
+              join(projectPath, '.claude', 'settings.json'),
+              join(projectPath, '.claude', 'settings.local.json'),
+            ]
+          : []),
+      ]),
+      ctx,
+    ),
+    ...BUILTIN_COMMANDS,
+  ]
+
+  if (projectPath) {
+    collected.unshift(
+      ...scanCommandsDir(join(projectPath, '.claude', 'commands'), 'project', ctx),
+      ...scanSkillsDir(join(projectPath, '.claude', 'skills'), 'project', ctx),
+    )
+  }
+
+  // 同名は scope の優先順位で1件に正規化する
+  const byName = new Map<string, SlashCommandInfo>()
+  for (const cmd of collected) {
+    const existing = byName.get(cmd.name)
+    if (!existing || SCOPE_PRIORITY[cmd.scope] < SCOPE_PRIORITY[existing.scope]) {
+      byName.set(cmd.name, cmd)
+    }
+  }
+
+  const value = {
+    commands: [...byName.values()].sort((a, b) => a.name.localeCompare(b.name)),
+    truncated: ctx.truncated,
+  }
+  commandsCache.set(cacheKey, { value, expiry: now + CACHE_TTL_MS })
+  return value
 }

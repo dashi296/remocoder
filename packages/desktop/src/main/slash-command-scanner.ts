@@ -629,7 +629,20 @@ function validProjectPath(projectPath: unknown): string | null {
   // キャッシュキーをパスの表記ゆれ（末尾の "/." や "/a/.." など）に依存させないための
   // 正規化。resolve はファイルシステムに触れずシンボリックリンクも解決しない純粋な
   // 文字列操作なので、「リンク解決前の文字列で判定する」というルールには反しない
-  return resolve(projectPath)
+  const lexical = resolve(projectPath)
+  // さらに実体のパスに解決する。lexical のままだと、同じディレクトリを指す
+  // 異なるシンボリックリンク経由のパスがそれぞれ別のキャッシュキーになり、
+  // 認証済みクライアントが symlink のエイリアスを次々作ることで
+  // キャッシュ（最大 MAX_CACHE_ENTRIES 件）を無限に追い出させ、走査を
+  // 再実行させ続けられてしまう。realpathSync が失敗した場合（レース等）は
+  // lexical にフォールバックする。上記の絶対パス・ディレクトリ判定は
+  // 解決前の文字列に対して行っており、ここでの解決はキャッシュキー・走査対象の
+  // 決定にのみ影響する。
+  try {
+    return realpathSync(lexical)
+  } catch {
+    return lexical
+  }
 }
 
 /**

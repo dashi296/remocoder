@@ -931,6 +931,21 @@ describe('getSlashCommands', () => {
     expect(second.commands).toBe(first.commands)
   })
 
+  it('同じディレクトリを指す異なるシンボリックリンクは同じキャッシュエントリを使う', () => {
+    const projectPath = makeProject(['via-symlink'])
+    const link1 = join(tmp, 'alias-1')
+    const link2 = join(tmp, 'alias-2')
+    symlinkSync(projectPath, link1, 'dir')
+    symlinkSync(projectPath, link2, 'dir')
+
+    const first = getSlashCommands({ kind: 'claude', projectPath: link1 }, { claudeDir })
+    const second = getSlashCommands({ kind: 'claude', projectPath: link2 }, { claudeDir })
+
+    // 実体は同じディレクトリなので、キャッシュも1件だけになる
+    expect(getSlashCommandCacheSize()).toBe(1)
+    expect(second.commands).toBe(first.commands)
+  })
+
   it('キャッシュの件数が上限を超えない', () => {
     for (let i = 0; i < MAX_CACHE_ENTRIES + 10; i++) {
       const projectPath = makeProject([`p${i}`])

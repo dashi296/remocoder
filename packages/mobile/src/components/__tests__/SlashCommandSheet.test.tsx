@@ -246,6 +246,26 @@ describe('SlashCommandSheet', () => {
     await flushPendingEffects()
   })
 
+  it('commands が null（応答がまだ届いていない）のとき読み込み中の表示をする', async () => {
+    render(<SlashCommandSheet {...defaultProps} commands={null} />)
+    expect(screen.getByText('Loading commands…')).toBeTruthy()
+    expect(screen.queryByText('No commands found')).toBeNull()
+    await flushPendingEffects()
+  })
+
+  it('error: scan_failed のとき走査失敗を表示し、コマンドが空でも「見つからない」とは表示しない', async () => {
+    render(<SlashCommandSheet {...defaultProps} commands={[]} error="scan_failed" />)
+    expect(screen.getByText('Failed to scan commands')).toBeTruthy()
+    expect(screen.queryByText('No commands found')).toBeNull()
+    await flushPendingEffects()
+  })
+
+  it('error: not_attached のとき未アタッチである旨を表示する', async () => {
+    render(<SlashCommandSheet {...defaultProps} commands={[]} error="not_attached" />)
+    expect(screen.getByText('Not attached to a session')).toBeTruthy()
+    await flushPendingEffects()
+  })
+
   it('保存済みの使用回数の順に並べて表示する', async () => {
     await AsyncStorage.setItem(USAGE_STORAGE_KEY, JSON.stringify({ review: 3 }))
     const commands = [makeCommand({ name: 'commit' }), makeCommand({ name: 'review' })]

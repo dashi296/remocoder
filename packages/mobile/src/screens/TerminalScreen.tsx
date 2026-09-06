@@ -64,8 +64,12 @@ export function TerminalScreen() {
   const [pendingPermission, setPendingPermission] = useState<PermissionRequest | null>(null)
   const webViewRef = useRef<WebView>(null)
   const [currentSource, setCurrentSource] = useState<SessionSource | null>(null)
-  const [commands, setCommands] = useState<SlashCommandInfo[]>([])
+  // command_list_request への応答がまだ届いていない（＝取得中/未取得）ことと、
+  // 応答が「空だった」ことを区別するため、初期値・リセット時ともに null にする。
+  // null は SlashCommandSheet 側で「Loading commands…」として表示される。
+  const [commands, setCommands] = useState<SlashCommandInfo[] | null>(null)
   const [commandsTruncated, setCommandsTruncated] = useState(false)
+  const [commandsError, setCommandsError] = useState<string | null>(null)
   const [sheetVisible, setSheetVisible] = useState(false)
 
   // セッションが終了した（auth_error / shell_exit / session_not_found）ときに
@@ -74,6 +78,7 @@ export function TerminalScreen() {
   const resetCommandState = useCallback(() => {
     setCommands([])
     setCommandsTruncated(false)
+    setCommandsError(null)
     setSheetVisible(false)
   }, [])
 
@@ -113,7 +118,12 @@ export function TerminalScreen() {
           setStatus('connected')
           setPendingPermission(null)
           if (msg.source) setCurrentSource(msg.source as SessionSource)
-          // セッションが変わるとプロジェクトも変わるので一覧を取り直す
+          // セッションが変わるとプロジェクトも変わるので一覧を取り直す。
+          // 前のセッションのコマンド一覧を新しいセッションのものと誤認させないよう、
+          // 応答が届くまでは「未取得（null）」に戻す
+          setCommands(null)
+          setCommandsError(null)
+          setCommandsTruncated(false)
           webViewRef.current?.injectJavaScript('window.requestCommandList(); true;')
           break
         case 'connected':
@@ -131,10 +141,17 @@ export function TerminalScreen() {
           setStatus('auth_error')
           resetCommandState()
           break
-        case 'command_list':
-          setCommands((msg.commands as SlashCommandInfo[]) ?? [])
+        case 'command_list': {
+          // error があるとき（scan_failed / not_attached）は commands が [] で
+          // 届くが、これは「走査できなかった」ことを示すのであって「コマンドが
+          // 0件だった」わけではない。両者を区別するため、エラー時は commands を
+          // null（未取得）のままにし、エラー文言は別途 error state で保持する。
+          const responseError = typeof msg.error === 'string' ? msg.error : null
+          setCommandsError(responseError)
+          setCommands(responseError ? null : ((msg.commands as SlashCommandInfo[]) ?? []))
           setCommandsTruncated(Boolean(msg.truncated))
           break
+        }
         case 'permission_request':
           setPendingPermission({
             requestId: msg.requestId as string,
@@ -226,6 +243,7 @@ export function TerminalScreen() {
         visible={sheetVisible}
         commands={commands}
         truncated={commandsTruncated}
+        error={commandsError}
         onClose={() => setSheetVisible(false)}
         onSelect={handleSelectCommand}
       />

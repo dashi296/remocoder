@@ -16,8 +16,14 @@ export const USAGE_STORAGE_KEY = 'slashCommandUsage'
 
 interface Props {
   visible: boolean
-  commands: SlashCommandInfo[]
+  /**
+   * command_list_request への応答がまだ届いていない場合は null。
+   * 届いていれば、走査結果が空でも配列（空配列を含む）になる。
+   */
+  commands: SlashCommandInfo[] | null
   truncated?: boolean
+  /** command_list の error フィールド。'scan_failed' | 'not_attached' など */
+  error?: string | null
   onClose: () => void
   onSelect: (name: string) => void
 }
@@ -70,7 +76,14 @@ export function sortCommands(
   })
 }
 
-export function SlashCommandSheet({ visible, commands, truncated, onClose, onSelect }: Props) {
+export function SlashCommandSheet({
+  visible,
+  commands,
+  truncated,
+  error,
+  onClose,
+  onSelect,
+}: Props) {
   const [query, setQuery] = useState('')
   const [usage, setUsage] = useState<Record<string, number>>({})
   const keyboardHeight = useKeyboardHeight()
@@ -82,6 +95,7 @@ export function SlashCommandSheet({ visible, commands, truncated, onClose, onSel
   }, [visible])
 
   const visibleCommands = useMemo(() => {
+    if (!commands) return []
     const sorted = sortCommands(commands, usage)
     const q = query.trim().toLowerCase()
     if (!q) return sorted
@@ -90,6 +104,22 @@ export function SlashCommandSheet({ visible, commands, truncated, onClose, onSel
         c.name.toLowerCase().includes(q) || (c.description ?? '').toLowerCase().includes(q),
     )
   }, [commands, usage, query])
+
+  // 一覧本文の状態を「まだ届いていない」「取得失敗」「取得できたが空」
+  // 「表示できる項目がある」の4つに分ける。エラーは commands の有無より
+  // 優先する（pty-server は失敗時も commands: [] を送るため）。
+  let emptyMessage: string | null = null
+  if (error === 'scan_failed') {
+    emptyMessage = 'Failed to scan commands'
+  } else if (error === 'not_attached') {
+    emptyMessage = 'Not attached to a session'
+  } else if (error) {
+    emptyMessage = 'Failed to load commands'
+  } else if (commands === null) {
+    emptyMessage = 'Loading commands…'
+  } else if (visibleCommands.length === 0) {
+    emptyMessage = 'No commands found'
+  }
 
   function handleSelect(name: string) {
     onSelect(name)
@@ -123,8 +153,8 @@ export function SlashCommandSheet({ visible, commands, truncated, onClose, onSel
             autoCorrect={false}
           />
 
-          {visibleCommands.length === 0 ? (
-            <Text style={styles.empty}>No commands found</Text>
+          {emptyMessage !== null ? (
+            <Text style={styles.empty}>{emptyMessage}</Text>
           ) : (
             <FlatList
               data={visibleCommands}

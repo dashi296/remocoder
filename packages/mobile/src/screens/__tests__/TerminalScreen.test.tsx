@@ -224,6 +224,41 @@ describe('TerminalScreen', () => {
       expect(await screen.findByText('/commit')).toBeTruthy()
     })
 
+    it('command_list の応答が届く前は「読み込み中」を表示し「見つからない」とは表示しない', () => {
+      render(<TerminalScreen />)
+      sendFromWebView({ type: 'session_attached', sessionId: 's1', source: { kind: 'claude' } })
+      // command_list はまだ送っていない
+      fireEvent.press(screen.getByTestId('slash-command-button'))
+      expect(screen.getByText('Loading commands…')).toBeTruthy()
+      expect(screen.queryByText('No commands found')).toBeNull()
+    })
+
+    it('command_list が error: scan_failed で返ると走査失敗を表示する', async () => {
+      render(<TerminalScreen />)
+      sendFromWebView({ type: 'session_attached', sessionId: 's1', source: { kind: 'claude' } })
+      sendFromWebView({
+        type: 'command_list',
+        sessionId: 's1',
+        commands: [],
+        error: 'scan_failed',
+      })
+      fireEvent.press(screen.getByTestId('slash-command-button'))
+      expect(await screen.findByText('Failed to scan commands')).toBeTruthy()
+      expect(screen.queryByText('No commands found')).toBeNull()
+    })
+
+    it('command_list が空だが成功で返ると「見つからない」を表示する', async () => {
+      render(<TerminalScreen />)
+      sendFromWebView({ type: 'session_attached', sessionId: 's1', source: { kind: 'claude' } })
+      sendFromWebView({
+        type: 'command_list',
+        sessionId: 's1',
+        commands: [],
+      })
+      fireEvent.press(screen.getByTestId('slash-command-button'))
+      expect(await screen.findByText('No commands found')).toBeTruthy()
+    })
+
     it('コマンドを選ぶと sendInput を注入してシートを閉じる', async () => {
       render(<TerminalScreen />)
       sendFromWebView({ type: 'session_attached', sessionId: 's1', source: { kind: 'claude' } })

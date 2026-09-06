@@ -15,7 +15,7 @@ import {
   readFileSync,
   type Dirent,
 } from 'fs'
-import { join, basename, normalize } from 'path'
+import { join, basename, normalize, isAbsolute, relative } from 'path'
 import { homedir } from 'os'
 import { SlashCommandInfo, SessionSource } from '@remocoder/shared'
 
@@ -235,10 +235,49 @@ export function scanSkillsDir(
   return results
 }
 
+/**
+ * プラグイン root 直下の SKILL.md（`installPath/SKILL.md`）を走査する。
+ *
+ * skills/ 配下のスキルと違い、ディレクトリ名から呼び出し名を決められない
+ * （root 自体がプラグインの installPath であり、名前を持つ「1階層下」がない）。
+ * そのためプラグイン名をそのまま呼び出し名にする（`/<pluginName>`）。
+ * ただし SKILL.md の frontmatter に `name` があれば、skills/ 配下のスキルと
+ * 同じ命名パターン（`<pluginName>:<name>`）に揃えるためそちらを使う。
+ */
+export function scanPluginRootSkill(
+  installPath: string,
+  pluginName: string,
+  ctx: ScanContext,
+): SlashCommandInfo[] {
+  if (isExhausted(ctx)) return []
+  const skillFile = join(installPath, 'SKILL.md')
+  if (!existsSync(skillFile)) return []
+
+  ctx.fileCount++
+  let front: Record<string, string> = {}
+  try {
+    front = parseFrontmatter(readHead(skillFile))
+  } catch {
+    return []
+  }
+  if (front['user-invocable'] === 'false') return []
+
+  const info: SlashCommandInfo = {
+    name: front.name ? `${pluginName}:${front.name}` : pluginName,
+    scope: 'plugin',
+    pluginName,
+  }
+  const description = truncateDescription(front.description)
+  if (description) info.description = description
+  return [info]
+}
+
 /** 有効なプラグイン1件の走査対象 */
 export interface PluginRoot {
   /** plugin.json の name。呼び出し名の名前空間になる */
   name: string
+  /** プラグイン本体のディレクトリ。root 直下の SKILL.md を探すために使う */
+  installPath: string
   commandsDirs: string[]
   skillsDirs: string[]
 }
@@ -280,7 +319,8 @@ function resolveManifestDirs(
     if (typeof entry !== 'string') continue
     // './skills/' のような相対指定を installPath 基準で解決する
     const normalized = entry.replace(/^\.\//, '').replace(/\/+$/, '')
-    if (!normalized || normalized.startsWith('/') || normalized.includes('..')) continue
+    // isAbsolute は Windows の 'C:\...' もカバーする（startsWith('/') は POSIX 専用だった）
+    if (!normalized || isAbsolute(normalized) || normalized.includes('..')) continue
     dirs.push(join(installPath, normalized))
   }
   return dirs
@@ -311,11 +351,17 @@ export function resolveEnabledPlugins(pluginsDir: string, settingsPaths: string[
     for (const record of records) {
       const rawInstallPath = record?.installPath
       if (typeof rawInstallPath !== 'string') continue
-      if (!rawInstallPath.startsWith('/')) continue
+      // isAbsolute は Windows の 'C:\...' もカバーする（startsWith('/') は POSIX 専用だった）
+      if (!isAbsolute(rawInstallPath)) continue
       // '..' を含む文字列がプレフィックス一致だけをすり抜けて pluginsDir の外を指さないよう、
       // 判定にも以降の join にも正規化後のパスを使う
       const installPath = normalize(rawInstallPath)
-      if (!installPath.startsWith(normalizedPluginsDir + '/')) continue
+      // startsWith(normalizedPluginsDir + '/') は Windows では区切りが '\' になり常に false
+      // だったため、relative() ベースの包含判定に置き換える。
+      // pluginsDir と一致（空文字）・'..' で始まる（配下から出る）・絶対パスが返る
+      // （別ドライブなど比較不能）のいずれかなら pluginsDir 配下ではないとみなす。
+      const rel = relative(normalizedPluginsDir, installPath)
+      if (rel === '' || rel.startsWith('..') || isAbsolute(rel)) continue
 
       const manifest = readJson(join(installPath, '.claude-plugin', 'plugin.json')) as
         | { name?: unknown; commands?: unknown; skills?: unknown }
@@ -324,6 +370,7 @@ export function resolveEnabledPlugins(pluginsDir: string, settingsPaths: string[
 
       roots.push({
         name: manifest.name,
+        installPath,
         commandsDirs: resolveManifestDirs(installPath, manifest.commands, 'commands'),
         skillsDirs: resolveManifestDirs(installPath, manifest.skills, 'skills'),
       })
@@ -353,6 +400,7 @@ export function scanPlugins(roots: PluginRoot[], ctx: ScanContext): SlashCommand
     for (const dir of root.skillsDirs) {
       results.push(...scanSkillsDir(dir, 'plugin', ctx, root.name))
     }
+    results.push(...scanPluginRootSkill(root.installPath, root.name, ctx))
   }
   return results
 }
@@ -404,7 +452,8 @@ export function clearSlashCommandCache(): void {
 
 /** projectPath が走査してよい値か検証する。絶対パスかつ実在するディレクトリのみ許す */
 function validProjectPath(projectPath: unknown): string | null {
-  if (typeof projectPath !== 'string' || !projectPath.startsWith('/')) return null
+  // isAbsolute は Windows の 'C:\...' もカバーする（startsWith('/') は POSIX 専用だった）
+  if (typeof projectPath !== 'string' || !isAbsolute(projectPath)) return null
   try {
     if (!statSync(projectPath).isDirectory()) return null
   } catch {
@@ -442,7 +491,19 @@ export function getSlashCommands(
 
   const ctx = createScanContext()
 
+  // 走査の順序は「500ファイル/3秒」の budget を優先度の高いスコープから
+  // 消費させるためのものであり、同名の重複解決とは無関係（重複解決は下の
+  // SCOPE_PRIORITY テーブルで名前ごとに行うため順序に依存しない）。
+  // project を先頭に置かないと、user・plugin の走査だけで budget を使い切った
+  // 場合に最優先スコープの project が丸ごと落ちてしまう。
+  // 「読みやすさ」のために project スコープをここから動かさないこと。
   const collected: SlashCommandInfo[] = [
+    ...(projectPath
+      ? [
+          ...scanCommandsDir(join(projectPath, '.claude', 'commands'), 'project', ctx),
+          ...scanSkillsDir(join(projectPath, '.claude', 'skills'), 'project', ctx),
+        ]
+      : []),
     ...scanCommandsDir(join(claudeDir, 'commands'), 'user', ctx),
     ...scanSkillsDir(join(claudeDir, 'skills'), 'user', ctx),
     ...scanPlugins(
@@ -459,13 +520,6 @@ export function getSlashCommands(
     ),
     ...BUILTIN_COMMANDS,
   ]
-
-  if (projectPath) {
-    collected.unshift(
-      ...scanCommandsDir(join(projectPath, '.claude', 'commands'), 'project', ctx),
-      ...scanSkillsDir(join(projectPath, '.claude', 'skills'), 'project', ctx),
-    )
-  }
 
   // 同名は scope の優先順位で1件に正規化する
   const byName = new Map<string, SlashCommandInfo>()

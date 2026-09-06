@@ -404,7 +404,14 @@ describe('scanPlugins', () => {
     writeFileSync(join(skillDir, 'SKILL.md'), '---\ndescription: s\n---\n', 'utf-8')
 
     const result = scanPlugins(
-      [{ name: 'my-plugin', commandsDirs: [cmdDir], skillsDirs: [join(tmp, 'skills')] }],
+      [
+        {
+          name: 'my-plugin',
+          installPath: join(tmp, 'install'),
+          commandsDirs: [cmdDir],
+          skillsDirs: [join(tmp, 'skills')],
+        },
+      ],
       createScanContext(),
     )
 
@@ -421,7 +428,7 @@ describe('scanPlugins', () => {
     writeFileSync(join(subDir, 'nested.md'), '---\ndescription: n\n---\n', 'utf-8')
 
     const result = scanPlugins(
-      [{ name: 'my-plugin', commandsDirs: [cmdDir], skillsDirs: [] }],
+      [{ name: 'my-plugin', installPath: join(tmp, 'install'), commandsDirs: [cmdDir], skillsDirs: [] }],
       createScanContext(),
     )
 
@@ -438,10 +445,88 @@ describe('scanPlugins', () => {
 
   it('存在しないディレクトリを無視する', () => {
     const result = scanPlugins(
-      [{ name: 'p', commandsDirs: [join(tmp, 'none')], skillsDirs: [join(tmp, 'none2')] }],
+      [
+        {
+          name: 'p',
+          installPath: join(tmp, 'none3'),
+          commandsDirs: [join(tmp, 'none')],
+          skillsDirs: [join(tmp, 'none2')],
+        },
+      ],
       createScanContext(),
     )
     expect(result).toEqual([])
+  })
+
+  it('プラグイン root の SKILL.md をプラグイン名で取り込む', () => {
+    const installPath = join(tmp, 'install')
+    mkdirSync(installPath, { recursive: true })
+    writeFileSync(join(installPath, 'SKILL.md'), '---\ndescription: root skill\n---\n', 'utf-8')
+
+    const result = scanPlugins(
+      [{ name: 'root-plugin', installPath, commandsDirs: [], skillsDirs: [] }],
+      createScanContext(),
+    )
+
+    expect(result).toEqual([
+      { name: 'root-plugin', description: 'root skill', scope: 'plugin', pluginName: 'root-plugin' },
+    ])
+  })
+
+  it('root SKILL.md の frontmatter に name があれば <pluginName>:<name> にする', () => {
+    const installPath = join(tmp, 'install')
+    mkdirSync(installPath, { recursive: true })
+    writeFileSync(
+      join(installPath, 'SKILL.md'),
+      '---\nname: brainstorming\ndescription: root skill\n---\n',
+      'utf-8',
+    )
+
+    const result = scanPlugins(
+      [{ name: 'root-plugin', installPath, commandsDirs: [], skillsDirs: [] }],
+      createScanContext(),
+    )
+
+    expect(result.map((c) => c.name)).toEqual(['root-plugin:brainstorming'])
+  })
+
+  it('root SKILL.md が user-invocable: false のとき除外する', () => {
+    const installPath = join(tmp, 'install')
+    mkdirSync(installPath, { recursive: true })
+    writeFileSync(
+      join(installPath, 'SKILL.md'),
+      '---\ndescription: internal\nuser-invocable: false\n---\n',
+      'utf-8',
+    )
+
+    const result = scanPlugins(
+      [{ name: 'root-plugin', installPath, commandsDirs: [], skillsDirs: [] }],
+      createScanContext(),
+    )
+
+    expect(result).toEqual([])
+  })
+
+  it('root SKILL.md と skills/ ディレクトリの両方があれば両方を返す', () => {
+    const installPath = join(tmp, 'install')
+    const skillsDir = join(installPath, 'skills', 'review')
+    mkdirSync(skillsDir, { recursive: true })
+    writeFileSync(join(installPath, 'SKILL.md'), '---\ndescription: root skill\n---\n', 'utf-8')
+    writeFileSync(join(skillsDir, 'SKILL.md'), '---\ndescription: sub skill\n---\n', 'utf-8')
+
+    const result = scanPlugins(
+      [
+        {
+          name: 'dual-plugin',
+          installPath,
+          commandsDirs: [],
+          skillsDirs: [join(installPath, 'skills')],
+        },
+      ],
+      createScanContext(),
+    )
+
+    expect(result.map((c) => c.name).sort()).toEqual(['dual-plugin', 'dual-plugin:review'])
   })
 })
 
@@ -572,5 +657,27 @@ describe('getSlashCommands', () => {
     const names = commands.map((c) => c.name)
     // 実装と同じ比較関数で期待値を作る
     expect(names).toEqual([...names].sort((a, b) => a.localeCompare(b)))
+  })
+
+  it('ユーザーコマンドが走査上限を使い切ってもプロジェクトコマンドは残る（budget 優先度）', () => {
+    // user スコープの走査だけで MAX_FILES を使い切らせる
+    mkdirSync(join(claudeDir, 'commands'), { recursive: true })
+    for (let i = 0; i < MAX_FILES; i++) {
+      writeFileSync(
+        join(claudeDir, 'commands', `cmd${i}.md`),
+        '---\ndescription: d\n---\n',
+        'utf-8',
+      )
+    }
+    const projectPath = makeProject(['priority-check'])
+
+    const { commands, truncated } = getSlashCommands(
+      { kind: 'claude', projectPath },
+      { claudeDir },
+    )
+
+    expect(truncated).toBe(true)
+    // project は優先度が最も高いスコープなので、budget が尽きても落とされてはならない
+    expect(commands.some((c) => c.name === 'priority-check' && c.scope === 'project')).toBe(true)
   })
 })

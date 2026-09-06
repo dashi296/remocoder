@@ -155,6 +155,16 @@ describe('SlashCommandSheet', () => {
     await flushPendingEffects()
   })
 
+  it('namespace があれば (namespace) 形式で表示し scope は表示しない', async () => {
+    const commands = [
+      makeCommand({ name: 'build', scope: 'project', namespace: 'project:ci' }),
+    ]
+    render(<SlashCommandSheet {...defaultProps} commands={commands} />)
+    expect(await screen.findByText('(project:ci)')).toBeTruthy()
+    expect(screen.queryByText('project')).toBeNull()
+    await flushPendingEffects()
+  })
+
   it('コマンド名で絞り込む', async () => {
     const commands = [makeCommand({ name: 'commit' }), makeCommand({ name: 'review' })]
     render(<SlashCommandSheet {...defaultProps} commands={commands} />)

@@ -126,7 +126,9 @@ export function SlashCommandSheet({ visible, commands, truncated, onClose, onSel
                 >
                   <View style={styles.rowTop}>
                     <Text style={styles.name}>{`/${item.name}`}</Text>
-                    <Text style={styles.scope}>{item.scope}</Text>
+                    <Text style={styles.scope}>
+                      {item.namespace ? `(${item.namespace})` : item.scope}
+                    </Text>
                     {usage[item.name] ? (
                       <Text style={styles.count}>{usage[item.name]}</Text>
                     ) : null}

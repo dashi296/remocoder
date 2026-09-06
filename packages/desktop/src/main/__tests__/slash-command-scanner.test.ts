@@ -1,5 +1,6 @@
 // @vitest-environment node
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { execSync } from 'child_process'
 import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
@@ -10,6 +11,7 @@ import {
   scanSkillsDir,
   scanPluginRootSkill,
   MAX_FILES,
+  MAX_JSON_BYTES,
   isSafeCommandName,
   resolveEnabledPlugins,
   scanPlugins,
@@ -239,6 +241,18 @@ describe('scanCommandsDir / scanSkillsDir', () => {
     expect(result).toEqual([])
   })
 
+  it(
+    'SKILL.md が FIFO の場合は開かずスキップする（ブロッキング対策）',
+    () => {
+      mkdirSync(join(tmp, 'skills', 'weird'), { recursive: true })
+      const fifoPath = join(tmp, 'skills', 'weird', 'SKILL.md')
+      execSync(`mkfifo "${fifoPath}"`)
+      const result = scanSkillsDir(join(tmp, 'skills'), 'user', createScanContext())
+      expect(result).toEqual([])
+    },
+    2000,
+  )
+
   it('root SKILL.md の frontmatter name に制御文字が含まれる場合は除外する', () => {
     // parseFrontmatter の value 抽出は正規表現の `.` を使っており、これは行末文字である
     // \r を含められない（\r を含む行はそもそもマッチしない）。そのため、値の途中に
@@ -421,6 +435,24 @@ describe('resolveEnabledPlugins', () => {
 
   it('installed_plugins.json がなくても空配列を返す', () => {
     expect(resolveEnabledPlugins(join(tmp, 'missing'), [])).toEqual([])
+  })
+
+  it('installed_plugins.json が上限サイズを超える場合は読まずにスキップする', () => {
+    // 有効なプラグインを含む正当な JSON だが、ダミーの巨大フィールドでサイズ上限を
+    // 超えさせる。読まれていれば見つかるはずのプラグインが見つからないことで、
+    // 「サイズ超過のため読まれなかった」ことを検証する（例外にならないことも兼ねて確認）
+    const p = join(tmp, 'plugins', 'cache', 'mp', 'big', '1.0.0')
+    makePlugin(p, { name: 'big-plugin' })
+    const { pluginsDir, settingsPaths } = setup(
+      {
+        version: 2,
+        _padding: 'x'.repeat(MAX_JSON_BYTES),
+        plugins: { 'big@mp': [{ scope: 'user', installPath: p, version: '1.0.0' }] },
+      },
+      [{ enabledPlugins: { 'big@mp': true } }],
+    )
+    expect(() => resolveEnabledPlugins(pluginsDir, settingsPaths)).not.toThrow()
+    expect(resolveEnabledPlugins(pluginsDir, settingsPaths)).toEqual([])
   })
 
   it('installed_plugins.json が壊れていても空配列を返す', () => {

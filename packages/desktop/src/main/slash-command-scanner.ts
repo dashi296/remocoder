@@ -95,6 +95,12 @@ export function createScanContext(): ScanContext {
 
 /** ファイル先頭の maxBytes だけ読む。巨大な Markdown 全体を読まないため */
 function readHead(filePath: string, maxBytes = MAX_HEAD_BYTES): string {
+  // FIFO などの特殊ファイルを開くと、openSync が書き手が現れるまでブロックしうる。
+  // pty-server.ts はこの走査を同期的に呼ぶため、ブロックすると PTY・WebSocket・
+  // Electron のメインプロセス全体が止まる。通常ファイルであることを確認してから開く。
+  if (!statSync(filePath).isFile()) {
+    throw new Error(`not a regular file: ${filePath}`)
+  }
   const fd = openSync(filePath, 'r')
   try {
     const buf = Buffer.alloc(maxBytes)
@@ -157,6 +163,8 @@ export function scanCommandsDir(
     } catch {
       return
     }
+    // readdirSync 自体に時間がかかった場合に備え、エントリを処理し始める前にも確認する
+    if (isExhausted(ctx)) return
 
     for (const entry of entries) {
       if (isExhausted(ctx)) return
@@ -226,6 +234,8 @@ export function scanSkillsDir(
   } catch {
     return []
   }
+  // readdirSync 自体に時間がかかった場合に備え、エントリを処理し始める前にも確認する
+  if (isExhausted(ctx)) return []
 
   const results: SlashCommandInfo[] = []
   for (const entry of entries) {
@@ -308,9 +318,17 @@ export interface PluginRoot {
   skillsDirs: string[]
 }
 
-/** JSON ファイルを読む。存在しない・壊れている場合は null */
+/** JSON として読むファイルの最大バイト数。無制限に読むとファイル/時間の budget を無視して長時間ブロックしうる */
+export const MAX_JSON_BYTES = 1024 * 1024
+
+/**
+ * JSON ファイルを読む。存在しない・壊れている・通常ファイルでない・
+ * サイズが上限を超える場合は null（読まない）。
+ */
 function readJson(filePath: string): unknown {
   try {
+    const stat = statSync(filePath)
+    if (!stat.isFile() || stat.size > MAX_JSON_BYTES) return null
     return JSON.parse(readFileSync(filePath, 'utf-8'))
   } catch {
     return null

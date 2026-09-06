@@ -9,6 +9,8 @@ import {
   scanCommandsDir,
   scanSkillsDir,
   MAX_FILES,
+  resolveEnabledPlugins,
+  scanPlugins,
 } from '../slash-command-scanner'
 
 describe('parseFrontmatter', () => {
@@ -184,5 +186,201 @@ describe('scanCommandsDir / scanSkillsDir', () => {
     expect(result).toEqual([
       { name: 'my-plugin:review', description: 'd', scope: 'plugin', pluginName: 'my-plugin' },
     ])
+  })
+})
+
+describe('resolveEnabledPlugins', () => {
+  let tmp: string
+
+  beforeEach(() => {
+    tmp = mkdtempSync(join(tmpdir(), 'scanner-plugin-'))
+  })
+
+  afterEach(() => {
+    rmSync(tmp, { recursive: true, force: true })
+  })
+
+  /** installed_plugins.json と settings.json を書くヘルパー */
+  function setup(installed: unknown, settings: unknown[]): { pluginsDir: string; settingsPaths: string[] } {
+    const pluginsDir = join(tmp, 'plugins')
+    mkdirSync(pluginsDir, { recursive: true })
+    writeFileSync(join(pluginsDir, 'installed_plugins.json'), JSON.stringify(installed), 'utf-8')
+    const settingsPaths = settings.map((s, i) => {
+      const p = join(tmp, `settings${i}.json`)
+      writeFileSync(p, JSON.stringify(s), 'utf-8')
+      return p
+    })
+    return { pluginsDir, settingsPaths }
+  }
+
+  /** installPath 配下にプラグイン本体を作るヘルパー */
+  function makePlugin(installPath: string, manifest: Record<string, unknown>) {
+    mkdirSync(join(installPath, '.claude-plugin'), { recursive: true })
+    writeFileSync(
+      join(installPath, '.claude-plugin', 'plugin.json'),
+      JSON.stringify(manifest),
+      'utf-8',
+    )
+  }
+
+  it('enabledPlugins が true のプラグインだけを返す', () => {
+    const onPath = join(tmp, 'plugins', 'cache', 'mp', 'on', '1.0.0')
+    const offPath = join(tmp, 'plugins', 'cache', 'mp', 'off', '1.0.0')
+    makePlugin(onPath, { name: 'on-plugin' })
+    makePlugin(offPath, { name: 'off-plugin' })
+    const { pluginsDir, settingsPaths } = setup(
+      {
+        version: 2,
+        plugins: {
+          'on@mp': [{ scope: 'user', installPath: onPath, version: '1.0.0' }],
+          'off@mp': [{ scope: 'user', installPath: offPath, version: '1.0.0' }],
+        },
+      },
+      [{ enabledPlugins: { 'on@mp': true, 'off@mp': false } }],
+    )
+
+    const roots = resolveEnabledPlugins(pluginsDir, settingsPaths)
+    expect(roots.map((r) => r.name)).toEqual(['on-plugin'])
+  })
+
+  it('enabledPlugins に載っていないプラグインを除外する', () => {
+    const p = join(tmp, 'plugins', 'cache', 'mp', 'x', '1.0.0')
+    makePlugin(p, { name: 'x-plugin' })
+    const { pluginsDir, settingsPaths } = setup(
+      { version: 2, plugins: { 'x@mp': [{ scope: 'user', installPath: p, version: '1.0.0' }] } },
+      [{ enabledPlugins: {} }],
+    )
+    expect(resolveEnabledPlugins(pluginsDir, settingsPaths)).toEqual([])
+  })
+
+  it('後ろの設定ファイルが前の設定を上書きする', () => {
+    const p = join(tmp, 'plugins', 'cache', 'mp', 'x', '1.0.0')
+    makePlugin(p, { name: 'x-plugin' })
+    const { pluginsDir, settingsPaths } = setup(
+      { version: 2, plugins: { 'x@mp': [{ scope: 'user', installPath: p, version: '1.0.0' }] } },
+      [{ enabledPlugins: { 'x@mp': true } }, { enabledPlugins: { 'x@mp': false } }],
+    )
+    expect(resolveEnabledPlugins(pluginsDir, settingsPaths)).toEqual([])
+  })
+
+  it('plugin.json の name を使う（レジストリのキーではなく）', () => {
+    const p = join(tmp, 'plugins', 'cache', 'mp', 'registry-key', '1.0.0')
+    makePlugin(p, { name: 'manifest-name' })
+    const { pluginsDir, settingsPaths } = setup(
+      { version: 2, plugins: { 'registry-key@mp': [{ scope: 'user', installPath: p, version: '1.0.0' }] } },
+      [{ enabledPlugins: { 'registry-key@mp': true } }],
+    )
+    expect(resolveEnabledPlugins(pluginsDir, settingsPaths)[0].name).toBe('manifest-name')
+  })
+
+  it('manifest の skills パス指定を反映する', () => {
+    const p = join(tmp, 'plugins', 'cache', 'mp', 'custom', '1.0.0')
+    makePlugin(p, { name: 'custom', skills: './my-skills/' })
+    const { pluginsDir, settingsPaths } = setup(
+      { version: 2, plugins: { 'custom@mp': [{ scope: 'user', installPath: p, version: '1.0.0' }] } },
+      [{ enabledPlugins: { 'custom@mp': true } }],
+    )
+    const roots = resolveEnabledPlugins(pluginsDir, settingsPaths)
+    expect(roots[0].skillsDirs).toEqual([join(p, 'my-skills')])
+  })
+
+  it('manifest のパス指定がなければ commands/ と skills/ を使う', () => {
+    const p = join(tmp, 'plugins', 'cache', 'mp', 'default', '1.0.0')
+    makePlugin(p, { name: 'default-plugin' })
+    const { pluginsDir, settingsPaths } = setup(
+      { version: 2, plugins: { 'default@mp': [{ scope: 'user', installPath: p, version: '1.0.0' }] } },
+      [{ enabledPlugins: { 'default@mp': true } }],
+    )
+    const roots = resolveEnabledPlugins(pluginsDir, settingsPaths)
+    expect(roots[0].commandsDirs).toEqual([join(p, 'commands')])
+    expect(roots[0].skillsDirs).toEqual([join(p, 'skills')])
+  })
+
+  it('pluginsDir の外を指す installPath を無視する', () => {
+    const outside = join(tmp, 'outside', '1.0.0')
+    makePlugin(outside, { name: 'outside-plugin' })
+    const { pluginsDir, settingsPaths } = setup(
+      { version: 2, plugins: { 'o@mp': [{ scope: 'user', installPath: outside, version: '1.0.0' }] } },
+      [{ enabledPlugins: { 'o@mp': true } }],
+    )
+    expect(resolveEnabledPlugins(pluginsDir, settingsPaths)).toEqual([])
+  })
+
+  it('相対パスの installPath を無視する', () => {
+    const { pluginsDir, settingsPaths } = setup(
+      { version: 2, plugins: { 'r@mp': [{ scope: 'user', installPath: 'relative/path', version: '1.0.0' }] } },
+      [{ enabledPlugins: { 'r@mp': true } }],
+    )
+    expect(resolveEnabledPlugins(pluginsDir, settingsPaths)).toEqual([])
+  })
+
+  it('installed_plugins.json がなくても空配列を返す', () => {
+    expect(resolveEnabledPlugins(join(tmp, 'missing'), [])).toEqual([])
+  })
+
+  it('installed_plugins.json が壊れていても空配列を返す', () => {
+    const pluginsDir = join(tmp, 'plugins')
+    mkdirSync(pluginsDir, { recursive: true })
+    writeFileSync(join(pluginsDir, 'installed_plugins.json'), '{ broken', 'utf-8')
+    expect(resolveEnabledPlugins(pluginsDir, [])).toEqual([])
+  })
+
+  it('同一プラグインの複数レコードを最初の1件に正規化する', () => {
+    const p1 = join(tmp, 'plugins', 'cache', 'mp', 'dup', '1.0.0')
+    const p2 = join(tmp, 'plugins', 'cache', 'mp', 'dup', '2.0.0')
+    makePlugin(p1, { name: 'dup-plugin' })
+    makePlugin(p2, { name: 'dup-plugin' })
+    const { pluginsDir, settingsPaths } = setup(
+      {
+        version: 2,
+        plugins: {
+          'dup@mp': [
+            { scope: 'user', installPath: p1, version: '1.0.0' },
+            { scope: 'project', installPath: p2, version: '2.0.0' },
+          ],
+        },
+      },
+      [{ enabledPlugins: { 'dup@mp': true } }],
+    )
+    expect(resolveEnabledPlugins(pluginsDir, settingsPaths).length).toBe(1)
+  })
+})
+
+describe('scanPlugins', () => {
+  let tmp: string
+
+  beforeEach(() => {
+    tmp = mkdtempSync(join(tmpdir(), 'scanner-scanplugin-'))
+  })
+
+  afterEach(() => {
+    rmSync(tmp, { recursive: true, force: true })
+  })
+
+  it('プラグインのコマンドとスキルを名前空間付きで返す', () => {
+    const cmdDir = join(tmp, 'commands')
+    const skillDir = join(tmp, 'skills', 'review')
+    mkdirSync(cmdDir, { recursive: true })
+    mkdirSync(skillDir, { recursive: true })
+    writeFileSync(join(cmdDir, 'commit.md'), '---\ndescription: c\n---\n', 'utf-8')
+    writeFileSync(join(skillDir, 'SKILL.md'), '---\ndescription: s\n---\n', 'utf-8')
+
+    const result = scanPlugins(
+      [{ name: 'my-plugin', commandsDirs: [cmdDir], skillsDirs: [join(tmp, 'skills')] }],
+      createScanContext(),
+    )
+
+    expect(result).toEqual([
+      { name: 'my-plugin:commit', description: 'c', scope: 'plugin', pluginName: 'my-plugin' },
+      { name: 'my-plugin:review', description: 's', scope: 'plugin', pluginName: 'my-plugin' },
+    ])
+  })
+
+  it('存在しないディレクトリを無視する', () => {
+    const result = scanPlugins(
+      [{ name: 'p', commandsDirs: [join(tmp, 'none')], skillsDirs: [join(tmp, 'none2')] }],
+      createScanContext(),
+    )
+    expect(result).toEqual([])
   })
 })

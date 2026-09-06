@@ -12,6 +12,7 @@ import {
   realpathSync,
   existsSync,
   statSync,
+  readFileSync,
   type Dirent,
 } from 'fs'
 import { join, basename } from 'path'
@@ -229,6 +230,122 @@ export function scanSkillsDir(
     if (description) info.description = description
     if (pluginName) info.pluginName = pluginName
     results.push(info)
+  }
+  return results
+}
+
+/** 有効なプラグイン1件の走査対象 */
+export interface PluginRoot {
+  /** plugin.json の name。呼び出し名の名前空間になる */
+  name: string
+  commandsDirs: string[]
+  skillsDirs: string[]
+}
+
+/** JSON ファイルを読む。存在しない・壊れている場合は null */
+function readJson(filePath: string): unknown {
+  try {
+    return JSON.parse(readFileSync(filePath, 'utf-8'))
+  } catch {
+    return null
+  }
+}
+
+/**
+ * 設定ファイル群の enabledPlugins をマージする。
+ * settingsPaths は優先度の低い順に渡す（後ろが前を上書きする）。
+ */
+function mergeEnabledPlugins(settingsPaths: string[]): Record<string, boolean> {
+  const merged: Record<string, boolean> = {}
+  for (const path of settingsPaths) {
+    const json = readJson(path) as { enabledPlugins?: Record<string, boolean> } | null
+    if (!json || typeof json.enabledPlugins !== 'object' || json.enabledPlugins === null) continue
+    for (const [key, value] of Object.entries(json.enabledPlugins)) {
+      if (typeof value === 'boolean') merged[key] = value
+    }
+  }
+  return merged
+}
+
+/** manifest のパス指定を絶対パスの配列にする。未指定なら defaultDir を使う */
+function resolveManifestDirs(
+  installPath: string,
+  value: unknown,
+  defaultDir: string,
+): string[] {
+  const raw = value === undefined ? [defaultDir] : Array.isArray(value) ? value : [value]
+  const dirs: string[] = []
+  for (const entry of raw) {
+    if (typeof entry !== 'string') continue
+    // './skills/' のような相対指定を installPath 基準で解決する
+    const normalized = entry.replace(/^\.\//, '').replace(/\/+$/, '')
+    if (!normalized || normalized.startsWith('/') || normalized.includes('..')) continue
+    dirs.push(join(installPath, normalized))
+  }
+  return dirs
+}
+
+/**
+ * installed_plugins.json と設定の enabledPlugins から、有効なプラグインを解決する。
+ *
+ * installPath はシンボリックリンクを解決する前の文字列で pluginsDir 配下かを検証する。
+ * リンク先が pluginsDir の外でも走査は許すが、読むのは .md / SKILL.md だけに限る。
+ */
+export function resolveEnabledPlugins(pluginsDir: string, settingsPaths: string[]): PluginRoot[] {
+  const installed = readJson(join(pluginsDir, 'installed_plugins.json')) as
+    | { plugins?: Record<string, Array<{ installPath?: unknown }>> }
+    | null
+  if (!installed || typeof installed.plugins !== 'object' || installed.plugins === null) return []
+
+  const enabled = mergeEnabledPlugins(settingsPaths)
+  const roots: PluginRoot[] = []
+
+  for (const [key, records] of Object.entries(installed.plugins)) {
+    if (enabled[key] !== true) continue
+    if (!Array.isArray(records)) continue
+
+    for (const record of records) {
+      const installPath = record?.installPath
+      if (typeof installPath !== 'string') continue
+      if (!installPath.startsWith('/')) continue
+      // リンク解決前の文字列で pluginsDir 配下かを判定する
+      if (!installPath.startsWith(pluginsDir + '/')) continue
+
+      const manifest = readJson(join(installPath, '.claude-plugin', 'plugin.json')) as
+        | { name?: unknown; commands?: unknown; skills?: unknown }
+        | null
+      if (!manifest || typeof manifest.name !== 'string' || !manifest.name) continue
+
+      roots.push({
+        name: manifest.name,
+        commandsDirs: resolveManifestDirs(installPath, manifest.commands, 'commands'),
+        skillsDirs: resolveManifestDirs(installPath, manifest.skills, 'skills'),
+      })
+      // 同一プラグインの複数レコードは最初の1件だけ採用する
+      break
+    }
+  }
+  return roots
+}
+
+/** 有効なプラグインのコマンドとスキルを走査する */
+export function scanPlugins(roots: PluginRoot[], ctx: ScanContext): SlashCommandInfo[] {
+  const results: SlashCommandInfo[] = []
+  for (const root of roots) {
+    for (const dir of root.commandsDirs) {
+      for (const cmd of scanCommandsDir(dir, 'user', ctx)) {
+        // namespace など既存フィールドを落とさないよう先に展開する
+        results.push({
+          ...cmd,
+          name: `${root.name}:${cmd.name}`,
+          scope: 'plugin',
+          pluginName: root.name,
+        })
+      }
+    }
+    for (const dir of root.skillsDirs) {
+      results.push(...scanSkillsDir(dir, 'plugin', ctx, root.name))
+    }
   }
   return results
 }

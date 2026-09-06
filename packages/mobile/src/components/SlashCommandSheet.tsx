@@ -35,15 +35,27 @@ export async function loadUsage(): Promise<Record<string, number>> {
   }
 }
 
+/**
+ * recordUsage の書き込みを直列化するためのキュー。
+ * read-modify-write を2つの await にまたがって行うため、直列化しないと
+ * 連続で呼び出したとき（例: 連打）片方の read が古い値を読んで increment を
+ * 消してしまう。
+ */
+let usageWriteQueue: Promise<void> = Promise.resolve()
+
 /** 使用回数を1増やす。失敗しても例外にしない */
-export async function recordUsage(name: string): Promise<void> {
-  try {
-    const usage = await loadUsage()
-    usage[name] = (usage[name] ?? 0) + 1
-    await AsyncStorage.setItem(USAGE_STORAGE_KEY, JSON.stringify(usage))
-  } catch {
-    // 使用回数は補助情報なので、保存に失敗しても操作は続行する
-  }
+export function recordUsage(name: string): Promise<void> {
+  const next = usageWriteQueue.catch(() => undefined).then(async () => {
+    try {
+      const usage = await loadUsage()
+      usage[name] = (usage[name] ?? 0) + 1
+      await AsyncStorage.setItem(USAGE_STORAGE_KEY, JSON.stringify(usage))
+    } catch {
+      // 使用回数は補助情報なので、保存に失敗しても操作は続行する
+    }
+  })
+  usageWriteQueue = next
+  return next
 }
 
 /** 使用回数の降順 → 名前の昇順で並べる。元の配列は変更しない */

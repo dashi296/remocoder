@@ -118,6 +118,12 @@ describe('使用回数の永続化', () => {
     jest.spyOn(AsyncStorage, 'setItem').mockRejectedValueOnce(new Error('fail'))
     await expect(recordUsage('commit')).resolves.toBeUndefined()
   })
+
+  it('await せず連続で呼んでも両方の増分を保持する（直列化される）', async () => {
+    recordUsage('x')
+    await recordUsage('x')
+    expect(await loadUsage()).toEqual({ x: 2 })
+  })
 })
 
 describe('SlashCommandSheet', () => {

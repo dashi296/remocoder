@@ -43,6 +43,18 @@ vi.mock('node-pty', () => ({
   }),
 }))
 
+// 走査失敗のテストでだけ実装を差し替えるための状態。null なら本物を呼ぶ
+const scannerState = vi.hoisted(() => ({ impl: null as null | ((...args: any[]) => any) }))
+
+vi.mock('../slash-command-scanner', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../slash-command-scanner')>()
+  return {
+    ...actual,
+    getSlashCommands: (...args: any[]) =>
+      scannerState.impl ? scannerState.impl(...args) : (actual.getSlashCommands as any)(...args),
+  }
+})
+
 // Helper: create a mock WebSocket that supports EventEmitter + send/close
 function createMockWs() {
   const ws: any = new EventEmitter()
@@ -319,6 +331,72 @@ describe('startPtyServer', () => {
       const calls = ws2.send.mock.calls.map((c: any) => JSON.parse(c[0]))
       const response = calls.find((m: any) => m.type === 'session_list_response')
       expect(response.sessions.length).toBe(2)
+    })
+  })
+
+  describe('command_list_request', () => {
+    it('claude セッションにアタッチ済みなら command_list が返る', () => {
+      const { ws } = connectAuthAndCreate(startPtyServer)
+      sendMessage(ws, { type: 'command_list_request' })
+
+      const calls = ws.send.mock.calls.map((c: any) => JSON.parse(c[0]))
+      const response = calls.find((m: any) => m.type === 'command_list')
+      expect(response).toBeDefined()
+      expect(Array.isArray(response.commands)).toBe(true)
+      expect(response.sessionId).toBeTruthy()
+    })
+
+    it('組み込みコマンドが含まれる', () => {
+      const { ws } = connectAuthAndCreate(startPtyServer)
+      sendMessage(ws, { type: 'command_list_request' })
+
+      const calls = ws.send.mock.calls.map((c: any) => JSON.parse(c[0]))
+      const response = calls.find((m: any) => m.type === 'command_list')
+      expect(response.commands.some((c: any) => c.name === 'clear')).toBe(true)
+    })
+
+    it('未アタッチのクライアントには error: not_attached を返す', () => {
+      const { ws } = connectAndAuth(startPtyServer)
+      sendMessage(ws, { type: 'command_list_request' })
+
+      const calls = ws.send.mock.calls.map((c: any) => JSON.parse(c[0]))
+      const response = calls.find((m: any) => m.type === 'command_list')
+      expect(response).toBeDefined()
+      expect(response.error).toBe('not_attached')
+      expect(response.sessionId).toBeNull()
+      expect(response.commands).toEqual([])
+    })
+
+    it('shell セッションでは空の一覧を返す', () => {
+      startPtyServer()
+      const ws = createMockWs()
+      wssState.instance!.emit('connection', ws)
+      sendMessage(ws, { type: 'auth', token: 'test-token' })
+      sendMessage(ws, { type: 'session_create', source: { kind: 'shell' } })
+      sendMessage(ws, { type: 'command_list_request' })
+
+      const calls = ws.send.mock.calls.map((c: any) => JSON.parse(c[0]))
+      const response = calls.find((m: any) => m.type === 'command_list')
+      expect(response.commands).toEqual([])
+      expect(response.sessionId).toBeTruthy()
+    })
+
+    it('走査が失敗しても接続を切らず error を返す', () => {
+      scannerState.impl = () => {
+        throw new Error('scan failed')
+      }
+      try {
+        const { ws } = connectAuthAndCreate(startPtyServer)
+        sendMessage(ws, { type: 'command_list_request' })
+
+        const calls = ws.send.mock.calls.map((c: any) => JSON.parse(c[0]))
+        const response = calls.find((m: any) => m.type === 'command_list')
+        expect(response.error).toBe('scan_failed')
+        expect(response.commands).toEqual([])
+        expect(ws.close).not.toHaveBeenCalled()
+      } finally {
+        scannerState.impl = null
+      }
     })
   })
 

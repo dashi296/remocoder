@@ -58,6 +58,16 @@ export type WsMessage =
   | { type: 'permission_request'; requestId: string; toolName: string; details: string[]; requiresAlways: boolean; createdAt: number }
   /** モバイルがデスクトップへ承認結果を返す */
   | { type: 'permission_response'; requestId: string; decision: 'approve' | 'reject' | 'always' }
+  /** モバイルがスラッシュコマンド一覧を要求する */
+  | { type: 'command_list_request' }
+  /** command_list_request への応答 */
+  | {
+      type: 'command_list'
+      sessionId: string | null
+      commands: SlashCommandInfo[]
+      truncated?: boolean
+      error?: string
+    }
   /** モバイルがデスクトップへセッション削除を要求する */
   | { type: 'session_delete'; sessionId: string }
   /** session_delete への応答（削除完了） */

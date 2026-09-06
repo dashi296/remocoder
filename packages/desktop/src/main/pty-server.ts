@@ -8,6 +8,7 @@ import { WsMessage, SessionInfo, ProjectInfo, MultiplexerSessionInfo, SessionSou
 import { v4 as uuidv4 } from 'uuid'
 import { tryParsePermission, stripAnsi } from './permission-parser'
 import { execAsync, EXEC_ENV } from './exec-env'
+import { getSlashCommands } from './slash-command-scanner'
 
 let AUTH_TOKEN = process.env.REMOTE_TOKEN ?? uuidv4()
 const SERVER_NAME = osHostname()
@@ -865,6 +866,58 @@ export function startPtyServer(port = DEFAULT_WS_PORT, callbacks: PtyServerCallb
         if (pongTimeoutId) {
           clearTimeout(pongTimeoutId)
           pongTimeoutId = null
+        }
+        return
+      }
+
+      if (msg.type === 'command_list_request') {
+        if (!attachedSessionId) {
+          ws.send(
+            JSON.stringify({
+              type: 'command_list',
+              sessionId: null,
+              commands: [],
+              error: 'not_attached',
+            } satisfies WsMessage),
+          )
+          return
+        }
+
+        const session = ptySessions.get(attachedSessionId)
+        if (!session) {
+          ws.send(
+            JSON.stringify({
+              type: 'command_list',
+              sessionId: null,
+              commands: [],
+              error: 'not_attached',
+            } satisfies WsMessage),
+          )
+          return
+        }
+
+        try {
+          // source が保持するのはセッション作成時のプロジェクトパスであり、
+          // Claude Code 内で /cd した後の現在の cwd ではない
+          const { commands, truncated } = getSlashCommands(session.source)
+          ws.send(
+            JSON.stringify({
+              type: 'command_list',
+              sessionId: session.id,
+              commands,
+              truncated,
+            } satisfies WsMessage),
+          )
+        } catch (err) {
+          console.error('[pty-server] スラッシュコマンドの走査に失敗しました:', err)
+          ws.send(
+            JSON.stringify({
+              type: 'command_list',
+              sessionId: session.id,
+              commands: [],
+              error: 'scan_failed',
+            } satisfies WsMessage),
+          )
         }
         return
       }

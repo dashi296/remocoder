@@ -1,5 +1,5 @@
 import React from 'react'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react-native'
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react-native'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { SlashCommandInfo } from '@remocoder/shared'
 import {
@@ -9,6 +9,29 @@ import {
   recordUsage,
   USAGE_STORAGE_KEY,
 } from '../SlashCommandSheet'
+
+/**
+ * マウント時の loadUsage().then(setUsage) や、コマンド押下時の
+ * recordUsage(name).then(() => loadUsage().then(setUsage)) は
+ * 発火してから待たない Promise チェーンであり、これはブリーフで
+ * 指定された実装仕様（変更禁止）である。
+ *
+ * このヘルパーは、そうしたチェーンをテストの act 境界内で確実に
+ * 解決させるためのテスト側の後始末。setTimeout はマクロタスクなので、
+ * これより前にスケジュールされたマイクロタスク（Promise の then チェーン）は
+ * すべて解決してから実行される。act() で包むことで、チェーンの中で
+ * 呼ばれる setState も act 警告を出さずに反映される。
+ *
+ * 呼び出さないと、そのテストが終了した後に前述の Promise が解決し、
+ * (1) 別のテストの実行中に "not wrapped in act(...)" 警告が出たり、
+ * (2) 次のテストの beforeEach の AsyncStorage.clear() と書き込みが
+ *     競合して使用回数が意図せず上書きされたりする可能性がある。
+ */
+async function flushPendingEffects(): Promise<void> {
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0))
+  })
+}
 
 const makeCommand = (overrides: Partial<SlashCommandInfo> = {}): SlashCommandInfo => ({
   name: 'commit',
@@ -108,24 +131,28 @@ describe('SlashCommandSheet', () => {
     expect(screen.queryByText('Commands')).toBeNull()
   })
 
-  it('visible=true のときタイトルを表示する', () => {
+  it('visible=true のときタイトルを表示する', async () => {
     render(<SlashCommandSheet {...defaultProps} />)
     expect(screen.getByText('Commands')).toBeTruthy()
+    await flushPendingEffects()
   })
 
   it('コマンド名を先頭の / 付きで表示する', async () => {
     render(<SlashCommandSheet {...defaultProps} />)
     expect(await screen.findByText('/commit')).toBeTruthy()
+    await flushPendingEffects()
   })
 
   it('description を表示する', async () => {
     render(<SlashCommandSheet {...defaultProps} />)
     expect(await screen.findByText('Create a git commit')).toBeTruthy()
+    await flushPendingEffects()
   })
 
   it('scope を表示する', async () => {
     render(<SlashCommandSheet {...defaultProps} />)
     expect(await screen.findByText('user')).toBeTruthy()
+    await flushPendingEffects()
   })
 
   it('コマンド名で絞り込む', async () => {
@@ -134,6 +161,7 @@ describe('SlashCommandSheet', () => {
     fireEvent.changeText(screen.getByPlaceholderText('Search…'), 'rev')
     await waitFor(() => expect(screen.queryByText('/commit')).toBeNull())
     expect(screen.getByText('/review')).toBeTruthy()
+    await flushPendingEffects()
   })
 
   it('description で絞り込む', async () => {
@@ -145,12 +173,14 @@ describe('SlashCommandSheet', () => {
     fireEvent.changeText(screen.getByPlaceholderText('Search…'), 'git')
     await waitFor(() => expect(screen.queryByText('/b')).toBeNull())
     expect(screen.getByText('/a')).toBeTruthy()
+    await flushPendingEffects()
   })
 
   it('大文字小文字を区別せず絞り込む', async () => {
     render(<SlashCommandSheet {...defaultProps} />)
     fireEvent.changeText(screen.getByPlaceholderText('Search…'), 'COMMIT')
     expect(await screen.findByText('/commit')).toBeTruthy()
+    await flushPendingEffects()
   })
 
   it('コマンドを押すと onSelect が名前で呼ばれる', async () => {
@@ -158,29 +188,36 @@ describe('SlashCommandSheet', () => {
     render(<SlashCommandSheet {...defaultProps} onSelect={onSelect} />)
     fireEvent.press(await screen.findByText('/commit'))
     expect(onSelect).toHaveBeenCalledWith('commit')
+    // handleSelect が発火した recordUsage(...).then(() => loadUsage().then(setUsage))
+    // をこのテストの act 境界内で解決させ、次のテストへ持ち越さない
+    await flushPendingEffects()
   })
 
   it('コマンドを押すと使用回数が記録される', async () => {
     render(<SlashCommandSheet {...defaultProps} />)
     fireEvent.press(await screen.findByText('/commit'))
     await waitFor(async () => expect(await loadUsage()).toEqual({ commit: 1 }))
+    await flushPendingEffects()
   })
 
-  it('閉じるボタンで onClose が呼ばれる', () => {
+  it('閉じるボタンで onClose が呼ばれる', async () => {
     const onClose = jest.fn()
     render(<SlashCommandSheet {...defaultProps} onClose={onClose} />)
     fireEvent.press(screen.getByText('✕'))
     expect(onClose).toHaveBeenCalled()
+    await flushPendingEffects()
   })
 
   it('truncated のとき打ち切りの注記を表示する', async () => {
     render(<SlashCommandSheet {...defaultProps} truncated />)
     expect(await screen.findByText(/truncated/i)).toBeTruthy()
+    await flushPendingEffects()
   })
 
-  it('コマンドが空のとき空状態を表示する', () => {
+  it('コマンドが空のとき空状態を表示する', async () => {
     render(<SlashCommandSheet {...defaultProps} commands={[]} />)
     expect(screen.getByText('No commands found')).toBeTruthy()
+    await flushPendingEffects()
   })
 
   it('保存済みの使用回数の順に並べて表示する', async () => {
@@ -189,5 +226,6 @@ describe('SlashCommandSheet', () => {
     render(<SlashCommandSheet {...defaultProps} commands={commands} />)
     const items = await screen.findAllByText(/^\//)
     expect(items[0].props.children).toBe('/review')
+    await flushPendingEffects()
   })
 })

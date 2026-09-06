@@ -1,0 +1,193 @@
+import React from 'react'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react-native'
+import AsyncStorage from '@react-native-async-storage/async-storage'
+import { SlashCommandInfo } from '@remocoder/shared'
+import {
+  SlashCommandSheet,
+  sortCommands,
+  loadUsage,
+  recordUsage,
+  USAGE_STORAGE_KEY,
+} from '../SlashCommandSheet'
+
+const makeCommand = (overrides: Partial<SlashCommandInfo> = {}): SlashCommandInfo => ({
+  name: 'commit',
+  description: 'Create a git commit',
+  scope: 'user',
+  ...overrides,
+})
+
+const defaultProps = {
+  visible: true,
+  commands: [makeCommand()],
+  onClose: jest.fn(),
+  onSelect: jest.fn(),
+}
+
+describe('sortCommands', () => {
+  it('使用回数の多い順に並べる', () => {
+    const commands = [
+      makeCommand({ name: 'a' }),
+      makeCommand({ name: 'b' }),
+      makeCommand({ name: 'c' }),
+    ]
+    const sorted = sortCommands(commands, { b: 5, c: 2 })
+    expect(sorted.map((c) => c.name)).toEqual(['b', 'c', 'a'])
+  })
+
+  it('使用回数が同じなら名前順に並べる', () => {
+    const commands = [makeCommand({ name: 'z' }), makeCommand({ name: 'a' })]
+    expect(sortCommands(commands, { z: 1, a: 1 }).map((c) => c.name)).toEqual(['a', 'z'])
+  })
+
+  it('未使用のコマンドを名前順で後方に置く', () => {
+    const commands = [
+      makeCommand({ name: 'unused-a' }),
+      makeCommand({ name: 'used' }),
+      makeCommand({ name: 'unused-b' }),
+    ]
+    expect(sortCommands(commands, { used: 1 }).map((c) => c.name)).toEqual([
+      'used',
+      'unused-a',
+      'unused-b',
+    ])
+  })
+
+  it('元の配列を破壊しない', () => {
+    const commands = [makeCommand({ name: 'b' }), makeCommand({ name: 'a' })]
+    sortCommands(commands, {})
+    expect(commands.map((c) => c.name)).toEqual(['b', 'a'])
+  })
+})
+
+describe('使用回数の永続化', () => {
+  beforeEach(async () => {
+    jest.clearAllMocks()
+    await AsyncStorage.clear()
+  })
+
+  it('recordUsage が回数を1増やす', async () => {
+    await recordUsage('commit')
+    await recordUsage('commit')
+    expect(await loadUsage()).toEqual({ commit: 2 })
+  })
+
+  it('loadUsage は未保存のとき空オブジェクトを返す', async () => {
+    expect(await loadUsage()).toEqual({})
+  })
+
+  it('loadUsage は壊れた JSON でも空オブジェクトを返す', async () => {
+    await AsyncStorage.setItem(USAGE_STORAGE_KEY, '{ broken')
+    expect(await loadUsage()).toEqual({})
+  })
+
+  it('loadUsage は読み取り失敗時に空オブジェクトを返す', async () => {
+    // AsyncStorage のモックは jest.fn() で作られているため、jest.spyOn はラップせず
+    // 同じモック関数をそのまま返す。そのため mockRestore() を呼ぶと「元の実装」が
+    // 存在せず、生成時の実装ごとリセットされてしまう（以降 undefined を返す関数になる）。
+    // mockRejectedValueOnce は1回限りの上書きなので、明示的な復元は不要かつ有害。
+    jest.spyOn(AsyncStorage, 'getItem').mockRejectedValueOnce(new Error('fail'))
+    expect(await loadUsage()).toEqual({})
+  })
+
+  it('recordUsage は書き込み失敗時に例外を投げない', async () => {
+    // 上と同じ理由で mockRestore() は呼ばない
+    jest.spyOn(AsyncStorage, 'setItem').mockRejectedValueOnce(new Error('fail'))
+    await expect(recordUsage('commit')).resolves.toBeUndefined()
+  })
+})
+
+describe('SlashCommandSheet', () => {
+  beforeEach(async () => {
+    jest.clearAllMocks()
+    await AsyncStorage.clear()
+  })
+
+  it('visible=false のとき中身を描画しない', () => {
+    render(<SlashCommandSheet {...defaultProps} visible={false} />)
+    expect(screen.queryByText('Commands')).toBeNull()
+  })
+
+  it('visible=true のときタイトルを表示する', () => {
+    render(<SlashCommandSheet {...defaultProps} />)
+    expect(screen.getByText('Commands')).toBeTruthy()
+  })
+
+  it('コマンド名を先頭の / 付きで表示する', async () => {
+    render(<SlashCommandSheet {...defaultProps} />)
+    expect(await screen.findByText('/commit')).toBeTruthy()
+  })
+
+  it('description を表示する', async () => {
+    render(<SlashCommandSheet {...defaultProps} />)
+    expect(await screen.findByText('Create a git commit')).toBeTruthy()
+  })
+
+  it('scope を表示する', async () => {
+    render(<SlashCommandSheet {...defaultProps} />)
+    expect(await screen.findByText('user')).toBeTruthy()
+  })
+
+  it('コマンド名で絞り込む', async () => {
+    const commands = [makeCommand({ name: 'commit' }), makeCommand({ name: 'review' })]
+    render(<SlashCommandSheet {...defaultProps} commands={commands} />)
+    fireEvent.changeText(screen.getByPlaceholderText('Search…'), 'rev')
+    await waitFor(() => expect(screen.queryByText('/commit')).toBeNull())
+    expect(screen.getByText('/review')).toBeTruthy()
+  })
+
+  it('description で絞り込む', async () => {
+    const commands = [
+      makeCommand({ name: 'a', description: 'git commit helper' }),
+      makeCommand({ name: 'b', description: 'unrelated' }),
+    ]
+    render(<SlashCommandSheet {...defaultProps} commands={commands} />)
+    fireEvent.changeText(screen.getByPlaceholderText('Search…'), 'git')
+    await waitFor(() => expect(screen.queryByText('/b')).toBeNull())
+    expect(screen.getByText('/a')).toBeTruthy()
+  })
+
+  it('大文字小文字を区別せず絞り込む', async () => {
+    render(<SlashCommandSheet {...defaultProps} />)
+    fireEvent.changeText(screen.getByPlaceholderText('Search…'), 'COMMIT')
+    expect(await screen.findByText('/commit')).toBeTruthy()
+  })
+
+  it('コマンドを押すと onSelect が名前で呼ばれる', async () => {
+    const onSelect = jest.fn()
+    render(<SlashCommandSheet {...defaultProps} onSelect={onSelect} />)
+    fireEvent.press(await screen.findByText('/commit'))
+    expect(onSelect).toHaveBeenCalledWith('commit')
+  })
+
+  it('コマンドを押すと使用回数が記録される', async () => {
+    render(<SlashCommandSheet {...defaultProps} />)
+    fireEvent.press(await screen.findByText('/commit'))
+    await waitFor(async () => expect(await loadUsage()).toEqual({ commit: 1 }))
+  })
+
+  it('閉じるボタンで onClose が呼ばれる', () => {
+    const onClose = jest.fn()
+    render(<SlashCommandSheet {...defaultProps} onClose={onClose} />)
+    fireEvent.press(screen.getByText('✕'))
+    expect(onClose).toHaveBeenCalled()
+  })
+
+  it('truncated のとき打ち切りの注記を表示する', async () => {
+    render(<SlashCommandSheet {...defaultProps} truncated />)
+    expect(await screen.findByText(/truncated/i)).toBeTruthy()
+  })
+
+  it('コマンドが空のとき空状態を表示する', () => {
+    render(<SlashCommandSheet {...defaultProps} commands={[]} />)
+    expect(screen.getByText('No commands found')).toBeTruthy()
+  })
+
+  it('保存済みの使用回数の順に並べて表示する', async () => {
+    await AsyncStorage.setItem(USAGE_STORAGE_KEY, JSON.stringify({ review: 3 }))
+    const commands = [makeCommand({ name: 'commit' }), makeCommand({ name: 'review' })]
+    render(<SlashCommandSheet {...defaultProps} commands={commands} />)
+    const items = await screen.findAllByText(/^\//)
+    expect(items[0].props.children).toBe('/review')
+  })
+})

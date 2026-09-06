@@ -15,7 +15,7 @@ import {
   readFileSync,
   type Dirent,
 } from 'fs'
-import { join, basename, normalize, isAbsolute, relative } from 'path'
+import { join, basename, normalize, isAbsolute, relative, resolve } from 'path'
 import { homedir } from 'os'
 import { SlashCommandInfo, SessionSource } from '@remocoder/shared'
 
@@ -495,9 +495,35 @@ const commandsCache = new Map<
 
 const CACHE_TTL_MS = 30000
 
+/**
+ * キャッシュの最大保持件数。
+ * 認証済みクライアントは session_create 経由で projectPath を自由に指定できるため、
+ * 正規化後も無制限にエントリが増え続けないよう上限を設ける。
+ */
+export const MAX_CACHE_ENTRIES = 32
+
 /** テスト用にキャッシュを破棄する */
 export function clearSlashCommandCache(): void {
   commandsCache.clear()
+}
+
+/** テスト用に現在のキャッシュ件数を取得する */
+export function getSlashCommandCacheSize(): number {
+  return commandsCache.size
+}
+
+/**
+ * commandsCache に書き込む前の後始末。期限切れのエントリを掃除し、
+ * それでも上限に達していれば最も古いエントリ（Map の挿入順の先頭）を追い出す。
+ */
+function pruneCache(now: number, newKey: string): void {
+  for (const [key, entry] of commandsCache) {
+    if (now >= entry.expiry) commandsCache.delete(key)
+  }
+  if (!commandsCache.has(newKey) && commandsCache.size >= MAX_CACHE_ENTRIES) {
+    const oldestKey = commandsCache.keys().next().value
+    if (oldestKey !== undefined) commandsCache.delete(oldestKey)
+  }
 }
 
 /** projectPath が走査してよい値か検証する。絶対パスかつ実在するディレクトリのみ許す */
@@ -509,7 +535,10 @@ function validProjectPath(projectPath: unknown): string | null {
   } catch {
     return null
   }
-  return projectPath
+  // キャッシュキーをパスの表記ゆれ（末尾の "/." や "/a/.." など）に依存させないための
+  // 正規化。resolve はファイルシステムに触れずシンボリックリンクも解決しない純粋な
+  // 文字列操作なので、「リンク解決前の文字列で判定する」というルールには反しない
+  return resolve(projectPath)
 }
 
 /**
@@ -584,6 +613,7 @@ export function getSlashCommands(
     commands: [...byName.values()].sort((a, b) => a.name.localeCompare(b.name)),
     truncated: ctx.truncated,
   }
+  pruneCache(now, cacheKey)
   commandsCache.set(cacheKey, { value, expiry: now + CACHE_TTL_MS })
   return value
 }

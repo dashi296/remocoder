@@ -12,11 +12,13 @@ import {
   scanPluginRootSkill,
   MAX_FILES,
   MAX_JSON_BYTES,
+  MAX_CACHE_ENTRIES,
   isSafeCommandName,
   resolveEnabledPlugins,
   scanPlugins,
   getSlashCommands,
   clearSlashCommandCache,
+  getSlashCommandCacheSize,
   BUILTIN_COMMANDS,
 } from '../slash-command-scanner'
 
@@ -778,6 +780,26 @@ describe('getSlashCommands', () => {
     const names = commands.map((c) => c.name)
     // 実装と同じ比較関数で期待値を作る
     expect(names).toEqual([...names].sort((a, b) => a.localeCompare(b)))
+  })
+
+  it('projectPath の末尾の "." を正規化して同じキャッシュエントリを使う', () => {
+    const projectPath = makeProject()
+    const first = getSlashCommands({ kind: 'claude', projectPath }, { claudeDir })
+    // path.join は呼び出し側で正規化してしまうため、非正規化の文字列を再現するために
+    // 文字列結合で作る（実際にモバイルから届く projectPath は任意の文字列でありうる）
+    const second = getSlashCommands(
+      { kind: 'claude', projectPath: `${projectPath}/.` },
+      { claudeDir },
+    )
+    expect(second.commands).toBe(first.commands)
+  })
+
+  it('キャッシュの件数が上限を超えない', () => {
+    for (let i = 0; i < MAX_CACHE_ENTRIES + 10; i++) {
+      const projectPath = makeProject([`p${i}`])
+      getSlashCommands({ kind: 'claude', projectPath }, { claudeDir })
+    }
+    expect(getSlashCommandCacheSize()).toBeLessThanOrEqual(MAX_CACHE_ENTRIES)
   })
 
   it('ユーザーコマンドが走査上限を使い切ってもプロジェクトコマンドは残る（budget 優先度）', () => {

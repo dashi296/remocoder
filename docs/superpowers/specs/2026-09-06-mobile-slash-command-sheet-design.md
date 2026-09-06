@@ -70,6 +70,7 @@
 
 - SKILL.md の frontmatter に `user-invocable: false` があるものは除外する（実際に codex プラグインの3スキルが該当）
 - 設定に `skillOverrides` があり、対象スキルが `off` になっているものは除外する
+  - **未実装。** `skillOverrides` の実際の設定ファイル上のフォーマット（どのファイルの、どのキーに、どういう形で入るか）をこの環境で確認できなかったため実装を見送った。現状の実装で効いている除外規則は `user-invocable: false` のみであり、`skillOverrides` で off にしたスキルも一覧に出続ける。フォーマットが確認でき次第、別途対応する
 
 #### 説明文
 
@@ -220,10 +221,16 @@ AsyncStorage の単一キー `slashCommandUsage`、値は `{ [name]: number }`�
 
 ## 実装前に検証する項目
 
+> **注記（実装後の追記）:** 以下の4項目はいずれも実装前に検証されないまま実装が完了した。項目ごとに「未検証であること」「現状のコードが何を前提として動いているか」を明記する。1・2は実機確認が必要なため未着手のまま残っている。3・4はコードとして選択が固定されているが、Claude Code の実際の挙動との突き合わせは行われていない。
+
 1. **挿入文字列に末尾スペースを付けるか。** `/commit` だと Claude Code の候補メニューが開いた状態になり、そのまま Enter を押すとハイライトされている行が確定する。`/co` のような前置一致では意図しないコマンドが選ばれる可能性がある。`/commit ` だとメニューが閉じて引数入力状態になる可能性がある。ユーザーがそのまま Enter を押したときに期待どおりになる方を採用する
+   - **未検証。** 実装（`packages/mobile/src/screens/TerminalScreen.tsx` の `handleSelectCommand`）は末尾スペースなしの `/<name>` をそのまま `sendInput` している。実機での挙動確認は「実装しないこと」ではなく単に未着手であり、実機確認が取れるまでは on-device での確認項目として残す
 2. **複数文字の `input` メッセージがペースト扱いにならないか。** 短い文字列なら問題ないはずだが確認する
+   - **未検証。** 実装は `/<name>` 全体を1回の `sendInput` 呼び出し（1つの `input` メッセージ）で送っている。ペースト扱いになるかどうかは実機での確認項目として残す
 3. **名前の重複解決の優先順位。** 本仕様では project > user > plugin > builtin としたが、Claude Code の実際の優先順位と一致するか確認する
+   - **未検証。** `packages/desktop/src/main/slash-command-scanner.ts` の `SCOPE_PRIORITY` は本仕様どおり project(0) > user(1) > plugin(2) > builtin(3) を固定でエンコードしている。Claude Code 本体の実際の解決順序との突き合わせは行っていない
 4. **`enabledPlugins` のスコープ優先順位。** 本仕様ではプロジェクト設定をユーザー設定より優先としたが、managed settings を含む実際の解決順序を確認する
+   - **未検証。** 実装（`getSlashCommands` → `resolveEnabledPlugins`）は `~/.claude/settings.json` → `<projectPath>/.claude/settings.json` → `<projectPath>/.claude/settings.local.json` の順にマージし、後勝ちで解決している。managed settings（組織管理の設定ファイル）や `~/.claude/settings.local.json` は一切読んでおらず、この解決順序が Claude Code 本体の実際の優先順位と一致するかは未確認
 
 ---
 

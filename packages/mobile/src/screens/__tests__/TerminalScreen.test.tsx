@@ -1,5 +1,5 @@
 import React from 'react'
-import { render, screen, fireEvent, act, waitFor, cleanup } from '@testing-library/react-native'
+import { render, screen, fireEvent, act, waitFor } from '@testing-library/react-native'
 import { TerminalScreen } from '../TerminalScreen'
 import { injectJavaScriptMock } from '../../__mocks__/react-native-webview'
 import { useLocalSearchParams, mockRouterBack } from '../../__mocks__/expo-router'
@@ -20,16 +20,6 @@ describe('TerminalScreen', () => {
       ip: '100.64.0.1',
       token: 'test-token',
     })
-  })
-
-  // このプロジェクトの jest.config.js は @testing-library/react-native の
-  // jest-preset を使っておらず、テスト間の自動 unmount が行われない。
-  // TerminalScreen は session_attached のたびに実タイマー（5秒）を張るため、
-  // 明示的に unmount してエフェクトのクリーンアップ（clearCommandTimeout）を
-  // 走らせないと、そのタイマーが後続のテスト実行中に非同期で発火し、
-  // 「act(...) でラップされていない」という警告を引き起こす
-  afterEach(() => {
-    cleanup()
   })
 
   it('WebView が render される', () => {

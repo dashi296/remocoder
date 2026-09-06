@@ -607,9 +607,9 @@ type SlashCommandsResult = { commands: SlashCommandInfo[]; truncated: boolean }
  * 値は走査結果そのものではなく Promise を持つ。これにより、同じキーへの
  * リクエストが走査の完了前に重ねて届いても、2回目以降は同じ Promise を
  * 待つだけになり、重複した走査（ファイルシステムへの二重アクセス）が起きない。
- * 走査が失敗した場合は poisonEntry() がこのエントリ自体を削除するため、
- * 次の呼び出しは新しい走査からやり直す（失敗した Promise がキャッシュに残り
- * 続けることはない）。
+ * 走査が失敗した場合は getSlashCommands 内の catch がこのエントリ自体を
+ * 削除するため、次の呼び出しは新しい走査からやり直す（失敗した Promise が
+ * キャッシュに残り続けることはない）。
  */
 const commandsCache = new Map<
   string,

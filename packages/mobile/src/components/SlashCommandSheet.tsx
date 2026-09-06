@@ -14,10 +14,8 @@ import { useKeyboardHeight } from '../hooks/useKeyboardHeight'
 
 export const USAGE_STORAGE_KEY = 'slashCommandUsage'
 
-/**
- * サーバー（command_list の error フィールド）ではなく、モバイル側だけで
- * 判定するローカルなエラーコード。TerminalScreen が commandsError にセットする。
- */
+// サーバー（command_list の error フィールド）ではなく、モバイル側だけで
+// 判定するローカルなエラーコード。TerminalScreen が commandsError にセットする。
 /** session_attached から一定時間 command_list が届かなかった（TerminalScreen 側で判定） */
 export const ERROR_CLIENT_TIMEOUT = 'client_timeout'
 /** auth_error / shell_exit / session_not_found でセッションが終了した */
@@ -129,7 +127,7 @@ export function SlashCommandSheet({
     emptyMessage = 'Session has ended'
   } else if (error === ERROR_CLIENT_TIMEOUT) {
     // 走査に時間がかかっているだけの可能性もあるため、断定はしない
-    emptyMessage = "Taking a while to respond. The desktop app may need updating."
+    emptyMessage = 'Taking a while to respond. The desktop app may need updating.'
   } else if (error) {
     emptyMessage = 'Failed to load commands'
   } else if (commands === null) {

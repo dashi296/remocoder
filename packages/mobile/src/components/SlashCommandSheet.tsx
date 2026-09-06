@@ -87,7 +87,13 @@ export function SlashCommandSheet({ visible, commands, truncated, onClose, onSel
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
       <View style={styles.overlay}>
-        <View style={[styles.container, { paddingBottom: keyboardHeight }]}>
+        <View
+          testID="slash-command-sheet-container"
+          // キーボード非表示時（keyboardHeight === 0）は 0 にフォールバックさせず
+          // スタイルシート既定の 12 を使う。そうしないとホームインジケーターのある
+          // 端末で最下行がインジケーターに接してしまう
+          style={[styles.container, { paddingBottom: keyboardHeight || 12 }]}
+        >
           <View style={styles.header}>
             <Text style={styles.title}>Commands</Text>
             <TouchableOpacity onPress={onClose} style={styles.closeBtn}>

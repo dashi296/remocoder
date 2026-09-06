@@ -214,6 +214,16 @@ describe('SlashCommandSheet', () => {
     await flushPendingEffects()
   })
 
+  it('キーボード非表示時は下部パディングが 0 に潰れない', async () => {
+    render(<SlashCommandSheet {...defaultProps} />)
+    const container = screen.getByTestId('slash-command-sheet-container')
+    // このプロジェクトの RN テスト環境では StyleSheet.flatten がモックされており
+    // 配列をそのまま返すだけなので、ここでは手動でマージして最終的な値を確認する
+    const merged = Object.assign({}, ...([] as unknown[]).concat(container.props.style))
+    expect(merged.paddingBottom).toBe(12)
+    await flushPendingEffects()
+  })
+
   it('コマンドが空のとき空状態を表示する', async () => {
     render(<SlashCommandSheet {...defaultProps} commands={[]} />)
     expect(screen.getByText('No commands found')).toBeTruthy()

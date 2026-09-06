@@ -68,6 +68,15 @@ export function TerminalScreen() {
   const [commandsTruncated, setCommandsTruncated] = useState(false)
   const [sheetVisible, setSheetVisible] = useState(false)
 
+  // セッションが終了した（auth_error / shell_exit / session_not_found）ときに
+  // 古いコマンド一覧やシートの開閉状態を残さないためのリセット。
+  // disconnected は再接続で自然に復帰する一時的な状態なのでここでは呼ばない。
+  const resetCommandState = useCallback(() => {
+    setCommands([])
+    setCommandsTruncated(false)
+    setSheetVisible(false)
+  }, [])
+
   useKeepAwake()
 
   useEffect(() => {
@@ -98,6 +107,7 @@ export function TerminalScreen() {
           break
         case 'auth_error':
           setStatus('auth_error')
+          resetCommandState()
           break
         case 'session_attached':
           setStatus('connected')
@@ -115,9 +125,11 @@ export function TerminalScreen() {
           break
         case 'shell_exit':
           setStatus('shell_exit')
+          resetCommandState()
           break
         case 'session_not_found':
           setStatus('auth_error')
+          resetCommandState()
           break
         case 'command_list':
           setCommands((msg.commands as SlashCommandInfo[]) ?? [])
@@ -136,7 +148,7 @@ export function TerminalScreen() {
           console.warn('[TerminalScreen] 未処理の WebView メッセージタイプ:', msg.type)
       }
     },
-    [],
+    [resetCommandState],
   )
 
   const handlePermissionDecide = useCallback(

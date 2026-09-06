@@ -238,5 +238,57 @@ describe('TerminalScreen', () => {
       expect(injectedText()).toContain('sendInput("/commit")')
       await waitFor(() => expect(screen.queryByText('Commands')).toBeNull())
     })
+
+    it('shell_exit を受けるとシートが閉じる', async () => {
+      render(<TerminalScreen />)
+      sendFromWebView({ type: 'session_attached', sessionId: 's1', source: { kind: 'claude' } })
+      sendFromWebView({
+        type: 'command_list',
+        sessionId: 's1',
+        commands: [{ name: 'commit', scope: 'user' }],
+      })
+      fireEvent.press(screen.getByTestId('slash-command-button'))
+      expect(await screen.findByText('/commit')).toBeTruthy()
+
+      sendFromWebView({ type: 'shell_exit', exitCode: 0 })
+
+      expect(screen.queryByText('Commands')).toBeNull()
+    })
+
+    it('session_not_found を受けるとコマンド一覧がリセットされ、再度開くと空状態になる', async () => {
+      render(<TerminalScreen />)
+      sendFromWebView({ type: 'session_attached', sessionId: 's1', source: { kind: 'claude' } })
+      sendFromWebView({
+        type: 'command_list',
+        sessionId: 's1',
+        commands: [{ name: 'commit', scope: 'user' }],
+      })
+      fireEvent.press(screen.getByTestId('slash-command-button'))
+      expect(await screen.findByText('/commit')).toBeTruthy()
+
+      sendFromWebView({ type: 'session_not_found', sessionId: 's1' })
+      expect(screen.queryByText('Commands')).toBeNull()
+
+      // シートを開き直しても、死んだセッションのコマンド一覧を選ばせない（空状態になる）
+      fireEvent.press(screen.getByTestId('slash-command-button'))
+      expect(await screen.findByText('No commands found')).toBeTruthy()
+      expect(screen.queryByText('/commit')).toBeNull()
+    })
+
+    it('auth_error を受けるとコマンド一覧がリセットされる', async () => {
+      render(<TerminalScreen />)
+      sendFromWebView({ type: 'session_attached', sessionId: 's1', source: { kind: 'claude' } })
+      sendFromWebView({
+        type: 'command_list',
+        sessionId: 's1',
+        commands: [{ name: 'commit', scope: 'user' }],
+      })
+
+      sendFromWebView({ type: 'auth_error', reason: 'invalid token' })
+
+      fireEvent.press(screen.getByTestId('slash-command-button'))
+      expect(await screen.findByText('No commands found')).toBeTruthy()
+      expect(screen.queryByText('/commit')).toBeNull()
+    })
   })
 })

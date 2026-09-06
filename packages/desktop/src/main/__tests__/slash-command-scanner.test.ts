@@ -1,7 +1,17 @@
 // @vitest-environment node
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { execSync } from 'child_process'
-import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, rmSync } from 'fs'
+import {
+  mkdtempSync,
+  mkdirSync,
+  writeFileSync,
+  symlinkSync,
+  rmSync,
+  openSync,
+  closeSync,
+  writeSync,
+  constants as fsConstants,
+} from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import {
@@ -21,6 +31,9 @@ import {
   getSlashCommandCacheSize,
   BUILTIN_COMMANDS,
 } from '../slash-command-scanner'
+
+/** FIFO などプラットフォーム依存の特殊ファイルを使うテストを Windows でスキップするためのフラグ */
+const isWindows = process.platform === 'win32'
 
 describe('parseFrontmatter', () => {
   it('description を取り出す', () => {
@@ -247,7 +260,11 @@ describe('scanCommandsDir / scanSkillsDir', () => {
     ])
   })
 
-  it('ESC を含むファイル名のコマンドを除外する', () => {
+  // ESC (\x1b) はファイル名として無効な文字ではないが、Windows では
+  // ファイル名を作る低レベル API が制御文字を拒否する環境があるため、
+  // このテストは POSIX 環境限定とする（isSafeCommandName 自体の検証は
+  // 上の describe('isSafeCommandName') でプラットフォームに依存せず行う）
+  it.skipIf(isWindows)('ESC を含むファイル名のコマンドを除外する', () => {
     write('commands/normal.md', '---\ndescription: d\n---\n')
     write('commands/evil\x1bname.md', '---\ndescription: d\n---\n')
     const result = scanCommandsDir(join(tmp, 'commands'), 'user', createScanContext())
@@ -261,13 +278,16 @@ describe('scanCommandsDir / scanSkillsDir', () => {
     expect(result).toEqual([])
   })
 
-  it('制御文字を含むディレクトリ名のスキルを除外する', () => {
+  // CR (\r) を含むディレクトリ名は Windows の低レベル API で作成できないため
+  // POSIX 環境限定とする
+  it.skipIf(isWindows)('制御文字を含むディレクトリ名のスキルを除外する', () => {
     write('skills/evil\rname/SKILL.md', '---\ndescription: d\n---\n')
     const result = scanSkillsDir(join(tmp, 'skills'), 'user', createScanContext())
     expect(result).toEqual([])
   })
 
-  it(
+  // mkfifo は Windows に存在しないため POSIX 環境限定とする
+  it.skipIf(isWindows)(
     'SKILL.md が FIFO の場合は開かずスキップする（ブロッキング対策）',
     () => {
       mkdirSync(join(tmp, 'skills', 'weird'), { recursive: true })
@@ -275,6 +295,35 @@ describe('scanCommandsDir / scanSkillsDir', () => {
       execSync(`mkfifo "${fifoPath}"`)
       const result = scanSkillsDir(join(tmp, 'skills'), 'user', createScanContext())
       expect(result).toEqual([])
+    },
+    2000,
+  )
+
+  // 書き手が既に FIFO を開いている状態でも、fstat ベースの種別判定でスキップされる
+  // ことを確認する（TOCTOU 対策: 種別判定は開いた fd に対して行うため、書き手の
+  // 有無に関わらずブロックしない）。サブプロセスを起動せず、この Node プロセス
+  // 自身が O_NONBLOCK で読み手・書き手の両端を開いて再現する。
+  it.skipIf(isWindows)(
+    '書き手が接続済みの FIFO も開かずスキップする（ブロッキング対策）',
+    () => {
+      mkdirSync(join(tmp, 'skills', 'weird2'), { recursive: true })
+      const fifoPath = join(tmp, 'skills', 'weird2', 'SKILL.md')
+      execSync(`mkfifo "${fifoPath}"`)
+
+      // 読み手を先に非ブロッキングで開いておく（POSIX: O_NONBLOCK 付きの読み取り
+      // オープンは書き手の有無に関わらず即座に返る）
+      const readerFd = openSync(fifoPath, fsConstants.O_RDONLY | (fsConstants.O_NONBLOCK ?? 0))
+      // 読み手が存在するので、書き手のオープンはブロックしない
+      const writerFd = openSync(fifoPath, 'w')
+      try {
+        writeSync(writerFd, 'not a real SKILL.md\n')
+
+        const result = scanSkillsDir(join(tmp, 'skills'), 'user', createScanContext())
+        expect(result).toEqual([])
+      } finally {
+        closeSync(writerFd)
+        closeSync(readerFd)
+      }
     },
     2000,
   )

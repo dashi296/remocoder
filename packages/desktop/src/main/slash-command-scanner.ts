@@ -9,10 +9,11 @@ import {
   openSync,
   readSync,
   closeSync,
+  fstatSync,
   realpathSync,
   existsSync,
   statSync,
-  readFileSync,
+  constants as fsConstants,
   type Dirent,
 } from 'fs'
 import { join, basename, normalize, isAbsolute, relative, resolve } from 'path'
@@ -93,15 +94,52 @@ export function createScanContext(): ScanContext {
   }
 }
 
+// FIFO などの特殊ファイルを開くと、openSync が書き手が現れるまでブロックしうる。
+// pty-server.ts はこの走査を同期的に呼ぶため、ブロックすると PTY・WebSocket・
+// Electron のメインプロセス全体が止まる。
+//
+// statSync() で種別を確認してから openSync() で開く、という2段階の実装は
+// TOCTOU（Time-Of-Check to Time-Of-Use）で崩れる。statSync が通った直後に
+// 同じパスへ FIFO や巨大ファイルを差し替えられると、check は通過済みなので
+// openSync はチェックなしのパスをそのまま開いてしまう。
+//
+// 対策として、種別の確認は「これから読むファイルディスクリプタ」自身に対して
+// fstatSync で行う。open した後に差し替えても、既に開いた fd が指す実体は
+// 変わらないため、この確認はすり替えの影響を受けない。
+// また open 自体に O_NONBLOCK を付け、FIFO を開いても待たされないようにする
+// （通常ファイルに対しては no-op）。O_NONBLOCK は Windows の fs.constants には
+// 存在しないため、その場合は 0 にフォールバックする。
+const O_NONBLOCK = fsConstants.O_NONBLOCK ?? 0
+
+/** チェック（fstat）と読み取りに使う fd を安全に開く。通常ファイルでなければ null */
+function openRegularFile(filePath: string): { fd: number; size: number } | null {
+  let fd: number
+  try {
+    fd = openSync(filePath, fsConstants.O_RDONLY | O_NONBLOCK)
+  } catch {
+    // ENOENT・ENXIO・EACCES など。存在しない/開けない場合はスキップ扱いにする
+    return null
+  }
+  try {
+    const st = fstatSync(fd)
+    if (!st.isFile()) {
+      closeSync(fd)
+      return null
+    }
+    return { fd, size: st.size }
+  } catch {
+    closeSync(fd)
+    return null
+  }
+}
+
 /** ファイル先頭の maxBytes だけ読む。巨大な Markdown 全体を読まないため */
 function readHead(filePath: string, maxBytes = MAX_HEAD_BYTES): string {
-  // FIFO などの特殊ファイルを開くと、openSync が書き手が現れるまでブロックしうる。
-  // pty-server.ts はこの走査を同期的に呼ぶため、ブロックすると PTY・WebSocket・
-  // Electron のメインプロセス全体が止まる。通常ファイルであることを確認してから開く。
-  if (!statSync(filePath).isFile()) {
+  const opened = openRegularFile(filePath)
+  if (!opened) {
     throw new Error(`not a regular file: ${filePath}`)
   }
-  const fd = openSync(filePath, 'r')
+  const { fd } = opened
   try {
     const buf = Buffer.alloc(maxBytes)
     const read = readSync(fd, buf, 0, maxBytes, 0)
@@ -324,14 +362,28 @@ export const MAX_JSON_BYTES = 1024 * 1024
 /**
  * JSON ファイルを読む。存在しない・壊れている・通常ファイルでない・
  * サイズが上限を超える場合は null（読まない）。
+ *
+ * readHead と同様、種別とサイズの確認は開いた fd に対して fstatSync で行う
+ * （TOCTOU 対策）。stat してから別途 open/read するとパスを差し替えられうる。
  */
 function readJson(filePath: string): unknown {
+  const opened = openRegularFile(filePath)
+  if (!opened) return null
+  const { fd, size } = opened
   try {
-    const stat = statSync(filePath)
-    if (!stat.isFile() || stat.size > MAX_JSON_BYTES) return null
-    return JSON.parse(readFileSync(filePath, 'utf-8'))
+    if (size > MAX_JSON_BYTES) return null
+    const buf = Buffer.alloc(size)
+    let offset = 0
+    while (offset < size) {
+      const bytesRead = readSync(fd, buf, offset, size - offset, offset)
+      if (bytesRead === 0) break
+      offset += bytesRead
+    }
+    return JSON.parse(buf.subarray(0, offset).toString('utf-8'))
   } catch {
     return null
+  } finally {
+    closeSync(fd)
   }
 }
 

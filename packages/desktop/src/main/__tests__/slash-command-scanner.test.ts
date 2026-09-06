@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { execSync } from 'child_process'
 import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
@@ -180,6 +180,30 @@ describe('scanCommandsDir / scanSkillsDir', () => {
     const result = scanCommandsDir(join(tmp, 'commands'), 'user', ctx)
     expect(result).toEqual([])
     expect(ctx.truncated).toBe(true)
+  })
+
+  it('走査の途中で deadline を超えた場合、部分的な結果を返し truncated を立てる', () => {
+    // 事前チェック（上のテスト）だけでなく、ウォーク中に isExhausted が繰り返し
+    // 呼ばれていることを検証する。実時間の経過に依存すると環境によって遅くなったり
+    // 速すぎたりしてフレーキーになるため、Date.now をモックして「最初の数回は
+    // deadline 内、以降は deadline 超過」という状況を決定的に再現する。
+    for (let i = 0; i < 10; i++) {
+      write(`commands/cmd${i}.md`, '---\ndescription: d\n---\n')
+    }
+    const ctx = createScanContext()
+    let calls = 0
+    const nowSpy = vi.spyOn(Date, 'now').mockImplementation(() => {
+      calls++
+      return calls <= 3 ? ctx.deadline - 1000 : ctx.deadline + 1000
+    })
+    try {
+      const result = scanCommandsDir(join(tmp, 'commands'), 'user', ctx)
+      expect(ctx.truncated).toBe(true)
+      expect(result.length).toBeGreaterThan(0)
+      expect(result.length).toBeLessThan(10)
+    } finally {
+      nowSpy.mockRestore()
+    }
   })
 
   it('シンボリックリンクのディレクトリを追う', () => {

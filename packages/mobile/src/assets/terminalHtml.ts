@@ -254,7 +254,15 @@ export function buildTerminalHtml(
           currentSessionId = msg.sessionId
           // リサイズ通知
           currentWs.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }))
-          postToNative({ type: 'session_attached', sessionId: msg.sessionId })
+          postToNative({ type: 'session_attached', sessionId: msg.sessionId, source: msg.source })
+        } else if (msg.type === 'command_list') {
+          postToNative({
+            type: 'command_list',
+            sessionId: msg.sessionId,
+            commands: msg.commands,
+            truncated: msg.truncated,
+            error: msg.error,
+          })
         } else if (msg.type === 'session_not_found') {
           if (isUserSelectedSession) {
             term.write('\\r\\n[Session not found: ' + msg.sessionId + ']\\r\\n')
@@ -371,6 +379,11 @@ export function buildTerminalHtml(
     /** 承認ダイアログの結果をサーバーへ送信する */
     window.sendPermissionResponse = function(requestId, decision) {
       sendWs({ type: 'permission_response', requestId, decision })
+    }
+
+    /** スラッシュコマンド一覧をサーバーに要求する */
+    window.requestCommandList = function() {
+      sendWs({ type: 'command_list_request' })
     }
 
     /** React Native のカスタムキーボードから直接キー入力を注入する */

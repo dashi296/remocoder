@@ -360,13 +360,31 @@ export interface PluginRoot {
 export const MAX_JSON_BYTES = 1024 * 1024
 
 /**
+ * 1つの manifest の commands/skills が指定してよい最大ディレクトリ数。
+ * 上限がないと、1件の manifest がいくらでも多くのディレクトリ走査を予約でき、
+ * ctx.fileCount / deadline の budget を大きく消費させられる。
+ */
+export const MAX_MANIFEST_DIRS = 16
+
+/**
  * JSON ファイルを読む。存在しない・壊れている・通常ファイルでない・
  * サイズが上限を超える場合は null（読まない）。
  *
  * readHead と同様、種別とサイズの確認は開いた fd に対して fstatSync で行う
  * （TOCTOU 対策）。stat してから別途 open/read するとパスを差し替えられうる。
+ *
+ * ctx を渡した場合は budget（ファイル数・deadline）を消費する。
+ * resolveEnabledPlugins 系列の呼び出しは、getSlashCommands が管理する
+ * 「500ファイル/3秒」の budget にここでの読み取りも含めるため、必ず ctx を渡す。
+ * ctx が既に尽きていれば開かずに null を返す（isExhausted が truncated を立てる）。
+ * ファイルを開こうとした時点で1ファイルとして数える。存在しない・壊れているなど
+ * 結局読めなかった場合も「読もうとした」試行として数える。
  */
-function readJson(filePath: string): unknown {
+function readJson(filePath: string, ctx?: ScanContext): unknown {
+  if (ctx) {
+    if (isExhausted(ctx)) return null
+    ctx.fileCount++
+  }
   const opened = openRegularFile(filePath)
   if (!opened) return null
   const { fd, size } = opened
@@ -390,11 +408,13 @@ function readJson(filePath: string): unknown {
 /**
  * 設定ファイル群の enabledPlugins をマージする。
  * settingsPaths は優先度の低い順に渡す（後ろが前を上書きする）。
+ * ctx の budget が尽きた時点で以降の設定ファイルは読まない。
  */
-function mergeEnabledPlugins(settingsPaths: string[]): Record<string, boolean> {
+function mergeEnabledPlugins(settingsPaths: string[], ctx: ScanContext): Record<string, boolean> {
   const merged: Record<string, boolean> = {}
   for (const path of settingsPaths) {
-    const json = readJson(path) as { enabledPlugins?: Record<string, boolean> } | null
+    if (isExhausted(ctx)) break
+    const json = readJson(path, ctx) as { enabledPlugins?: Record<string, boolean> } | null
     if (!json || typeof json.enabledPlugins !== 'object' || json.enabledPlugins === null) continue
     for (const [key, value] of Object.entries(json.enabledPlugins)) {
       if (typeof value === 'boolean') merged[key] = value
@@ -403,7 +423,10 @@ function mergeEnabledPlugins(settingsPaths: string[]): Record<string, boolean> {
   return merged
 }
 
-/** manifest のパス指定を絶対パスの配列にする。未指定なら defaultDir を使う */
+/**
+ * manifest のパス指定を絶対パスの配列にする。未指定なら defaultDir を使う。
+ * MAX_MANIFEST_DIRS を超える指定は切り捨てる（budget を無制限に予約させないため）。
+ */
 function resolveManifestDirs(
   installPath: string,
   value: unknown,
@@ -412,6 +435,7 @@ function resolveManifestDirs(
   const raw = value === undefined ? [defaultDir] : Array.isArray(value) ? value : [value]
   const dirs: string[] = []
   for (const entry of raw) {
+    if (dirs.length >= MAX_MANIFEST_DIRS) break
     if (typeof entry !== 'string') continue
     // './skills/' のような相対指定を installPath 基準で解決する
     const normalized = entry.replace(/^\.\//, '').replace(/\/+$/, '')
@@ -427,24 +451,37 @@ function resolveManifestDirs(
  *
  * installPath はシンボリックリンクを解決する前の文字列で pluginsDir 配下かを検証する。
  * リンク先が pluginsDir の外でも走査は許すが、読むのは .md / SKILL.md だけに限る。
+ *
+ * ここで読む installed_plugins.json・各設定ファイル・各プラグインの plugin.json は
+ * すべて ctx の budget（ファイル数・deadline）を消費する。呼び出し元の走査全体
+ * （getSlashCommands）が「最大 500 ファイル / 3 秒」を守るには、ここでの読み取りも
+ * その budget に含める必要がある。
  */
-export function resolveEnabledPlugins(pluginsDir: string, settingsPaths: string[]): PluginRoot[] {
-  const installed = readJson(join(pluginsDir, 'installed_plugins.json')) as
+export function resolveEnabledPlugins(
+  pluginsDir: string,
+  settingsPaths: string[],
+  ctx: ScanContext,
+): PluginRoot[] {
+  if (isExhausted(ctx)) return []
+
+  const installed = readJson(join(pluginsDir, 'installed_plugins.json'), ctx) as
     | { plugins?: Record<string, Array<{ installPath?: unknown }>> }
     | null
   if (!installed || typeof installed.plugins !== 'object' || installed.plugins === null) return []
 
-  const enabled = mergeEnabledPlugins(settingsPaths)
+  const enabled = mergeEnabledPlugins(settingsPaths, ctx)
   const roots: PluginRoot[] = []
   // normalize はファイルシステムに触れずシンボリックリンクも解決しない純粋な文字列操作なので、
   // 「リンク解決前の文字列で判定する」というルールに反しない
   const normalizedPluginsDir = normalize(pluginsDir)
 
-  for (const [key, records] of Object.entries(installed.plugins)) {
+  outer: for (const [key, records] of Object.entries(installed.plugins)) {
+    if (isExhausted(ctx)) break
     if (enabled[key] !== true) continue
     if (!Array.isArray(records)) continue
 
     for (const record of records) {
+      if (isExhausted(ctx)) break outer
       const rawInstallPath = record?.installPath
       if (typeof rawInstallPath !== 'string') continue
       // isAbsolute は Windows の 'C:\...' もカバーする（startsWith('/') は POSIX 専用だった）
@@ -459,7 +496,7 @@ export function resolveEnabledPlugins(pluginsDir: string, settingsPaths: string[
       const rel = relative(normalizedPluginsDir, installPath)
       if (rel === '' || rel.startsWith('..') || isAbsolute(rel)) continue
 
-      const manifest = readJson(join(installPath, '.claude-plugin', 'plugin.json')) as
+      const manifest = readJson(join(installPath, '.claude-plugin', 'plugin.json'), ctx) as
         | { name?: unknown; commands?: unknown; skills?: unknown }
         | null
       if (!manifest || typeof manifest.name !== 'string' || !manifest.name) continue
@@ -483,6 +520,8 @@ export function resolveEnabledPlugins(pluginsDir: string, settingsPaths: string[
 export function scanPlugins(roots: PluginRoot[], ctx: ScanContext): SlashCommandInfo[] {
   const results: SlashCommandInfo[] = []
   for (const root of roots) {
+    // budget が尽きていれば残りのプラグインには入らない
+    if (isExhausted(ctx)) break
     for (const dir of root.commandsDirs) {
       // scope に 'plugin' を渡すことで、サブディレクトリ由来の namespace も
       // 'plugin:<subdir>' として正しく組み立てられる
@@ -638,15 +677,19 @@ export function getSlashCommands(
     ...scanCommandsDir(join(claudeDir, 'commands'), 'user', ctx),
     ...scanSkillsDir(join(claudeDir, 'skills'), 'user', ctx),
     ...scanPlugins(
-      resolveEnabledPlugins(join(claudeDir, 'plugins'), [
-        join(claudeDir, 'settings.json'),
-        ...(projectPath
-          ? [
-              join(projectPath, '.claude', 'settings.json'),
-              join(projectPath, '.claude', 'settings.local.json'),
-            ]
-          : []),
-      ]),
+      resolveEnabledPlugins(
+        join(claudeDir, 'plugins'),
+        [
+          join(claudeDir, 'settings.json'),
+          ...(projectPath
+            ? [
+                join(projectPath, '.claude', 'settings.json'),
+                join(projectPath, '.claude', 'settings.local.json'),
+              ]
+            : []),
+        ],
+        ctx,
+      ),
       ctx,
     ),
     ...BUILTIN_COMMANDS,

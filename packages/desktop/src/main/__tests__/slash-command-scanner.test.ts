@@ -22,6 +22,7 @@ import {
   scanPluginRootSkill,
   MAX_FILES,
   MAX_JSON_BYTES,
+  MAX_MANIFEST_DIRS,
   MAX_CACHE_ENTRIES,
   isSafeCommandName,
   resolveEnabledPlugins,
@@ -388,7 +389,7 @@ describe('resolveEnabledPlugins', () => {
       [{ enabledPlugins: { 'on@mp': true, 'off@mp': false } }],
     )
 
-    const roots = resolveEnabledPlugins(pluginsDir, settingsPaths)
+    const roots = resolveEnabledPlugins(pluginsDir, settingsPaths, createScanContext())
     expect(roots.map((r) => r.name)).toEqual(['on-plugin'])
   })
 
@@ -399,7 +400,7 @@ describe('resolveEnabledPlugins', () => {
       { version: 2, plugins: { 'x@mp': [{ scope: 'user', installPath: p, version: '1.0.0' }] } },
       [{ enabledPlugins: {} }],
     )
-    expect(resolveEnabledPlugins(pluginsDir, settingsPaths)).toEqual([])
+    expect(resolveEnabledPlugins(pluginsDir, settingsPaths, createScanContext())).toEqual([])
   })
 
   it('後ろの設定ファイルが前の設定を上書きする', () => {
@@ -409,7 +410,7 @@ describe('resolveEnabledPlugins', () => {
       { version: 2, plugins: { 'x@mp': [{ scope: 'user', installPath: p, version: '1.0.0' }] } },
       [{ enabledPlugins: { 'x@mp': true } }, { enabledPlugins: { 'x@mp': false } }],
     )
-    expect(resolveEnabledPlugins(pluginsDir, settingsPaths)).toEqual([])
+    expect(resolveEnabledPlugins(pluginsDir, settingsPaths, createScanContext())).toEqual([])
   })
 
   it('plugin.json の name を使う（レジストリのキーではなく）', () => {
@@ -419,7 +420,7 @@ describe('resolveEnabledPlugins', () => {
       { version: 2, plugins: { 'registry-key@mp': [{ scope: 'user', installPath: p, version: '1.0.0' }] } },
       [{ enabledPlugins: { 'registry-key@mp': true } }],
     )
-    expect(resolveEnabledPlugins(pluginsDir, settingsPaths)[0].name).toBe('manifest-name')
+    expect(resolveEnabledPlugins(pluginsDir, settingsPaths, createScanContext())[0].name).toBe('manifest-name')
   })
 
   it('manifest の skills パス指定を反映する', () => {
@@ -429,7 +430,7 @@ describe('resolveEnabledPlugins', () => {
       { version: 2, plugins: { 'custom@mp': [{ scope: 'user', installPath: p, version: '1.0.0' }] } },
       [{ enabledPlugins: { 'custom@mp': true } }],
     )
-    const roots = resolveEnabledPlugins(pluginsDir, settingsPaths)
+    const roots = resolveEnabledPlugins(pluginsDir, settingsPaths, createScanContext())
     expect(roots[0].skillsDirs).toEqual([join(p, 'my-skills')])
   })
 
@@ -440,7 +441,7 @@ describe('resolveEnabledPlugins', () => {
       { version: 2, plugins: { 'default@mp': [{ scope: 'user', installPath: p, version: '1.0.0' }] } },
       [{ enabledPlugins: { 'default@mp': true } }],
     )
-    const roots = resolveEnabledPlugins(pluginsDir, settingsPaths)
+    const roots = resolveEnabledPlugins(pluginsDir, settingsPaths, createScanContext())
     expect(roots[0].commandsDirs).toEqual([join(p, 'commands')])
     expect(roots[0].skillsDirs).toEqual([join(p, 'skills')])
   })
@@ -452,7 +453,7 @@ describe('resolveEnabledPlugins', () => {
       { version: 2, plugins: { 'ec@mp': [{ scope: 'user', installPath: p, version: '1.0.0' }] } },
       [{ enabledPlugins: { 'ec@mp': true } }],
     )
-    const roots = resolveEnabledPlugins(pluginsDir, settingsPaths)
+    const roots = resolveEnabledPlugins(pluginsDir, settingsPaths, createScanContext())
     expect(roots[0].commandsDirs).toEqual([])
   })
 
@@ -463,7 +464,7 @@ describe('resolveEnabledPlugins', () => {
       { version: 2, plugins: { 'es@mp': [{ scope: 'user', installPath: p, version: '1.0.0' }] } },
       [{ enabledPlugins: { 'es@mp': true } }],
     )
-    const roots = resolveEnabledPlugins(pluginsDir, settingsPaths)
+    const roots = resolveEnabledPlugins(pluginsDir, settingsPaths, createScanContext())
     expect(roots[0].skillsDirs).toEqual([])
   })
 
@@ -474,7 +475,7 @@ describe('resolveEnabledPlugins', () => {
       { version: 2, plugins: { 'o@mp': [{ scope: 'user', installPath: outside, version: '1.0.0' }] } },
       [{ enabledPlugins: { 'o@mp': true } }],
     )
-    expect(resolveEnabledPlugins(pluginsDir, settingsPaths)).toEqual([])
+    expect(resolveEnabledPlugins(pluginsDir, settingsPaths, createScanContext())).toEqual([])
   })
 
   it('".." で pluginsDir 配下を装う installPath を無視する', () => {
@@ -487,7 +488,7 @@ describe('resolveEnabledPlugins', () => {
       { version: 2, plugins: { 'e@mp': [{ scope: 'user', installPath: escaping, version: '1.0.0' }] } },
       [{ enabledPlugins: { 'e@mp': true } }],
     )
-    expect(resolveEnabledPlugins(pluginsDir, settingsPaths)).toEqual([])
+    expect(resolveEnabledPlugins(pluginsDir, settingsPaths, createScanContext())).toEqual([])
   })
 
   it('相対パスの installPath を無視する', () => {
@@ -495,7 +496,7 @@ describe('resolveEnabledPlugins', () => {
       { version: 2, plugins: { 'r@mp': [{ scope: 'user', installPath: 'relative/path', version: '1.0.0' }] } },
       [{ enabledPlugins: { 'r@mp': true } }],
     )
-    expect(resolveEnabledPlugins(pluginsDir, settingsPaths)).toEqual([])
+    expect(resolveEnabledPlugins(pluginsDir, settingsPaths, createScanContext())).toEqual([])
   })
 
   it('plugin.json の name に CR を含む場合はプラグイン全体を除外する', () => {
@@ -505,11 +506,11 @@ describe('resolveEnabledPlugins', () => {
       { version: 2, plugins: { 'evil@mp': [{ scope: 'user', installPath: p, version: '1.0.0' }] } },
       [{ enabledPlugins: { 'evil@mp': true } }],
     )
-    expect(resolveEnabledPlugins(pluginsDir, settingsPaths)).toEqual([])
+    expect(resolveEnabledPlugins(pluginsDir, settingsPaths, createScanContext())).toEqual([])
   })
 
   it('installed_plugins.json がなくても空配列を返す', () => {
-    expect(resolveEnabledPlugins(join(tmp, 'missing'), [])).toEqual([])
+    expect(resolveEnabledPlugins(join(tmp, 'missing'), [], createScanContext())).toEqual([])
   })
 
   it('installed_plugins.json が上限サイズを超える場合は読まずにスキップする', () => {
@@ -526,15 +527,15 @@ describe('resolveEnabledPlugins', () => {
       },
       [{ enabledPlugins: { 'big@mp': true } }],
     )
-    expect(() => resolveEnabledPlugins(pluginsDir, settingsPaths)).not.toThrow()
-    expect(resolveEnabledPlugins(pluginsDir, settingsPaths)).toEqual([])
+    expect(() => resolveEnabledPlugins(pluginsDir, settingsPaths, createScanContext())).not.toThrow()
+    expect(resolveEnabledPlugins(pluginsDir, settingsPaths, createScanContext())).toEqual([])
   })
 
   it('installed_plugins.json が壊れていても空配列を返す', () => {
     const pluginsDir = join(tmp, 'plugins')
     mkdirSync(pluginsDir, { recursive: true })
     writeFileSync(join(pluginsDir, 'installed_plugins.json'), '{ broken', 'utf-8')
-    expect(resolveEnabledPlugins(pluginsDir, [])).toEqual([])
+    expect(resolveEnabledPlugins(pluginsDir, [], createScanContext())).toEqual([])
   })
 
   it('同一プラグインの複数レコードを最初の1件に正規化する', () => {
@@ -554,7 +555,54 @@ describe('resolveEnabledPlugins', () => {
       },
       [{ enabledPlugins: { 'dup@mp': true } }],
     )
-    expect(resolveEnabledPlugins(pluginsDir, settingsPaths).length).toBe(1)
+    expect(resolveEnabledPlugins(pluginsDir, settingsPaths, createScanContext()).length).toBe(1)
+  })
+
+  it('deadline が既に過ぎている場合、manifest を読まず truncated を立てる', () => {
+    const p = join(tmp, 'plugins', 'cache', 'mp', 'x', '1.0.0')
+    makePlugin(p, { name: 'x-plugin' })
+    const { pluginsDir, settingsPaths } = setup(
+      { version: 2, plugins: { 'x@mp': [{ scope: 'user', installPath: p, version: '1.0.0' }] } },
+      [{ enabledPlugins: { 'x@mp': true } }],
+    )
+    const ctx = createScanContext()
+    ctx.deadline = Date.now() - 1
+
+    const roots = resolveEnabledPlugins(pluginsDir, settingsPaths, ctx)
+
+    // manifest を1つも読んでいないため、有効なはずのプラグインも見つからない
+    expect(roots).toEqual([])
+    expect(ctx.truncated).toBe(true)
+  })
+
+  it('ctx.fileCount が上限に達している場合、以降の manifest を読まない', () => {
+    const p = join(tmp, 'plugins', 'cache', 'mp', 'x', '1.0.0')
+    makePlugin(p, { name: 'x-plugin' })
+    const { pluginsDir, settingsPaths } = setup(
+      { version: 2, plugins: { 'x@mp': [{ scope: 'user', installPath: p, version: '1.0.0' }] } },
+      [{ enabledPlugins: { 'x@mp': true } }],
+    )
+    const ctx = createScanContext()
+    ctx.fileCount = MAX_FILES
+
+    const roots = resolveEnabledPlugins(pluginsDir, settingsPaths, ctx)
+
+    expect(roots).toEqual([])
+    expect(ctx.truncated).toBe(true)
+  })
+
+  it('manifest が MAX_MANIFEST_DIRS を超える commands を指定しても、その件数までしか反映しない', () => {
+    const p = join(tmp, 'plugins', 'cache', 'mp', 'many', '1.0.0')
+    const manyDirs = Array.from({ length: MAX_MANIFEST_DIRS + 10 }, (_, i) => `./dir${i}`)
+    makePlugin(p, { name: 'many-plugin', commands: manyDirs })
+    const { pluginsDir, settingsPaths } = setup(
+      { version: 2, plugins: { 'many@mp': [{ scope: 'user', installPath: p, version: '1.0.0' }] } },
+      [{ enabledPlugins: { 'many@mp': true } }],
+    )
+
+    const roots = resolveEnabledPlugins(pluginsDir, settingsPaths, createScanContext())
+
+    expect(roots[0].commandsDirs.length).toBe(MAX_MANIFEST_DIRS)
   })
 })
 
@@ -723,6 +771,22 @@ describe('scanPlugins', () => {
     )
 
     expect(result.map((c) => c.name).sort()).toEqual(['dual-plugin', 'dual-plugin:review'])
+  })
+
+  it('budget が尽きている場合、プラグインの走査に入らない', () => {
+    const installPath = join(tmp, 'install')
+    mkdirSync(installPath, { recursive: true })
+    writeFileSync(join(installPath, 'SKILL.md'), '---\ndescription: root skill\n---\n', 'utf-8')
+
+    const ctx = createScanContext()
+    ctx.deadline = Date.now() - 1
+
+    const result = scanPlugins(
+      [{ name: 'root-plugin', installPath, commandsDirs: [], skillsDirs: [] }],
+      ctx,
+    )
+
+    expect(result).toEqual([])
   })
 })
 

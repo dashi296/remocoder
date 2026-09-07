@@ -462,6 +462,66 @@ describe('startPtyServer', () => {
         scannerState.impl = null
       }
     })
+
+    it('走査中に同じソケットへ command_list_request が重ねて届いても、走査は1回だけ行われ両方に応答する', async () => {
+      // 1回目の走査がまだ完了していない間に2回目のリクエストが届くケースを再現する。
+      // ソケットごとに走査を1本に制限するので、2回目は新しい走査を始めず
+      // 1回目の Promise に相乗りし、両方とも同じ内容の応答を受け取るはず
+      let resolveScan!: (value: { commands: unknown[]; truncated: boolean }) => void
+      let callCount = 0
+      scannerState.impl = () => {
+        callCount++
+        return new Promise((resolve) => {
+          resolveScan = resolve
+        })
+      }
+      try {
+        const { ws } = connectAuthAndCreate(startPtyServer)
+        sendMessage(ws, { type: 'command_list_request' })
+        await Promise.resolve()
+        // 1回目がまだ完了していないうちに2回目のリクエストを送る
+        sendMessage(ws, { type: 'command_list_request' })
+        await Promise.resolve()
+
+        expect(callCount).toBe(1)
+
+        resolveScan({ commands: [{ name: 'shared-result', scope: 'user' }], truncated: false })
+        await flushAsync()
+
+        expect(callCount).toBe(1)
+        const calls = ws.send.mock.calls.map((c: any) => JSON.parse(c[0]))
+        const responses = calls.filter((m: any) => m.type === 'command_list')
+        expect(responses.length).toBe(2)
+        for (const response of responses) {
+          expect(response.commands.some((c: any) => c.name === 'shared-result')).toBe(true)
+        }
+      } finally {
+        scannerState.impl = null
+      }
+    })
+
+    it('1回目の走査が完了した後に届いた3回目のリクエストは新しい走査を開始する', async () => {
+      // 「一度相乗りしたら二度と走査しなくなる」というバグを防ぐための確認。
+      // 1回目の走査が完了して以降は、通常通り新しいリクエストごとに
+      // （getSlashCommands 自体のキャッシュ層はさておき）ハンドラは再度呼び出す
+      let callCount = 0
+      scannerState.impl = async () => {
+        callCount++
+        return { commands: [{ name: `result-${callCount}`, scope: 'user' }], truncated: false }
+      }
+      try {
+        const { ws } = connectAuthAndCreate(startPtyServer)
+        sendMessage(ws, { type: 'command_list_request' })
+        await flushAsync()
+        expect(callCount).toBe(1)
+
+        sendMessage(ws, { type: 'command_list_request' })
+        await flushAsync()
+        expect(callCount).toBe(2)
+      } finally {
+        scannerState.impl = null
+      }
+    })
   })
 
   describe('session_create の projectPath 保持', () => {

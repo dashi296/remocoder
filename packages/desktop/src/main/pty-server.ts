@@ -621,6 +621,15 @@ export function startPtyServer(port = DEFAULT_WS_PORT, callbacks: PtyServerCallb
     let pingIntervalId: ReturnType<typeof setInterval> | null = null
     let pongTimeoutId: ReturnType<typeof setTimeout> | null = null
     const clientIP = req?.socket?.remoteAddress
+    /**
+     * このソケットで現在進行中のスラッシュコマンド走査。
+     * 認証済みクライアントは command_list_request を連打して走査を無制限に
+     * 積み重ねられるため、ソケットごとに同時実行を1本に制限する。
+     * 走査中に届いた後続のリクエストは新しい走査を始めず、この Promise に
+     * 相乗りして同じ結果から応答する。走査が完了（成功・失敗いずれも）したら
+     * null に戻し、次のリクエストは新しい走査を開始できるようにする。
+     */
+    let inFlightCommandListScan: ReturnType<typeof getSlashCommands> | null = null
 
     const authTimeout = setTimeout(() => {
       if (!authenticated) ws.close()
@@ -644,6 +653,9 @@ export function startPtyServer(port = DEFAULT_WS_PORT, callbacks: PtyServerCallb
       clearTimeout(authTimeout)
       if (pingIntervalId) clearInterval(pingIntervalId)
       if (pongTimeoutId) clearTimeout(pongTimeoutId)
+      // 走査自体は勝手にキャンセルされないが（readyState チェックで送信だけ
+      // 抑止される）、切断済みソケットの追跡はここで明示的に手放しておく
+      inFlightCommandListScan = null
     }
 
     const detachFromSession = () => {
@@ -903,8 +915,35 @@ export function startPtyServer(port = DEFAULT_WS_PORT, callbacks: PtyServerCallb
         // readyState を確認し、切れていれば何もしない。
         // Promise.resolve().then(...) で包むのは、モック等が同期的に throw する
         // 場合でも rejected Promise として扱い、catch で確実に拾うため。
-        Promise.resolve()
-          .then(() => getSlashCommands(session.source))
+        //
+        // このソケットで既に走査が進行中なら、新しい走査は始めずそれに相乗りする。
+        // 認証済みクライアントが command_list_request を連打すると、応答の遅い
+        // ファイルシステム上では in-flight の走査が際限なく積み上がりうるため、
+        // ソケットごとに同時実行を1本に制限する（getSlashCommands 自身の
+        // raw キー相乗りは呼び出し元をまたいだ検証・走査の重複を防ぐものであり、
+        // ここでの「1ソケットにつき1本」という上限とは別の防御レイヤーである）。
+        //
+        // 既知のトレードオフ: 相乗りした応答は「1回目のリクエスト時点の
+        // session.source」で走査した結果を返す。走査が進行中（通常は数十ms、
+        // 遅いファイルシステムでは最大3秒）の間に同じソケットが session_attach
+        // で別セッションへ切り替えてから2回目の command_list_request を送ると、
+        // 2回目の応答は新しい session.id を名乗りつつ古いセッションの走査結果を
+        // 返すことになる。キャンセルは実装しない方針（レビュー指示）と両立する
+        // 範囲でこの相乗りを最小限に留めており、この程度のレアケースまでは
+        // 追わない判断とする。
+        const scan: ReturnType<typeof getSlashCommands> =
+          inFlightCommandListScan ??
+          Promise.resolve()
+            .then(() => getSlashCommands(session.source))
+            .finally(() => {
+              // cleanup()（ws close）が先に null へ戻している場合や、この走査が
+              // 既に新しい走査に置き換わっている場合に誤って上書きしないよう、
+              // 自分自身がまだ追跡対象であることを確認してから外す
+              if (inFlightCommandListScan === scan) inFlightCommandListScan = null
+            })
+        inFlightCommandListScan = scan
+
+        scan
           .then(({ commands, truncated }) => {
             if (ws.readyState !== WebSocket.OPEN) return
             ws.send(

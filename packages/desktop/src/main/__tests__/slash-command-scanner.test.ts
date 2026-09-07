@@ -42,12 +42,14 @@ import {
   MAX_JSON_BYTES,
   MAX_MANIFEST_DIRS,
   MAX_CACHE_ENTRIES,
+  MAX_INFLIGHT_RAW_KEYS,
   isSafeCommandName,
   resolveEnabledPlugins,
   scanPlugins,
   getSlashCommands,
   clearSlashCommandCache,
   getSlashCommandCacheSize,
+  getInFlightRawKeyCount,
   BUILTIN_COMMANDS,
 } from '../slash-command-scanner'
 
@@ -1101,6 +1103,34 @@ describe('getSlashCommands', () => {
       { claudeDir },
     )
     expect(oldestAgain.commands).not.toBe(firstResults[0].commands)
+  })
+
+  it('inFlightByRawKey の件数が上限に達すると、最も古いエントリを追い出す', async () => {
+    // Codex round 5 (Finding 1): commandsCache とは別に、検証・走査中の
+    // Promise を raw な（正規化前の）projectPath ごとに共有する
+    // inFlightByRawKey にも上限がなければ、応答の遅いファイルシステム上で
+    // 綴りの異なる raw な projectPath への同時リクエストが積み重なり、
+    // 際限なく増え続けてしまう。
+    //
+    // このテストは commandsCache 用の上のテストと違い、1件ずつ await せずに
+    // 一度に大量の呼び出しを（どれも決着する前に）発火させる。逐次 await
+    // すると各呼び出しがその場で決着してしまい、Map に複数エントリが
+    // 同時に残る状況を再現できないため。
+    const promises: Array<Promise<unknown>> = []
+    for (let i = 0; i < MAX_INFLIGHT_RAW_KEYS + 10; i++) {
+      // 実在しないディレクトリでよい（raw key は検証前の生の文字列であり、
+      // validProjectPath の成否とは無関係にエントリが作られる）
+      const rawProjectPath = join(tmp, `raw-${i}`)
+      promises.push(getSlashCommands({ kind: 'claude', projectPath: rawProjectPath }, { claudeDir }))
+    }
+
+    // ここまで一度も await していないため、どの呼び出しもまだ決着していない
+    expect(getInFlightRawKeyCount()).toBe(MAX_INFLIGHT_RAW_KEYS)
+
+    await Promise.all(promises)
+
+    // 全て決着すれば、各エントリは自身の完了時に自己クリーンアップされ 0 に戻る
+    expect(getInFlightRawKeyCount()).toBe(0)
   })
 
   it('ユーザーコマンドが走査上限を使い切ってもプロジェクトコマンドは残る（budget 優先度）', async () => {

@@ -779,6 +779,40 @@ async function performScan(
 const inFlightByRawKey = new Map<string, Promise<SlashCommandsResult>>()
 
 /**
+ * inFlightByRawKey の最大保持件数。
+ *
+ * このエントリは自身の Promise が決着すれば自動的に削除されるが、応答の
+ * 遅い（あるいは応答しない）ファイルシステム上では、複数のソケットや
+ * raw な綴りの違い（symlink エイリアス・末尾の "/." など）から同時に
+ * 多数のエントリが積み上がりうる。ソケットごとの同時実行数は pty-server 側
+ * （inFlightCommandListScan）で1本に制限しているが、それはソケット単位の
+ * 上限であり、この Map はソケットをまたいだグローバルな状態である。
+ * commandsCache（MAX_CACHE_ENTRIES）と同様に、ここでも上限を設けて
+ * 無制限に増え続けないようにする。
+ *
+ * 上限に達して追い出されたエントリは、相乗りの機会を失うだけで、追い出し
+ * 自体が進行中の Promise を取り消すわけではない（そのまま完了まで走る）。
+ */
+export const MAX_INFLIGHT_RAW_KEYS = 64
+
+/**
+ * inFlightByRawKey に書き込む前の後始末。上限に達していれば最も古い
+ * エントリ（Map の挿入順の先頭）を追い出す。pruneCache と異なり TTL による
+ * 期限切れの概念はない（決着したエントリは自身で削除されるため）。
+ */
+function pruneInFlightByRawKey(newKey: string): void {
+  if (!inFlightByRawKey.has(newKey) && inFlightByRawKey.size >= MAX_INFLIGHT_RAW_KEYS) {
+    const oldestKey = inFlightByRawKey.keys().next().value
+    if (oldestKey !== undefined) inFlightByRawKey.delete(oldestKey)
+  }
+}
+
+/** テスト用に inFlightByRawKey の現在のエントリ数を取得する */
+export function getInFlightRawKeyCount(): number {
+  return inFlightByRawKey.size
+}
+
+/**
  * セッションの起動元に応じたスラッシュコマンド一覧を返す。
  *
  * Codex など別ツールに対応する場合は、この switch に case を足す。
@@ -835,6 +869,7 @@ export async function getSlashCommands(
     return scanPromise
   })()
 
+  pruneInFlightByRawKey(rawKey)
   inFlightByRawKey.set(rawKey, resultPromise)
   // 成功・失敗いずれの場合も、決着したら raw キーの相乗り対象から外す。
   // ここで .then(onFulfilled, onRejected) を使うのは、.finally() だと元の

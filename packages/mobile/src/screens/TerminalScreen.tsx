@@ -4,14 +4,22 @@ import { useKeepAwake } from 'expo-keep-awake'
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { WebView, WebViewMessageEvent } from 'react-native-webview'
 import { useLocalSearchParams, useRouter } from 'expo-router'
-import { DEFAULT_WS_PORT, SessionSource } from '@remocoder/shared'
+import { DEFAULT_WS_PORT, SessionSource, SlashCommandInfo } from '@remocoder/shared'
 import { buildTerminalHtml } from '../assets/terminalHtml'
 import { PermissionSheet, PermissionRequest } from '../components/PermissionSheet'
 import { KeyboardToolbar } from '../components/KeyboardToolbar'
+import { SlashCommandSheet, ERROR_CLIENT_TIMEOUT, ERROR_SESSION_ENDED } from '../components/SlashCommandSheet'
 import { useKeyboardHeight } from '../hooks/useKeyboardHeight'
 import { firstParam } from '../utils'
 
 type ConnectionStatus = 'connecting' | 'connected' | 'reconnecting' | 'auth_error' | 'shell_exit'
+
+/**
+ * command_list_request を送ってから command_list が届くまでの許容時間。
+ * これを超えても届かない場合、古いデスクトップアプリが command_list_request を
+ * 無視している可能性がある（走査が単に遅いだけの可能性もある）ことをユーザーに示す。
+ */
+const COMMAND_LIST_TIMEOUT_MS = 5000
 
 const STATUS_CONFIG: Record<
   ConnectionStatus,
@@ -50,6 +58,10 @@ export function TerminalScreen() {
     }
   }, [sourceJson])
 
+  useEffect(() => {
+    if (source) setCurrentSource(source)
+  }, [source])
+
   const wsUrl = useMemo(() => `ws://${ip}:${DEFAULT_WS_PORT}`, [ip])
   const keyboardHeight = useKeyboardHeight()
   const insets = useSafeAreaInsets()
@@ -58,6 +70,52 @@ export function TerminalScreen() {
   const [webViewKey, setWebViewKey] = useState(0)
   const [pendingPermission, setPendingPermission] = useState<PermissionRequest | null>(null)
   const webViewRef = useRef<WebView>(null)
+  const [currentSource, setCurrentSource] = useState<SessionSource | null>(null)
+  // command_list_request への応答がまだ届いていない（＝取得中/未取得）ことと、
+  // 応答が「空だった」ことを区別するため、初期値・リセット時ともに null にする。
+  // null は SlashCommandSheet 側で「Loading commands…」として表示される
+  // （resetCommandState 経由でセッション終了時にリセットする場合は、
+  // commandsError を ERROR_SESSION_ENDED にするため、実際には「Loading」ではなく
+  // 「Session has ended」と表示される）。
+  const [commands, setCommands] = useState<SlashCommandInfo[] | null>(null)
+  const [commandsTruncated, setCommandsTruncated] = useState(false)
+  const [commandsError, setCommandsError] = useState<string | null>(null)
+  const [sheetVisible, setSheetVisible] = useState(false)
+  // command_list はセッションをまたいで非同期に届くため、どのセッションへの
+  // 応答かを sessionId で照合する（Finding 4）。ref にするのは、
+  // handleMessage のクロージャで常に最新値を読みたいのに、useCallback の依存に
+  // 加えて再生成させたくないため
+  const currentSessionIdRef = useRef<string | null>(null)
+  // command_list_request への応答タイムアウト用タイマー。session_attached の
+  // たびに張り直し、command_list（自セッション宛て）到着時・セッション終了時・
+  // アンマウント時にクリアする
+  const commandTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const clearCommandTimeout = useCallback(() => {
+    if (commandTimeoutRef.current) {
+      clearTimeout(commandTimeoutRef.current)
+      commandTimeoutRef.current = null
+    }
+  }, [])
+
+  useEffect(() => {
+    // アンマウント時にタイマーが残らないようにする
+    return () => clearCommandTimeout()
+  }, [clearCommandTimeout])
+
+  // セッションが終了した（auth_error / shell_exit / session_not_found）ときに
+  // 古いコマンド一覧やシートの開閉状態を残さないためのリセット。
+  // 「取得結果が空だった」と区別できるよう、commandsError を ERROR_SESSION_ENDED
+  // にする（SlashCommandSheet 側で "Session has ended" と表示される）。
+  // disconnected は再接続で自然に復帰する一時的な状態なのでここでは呼ばない。
+  const resetCommandState = useCallback(() => {
+    clearCommandTimeout()
+    currentSessionIdRef.current = null
+    setCommands(null)
+    setCommandsTruncated(false)
+    setCommandsError(ERROR_SESSION_ENDED)
+    setSheetVisible(false)
+  }, [clearCommandTimeout])
 
   useKeepAwake()
 
@@ -89,11 +147,30 @@ export function TerminalScreen() {
           break
         case 'auth_error':
           setStatus('auth_error')
+          resetCommandState()
           break
-        case 'session_attached':
+        case 'session_attached': {
           setStatus('connected')
           setPendingPermission(null)
+          if (msg.source) setCurrentSource(msg.source as SessionSource)
+          // セッションが変わるとプロジェクトも変わるので一覧を取り直す。
+          // 前のセッションのコマンド一覧を新しいセッションのものと誤認させないよう、
+          // 応答が届くまでは「未取得（null）」に戻す
+          setCommands(null)
+          setCommandsError(null)
+          setCommandsTruncated(false)
+          // 以後 command_list を照合するための現在セッション ID を更新する
+          currentSessionIdRef.current = typeof msg.sessionId === 'string' ? msg.sessionId : null
+          // command_list_request への応答タイムアウトを張り直す（Finding 2）。
+          // 古いタイマーが残っていればクリアしてから新しく張る
+          clearCommandTimeout()
+          commandTimeoutRef.current = setTimeout(() => {
+            commandTimeoutRef.current = null
+            setCommandsError(ERROR_CLIENT_TIMEOUT)
+          }, COMMAND_LIST_TIMEOUT_MS)
+          webViewRef.current?.injectJavaScript('window.requestCommandList(); true;')
           break
+        }
         case 'connected':
           setStatus('connected')
           break
@@ -103,10 +180,32 @@ export function TerminalScreen() {
           break
         case 'shell_exit':
           setStatus('shell_exit')
+          resetCommandState()
           break
         case 'session_not_found':
           setStatus('auth_error')
+          resetCommandState()
           break
+        case 'command_list': {
+          // sessionId が現在アタッチ中のセッションと一致しない応答は、
+          // 前のセッションに対する遅延応答なので無視する（Finding 4）。
+          // ただし not_attached は sessionId: null で届く（未アタッチだったため
+          // 元々対応するセッションがない）ので、これは常に受け入れる
+          const responseError = typeof msg.error === 'string' ? msg.error : null
+          const responseSessionId = typeof msg.sessionId === 'string' ? msg.sessionId : null
+          if (responseError !== 'not_attached' && responseSessionId !== currentSessionIdRef.current) {
+            break
+          }
+          clearCommandTimeout()
+          // error があるとき（scan_failed / not_attached）は commands が [] で
+          // 届くが、これは「走査できなかった」ことを示すのであって「コマンドが
+          // 0件だった」わけではない。両者を区別するため、エラー時は commands を
+          // null（未取得）のままにし、エラー文言は別途 error state で保持する。
+          setCommandsError(responseError)
+          setCommands(responseError ? null : ((msg.commands as SlashCommandInfo[]) ?? []))
+          setCommandsTruncated(Boolean(msg.truncated))
+          break
+        }
         case 'permission_request':
           setPendingPermission({
             requestId: msg.requestId as string,
@@ -120,7 +219,7 @@ export function TerminalScreen() {
           console.warn('[TerminalScreen] 未処理の WebView メッセージタイプ:', msg.type)
       }
     },
-    [],
+    [resetCommandState, clearCommandTimeout],
   )
 
   const handlePermissionDecide = useCallback(
@@ -136,6 +235,13 @@ export function TerminalScreen() {
   const handleRetry = useCallback(() => {
     setStatus('connecting')
     setWebViewKey((k) => k + 1)
+  }, [])
+
+  const handleSelectCommand = useCallback((name: string) => {
+    setSheetVisible(false)
+    webViewRef.current?.injectJavaScript(
+      `window.sendInput(${JSON.stringify(`/${name}`)}); true;`,
+    )
   }, [])
 
   const html = useMemo(
@@ -177,10 +283,24 @@ export function TerminalScreen() {
       />
 
       {/* カスタムキーボードツールバー */}
-      <KeyboardToolbar webViewRef={webViewRef} />
+      <KeyboardToolbar
+        webViewRef={webViewRef}
+        source={currentSource}
+        onOpenCommands={() => setSheetVisible(true)}
+      />
 
       {/* 承認ボトムシート */}
       <PermissionSheet request={pendingPermission} onDecide={handlePermissionDecide} />
+
+      {/* スラッシュコマンド選択シート */}
+      <SlashCommandSheet
+        visible={sheetVisible}
+        commands={commands}
+        truncated={commandsTruncated}
+        error={commandsError}
+        onClose={() => setSheetVisible(false)}
+        onSelect={handleSelectCommand}
+      />
     </SafeAreaView>
   )
 }

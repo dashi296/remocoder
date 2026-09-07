@@ -134,4 +134,24 @@ describe('buildTerminalHtml', () => {
       expect(html).toContain('postToNative')
     })
   })
+
+  describe('スラッシュコマンド一覧', () => {
+    const html = buildTerminalHtml('ws://100.64.0.1:8080', 'tok')
+
+    it('requestCommandList ブリッジ関数が定義されている', () => {
+      expect(html).toContain('window.requestCommandList')
+    })
+
+    it('command_list_request を送信する', () => {
+      expect(html).toContain("type: 'command_list_request'")
+    })
+
+    it('command_list メッセージを native に転送する', () => {
+      expect(html).toContain("msg.type === 'command_list'")
+    })
+
+    it('session_attached の native 転送に source を含める', () => {
+      expect(html).toMatch(/type: 'session_attached', sessionId: msg\.sessionId, source: msg\.source/)
+    })
+  })
 })

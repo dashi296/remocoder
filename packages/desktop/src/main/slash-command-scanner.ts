@@ -643,6 +643,9 @@ export const MAX_CACHE_ENTRIES = 32
 /** テスト用にキャッシュを破棄する */
 export function clearSlashCommandCache(): void {
   commandsCache.clear()
+  // inFlightByRawKey も相乗り用のキャッシュ層の一部なので、テスト間で
+  // 汚染が残らないようここでも破棄する
+  inFlightByRawKey.clear()
 }
 
 /** テスト用に現在のキャッシュ件数を取得する */
@@ -760,6 +763,22 @@ async function performScan(
 }
 
 /**
+ * 検証中（validProjectPath）または走査中（performScan）の Promise を、
+ * 「生の入力」ベースのキーで共有するための Map。
+ *
+ * commandsCache は検証済み・正規化済みのパスをキーにしているため、
+ * 応答の遅いファイルシステム上で同じ raw な projectPath への同時リクエストが
+ * 複数届くと、検証（validProjectPath の stat/realpath）が commandsCache に
+ * 触れる前の段階でそれぞれ独立に走ってしまい、相乗りの機会がない。
+ * ここではキーを検証前の「生の」文字列（claudeDir + source.projectPath そのもの）
+ * にすることで、検証も含めて同じ入力への同時呼び出しを1本化する。
+ * 2つの異なる raw な綴り（symlink エイリアスなど）が同じ実体を指す場合は、
+ * このレベルでは別エントリのままだが、検証後は commandsCache 側の realpath
+ * 正規化によって同じキーに収束するため、従来通り重複走査は起きない。
+ */
+const inFlightByRawKey = new Map<string, Promise<SlashCommandsResult>>()
+
+/**
  * セッションの起動元に応じたスラッシュコマンド一覧を返す。
  *
  * Codex など別ツールに対応する場合は、この switch に case を足す。
@@ -777,27 +796,55 @@ export async function getSlashCommands(
   }
 
   const claudeDir = options.claudeDir ?? join(homedir(), '.claude')
-  const projectPath = await validProjectPath(source.projectPath)
-  const cacheKey = `${claudeDir}|${projectPath ?? '<none>'}`
-  const now = Date.now()
-  const cached = commandsCache.get(cacheKey)
-  if (cached && now < cached.expiry) return cached.promise
+  const rawProjectPath = typeof source.projectPath === 'string' ? source.projectPath : '<none>'
+  const rawKey = `${claudeDir}|${rawProjectPath}`
 
-  const ctx = createScanContext()
+  // 同じ raw キーへの呼び出しが既に検証中・走査中であれば、そのまま相乗りする。
+  // ここでの判定から下の Map への登録までの間に await を挟まないことが重要
+  // （挟むと、その隙に届いた同時呼び出しが相乗りする機会を逃す）。
+  const existing = inFlightByRawKey.get(rawKey)
+  if (existing) return existing
 
-  // 走査中の Promise を即座にキャッシュへ入れる。cached の判定から
-  // ここまでの間に await を挟んでいないため、同じキーに対する後続の
-  // 呼び出しはこの Promise を見つけて相乗りできる（走査の二重実行を防ぐ）。
-  const scanPromise: Promise<SlashCommandsResult> = performScan(claudeDir, projectPath, ctx).catch((err) => {
-    // 走査が失敗した場合、失敗した Promise をキャッシュに残さない。
-    // 残すと、次の呼び出しも同じ rejected Promise を待つだけになり、
-    // TTL が切れるまで再走査の機会が失われてしまう。
-    const entry = commandsCache.get(cacheKey)
-    if (entry && entry.promise === scanPromise) commandsCache.delete(cacheKey)
-    throw err
-  })
+  const resultPromise: Promise<SlashCommandsResult> = (async () => {
+    // validProjectPath は ScanContext（walk の budget）が作られる前に走る検証であり、
+    // ここで費やす時間は意図的に「500ファイル/3秒」の budget の外側にある。
+    // キャッシュキー（正規化された projectPath）を決めるための前処理であって
+    // 走査そのものではないため、ctx 管理下に置く必要はないという判断による。
+    const projectPath = await validProjectPath(source.projectPath)
+    const cacheKey = `${claudeDir}|${projectPath ?? '<none>'}`
+    const now = Date.now()
+    const cached = commandsCache.get(cacheKey)
+    if (cached && now < cached.expiry) return cached.promise
 
-  pruneCache(now, cacheKey)
-  commandsCache.set(cacheKey, { promise: scanPromise, expiry: now + CACHE_TTL_MS })
-  return scanPromise
+    const ctx = createScanContext()
+
+    // 走査中の Promise を即座にキャッシュへ入れる。cached の判定から
+    // ここまでの間に await を挟んでいないため、同じキーに対する後続の
+    // 呼び出しはこの Promise を見つけて相乗りできる（走査の二重実行を防ぐ）。
+    const scanPromise: Promise<SlashCommandsResult> = performScan(claudeDir, projectPath, ctx).catch((err) => {
+      // 走査が失敗した場合、失敗した Promise をキャッシュに残さない。
+      // 残すと、次の呼び出しも同じ rejected Promise を待つだけになり、
+      // TTL が切れるまで再走査の機会が失われてしまう。
+      const entry = commandsCache.get(cacheKey)
+      if (entry && entry.promise === scanPromise) commandsCache.delete(cacheKey)
+      throw err
+    })
+
+    pruneCache(now, cacheKey)
+    commandsCache.set(cacheKey, { promise: scanPromise, expiry: now + CACHE_TTL_MS })
+    return scanPromise
+  })()
+
+  inFlightByRawKey.set(rawKey, resultPromise)
+  // 成功・失敗いずれの場合も、決着したら raw キーの相乗り対象から外す。
+  // ここで .then(onFulfilled, onRejected) を使うのは、.finally() だと元の
+  // rejection を伝播した新しい Promise ができてしまい、誰も待たないその
+  // Promise が unhandled rejection として扱われうるため
+  // （resultPromise 自体は呼び出し元が受け取って処理する）。
+  const clearInFlight = (): void => {
+    if (inFlightByRawKey.get(rawKey) === resultPromise) inFlightByRawKey.delete(rawKey)
+  }
+  resultPromise.then(clearInFlight, clearInFlight)
+
+  return resultPromise
 }

@@ -13,7 +13,25 @@ import {
   constants as fsConstants,
 } from 'fs'
 import { tmpdir } from 'os'
-import { join } from 'path'
+import { join, resolve } from 'path'
+
+// realpath() の呼び出しを記録するためのフック。
+// 「同じ raw input への同時呼び出しがパス検証（validProjectPath）を1回しか
+// 行わないこと」を検証するのに使う。挙動を変えない透過的なラッパーなので、
+// recording が false（デフォルト）の間は他のテストの fs 呼び出しに影響しない。
+const fsHookState = vi.hoisted(() => ({ realpathCalls: [] as string[], recording: false }))
+
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('fs/promises')>()
+  return {
+    ...actual,
+    realpath: (path: Parameters<typeof actual.realpath>[0], ...rest: unknown[]) => {
+      if (fsHookState.recording) fsHookState.realpathCalls.push(String(path))
+      return (actual.realpath as (...a: unknown[]) => ReturnType<typeof actual.realpath>)(path, ...rest)
+    },
+  }
+})
+
 import {
   parseFrontmatter,
   createScanContext,
@@ -942,6 +960,29 @@ describe('getSlashCommands', () => {
     ])
     // 同じ Promise に相乗りしていれば、結果の配列は同一参照になる
     expect(b.commands).toBe(a.commands)
+  })
+
+  it('同じ raw な projectPath への同時呼び出しはパス検証（validProjectPath）も1回だけ行う', async () => {
+    // 上のテストは「走査（performScan）が1回に相乗りする」ことしか見ていない。
+    // validProjectPath は走査より前段の処理であり、応答の遅いファイルシステム上では
+    // ここも重ねて実行されると budget の外で時間を浪費してしまう。
+    // realpath への呼び出しを記録し、resolve(projectPath) 自身を引数とする呼び出し
+    // （= validProjectPath によるもの。walk 中の enterDirectory は常に projectPath
+    // 配下のサブディレクトリを渡すため、混同しない）が1回だけであることを確認する。
+    const projectPath = makeProject(['shared'])
+    fsHookState.realpathCalls = []
+    fsHookState.recording = true
+    try {
+      const [a, b] = await Promise.all([
+        getSlashCommands({ kind: 'claude', projectPath }, { claudeDir }),
+        getSlashCommands({ kind: 'claude', projectPath }, { claudeDir }),
+      ])
+      expect(b.commands).toBe(a.commands)
+      const validationCalls = fsHookState.realpathCalls.filter((p) => p === resolve(projectPath))
+      expect(validationCalls.length).toBe(1)
+    } finally {
+      fsHookState.recording = false
+    }
   })
 
   it('走査が失敗した場合、失敗した Promise をキャッシュに残さず、次の呼び出しで再走査できる', async () => {

@@ -622,27 +622,107 @@ export function startPtyServer(port = DEFAULT_WS_PORT, callbacks: PtyServerCallb
     let pongTimeoutId: ReturnType<typeof setTimeout> | null = null
     const clientIP = req?.socket?.remoteAddress
     /**
-     * このソケットで現在進行中のスラッシュコマンド走査と、それがどのセッション
-     * （session.id）に対して開始されたかの組。
-     * 認証済みクライアントは command_list_request を連打して走査を無制限に
-     * 積み重ねられるため、ソケットごとに同時実行を1本に制限する。
-     * 走査中に届いた後続のリクエストが同じセッションに対するものであれば、
-     * 新しい走査を始めずこの Promise に相乗りして同じ結果から応答する。
+     * このソケットで現在「予約」されている（実行中 or 実行待ちの）スラッシュコマンド
+     * 走査と、それがどのセッション（session.id）に対するものかの組。
      *
-     * sessionId も一緒に持つのは、走査中に session_attach で別セッションへ
-     * 切り替わってから command_list_request が届くケースがあるため。
-     * ソケット単位でしか見ていないと、古いセッションの走査結果が新しい
-     * セッションの応答として（新しい sessionId を名乗って）返ってしまい、
-     * モバイル側が command_list.sessionId で行っている「今アタッチしている
-     * セッションのものか」という検証を素通りしてしまう。sessionId が一致する
-     * 場合だけ相乗りし、一致しなければ新しい走査で古いエントリを置き換える
-     * （古い走査自身の応答は、それを最初に要求したリクエストへ引き続き
-     * 正しく返る。相乗りの対象から外れるだけである）。
+     * 認証済みクライアントは command_list_request を連打したり、走査中に
+     * session_attach で別セッションへ切り替えたりできる。ソケットごとに
+     * 「実際に fs へアクセスしている走査は常に最大1本」という上限を厳密に
+     * 守るため、command_list_request のハンドラは次のように振る舞う。
+     *
+     *   - 同じセッションに対する後続リクエストは、この Promise にそのまま
+     *     相乗りする（新しい走査は始めない）。
+     *   - 別セッションに対するリクエストが来ても、2本目の走査をすぐ並行して
+     *     始めることはしない。今追跡している走査（またはその待ち行列）が
+     *     決着する（成功・失敗いずれでも、失敗は無視する）のを待ってから、
+     *     初めて新しい走査を始める。この「待つ」ステップ自体も
+     *     inFlightCommandListScan に同期的に登録するため、待っている間に
+     *     3本目・4本目のリクエストが届いても同様に直列につながり、
+     *     実行中の走査が2本以上になることはない（詳細は
+     *     startCommandListScan / getOrQueueCommandListScan 参照）。
+     *
+     * 古い走査自体はキャンセルされない（Node の fs API に中断手段がないため）。
+     * それでも、それを最初に要求したリクエストへは、その走査結果が引き続き
+     * 正しく返る（相乗り・待ち行列の対象から外れるだけである）。
      *
      * 走査が完了（成功・失敗いずれも）したら null に戻し、次のリクエストは
      * 新しい走査を開始できるようにする。
      */
     let inFlightCommandListScan: { sessionId: string; scan: ReturnType<typeof getSlashCommands> } | null = null
+
+    /**
+     * 実際に getSlashCommands を呼び出し、inFlightCommandListScan に登録する。
+     * 呼び出す前提（相乗り不可・待ち不要）の判断は呼び出し元が行う。
+     * Promise.resolve().then(...) で包むのは、モック等が同期的に throw する
+     * 場合でも rejected Promise として扱い、呼び出し元の catch で確実に拾うため。
+     */
+    const startCommandListScan = (session: PtySession): ReturnType<typeof getSlashCommands> => {
+      const scan: ReturnType<typeof getSlashCommands> = Promise.resolve()
+        .then(() => getSlashCommands(session.source))
+        .finally(() => {
+          // cleanup()（ws close）が先に null へ戻している場合や、この走査が
+          // 既に別の走査に置き換わっている場合に誤って上書きしないよう、
+          // 自分自身がまだ追跡対象であることを確認してから外す
+          if (inFlightCommandListScan?.scan === scan) inFlightCommandListScan = null
+        })
+      inFlightCommandListScan = { sessionId: session.id, scan }
+      return scan
+    }
+
+    /**
+     * command_list_request 1件分の走査を、相乗り／待ち行列を経て取得する。
+     * 「ソケットごとに実行中の走査は最大1本」を保ったまま、session.id に
+     * 対応した結果を返す。
+     */
+    const getOrQueueCommandListScan = (session: PtySession): ReturnType<typeof getSlashCommands> => {
+      if (inFlightCommandListScan?.sessionId === session.id) {
+        // 同じセッションへの相乗り。新しい走査は始めない
+        return inFlightCommandListScan.scan
+      }
+
+      if (!inFlightCommandListScan) {
+        // 走査中のものが何もなければ、待たずにそのまま始める
+        return startCommandListScan(session)
+      }
+
+      // 別セッションの走査が進行中: 2本目を並行して始めず、今の走査（またはその
+      // 待ち行列）が決着するまで待つ。失敗は無視する（この新しいリクエストの
+      // 成否とは無関係なため）。決着後、待っている間に「別の」リクエストが
+      // 既にこのセッションを予約していればそれに相乗りし、していなければ
+      // ここで初めて新しい走査を始める。
+      //
+      // 「別の」リクエストかどうかは sessionId の一致だけでなく
+      // inFlightCommandListScan.scan !== waitThenScan も確認して判定する。
+      // sessionId だけで見ると、待ち行列に入る直前に自分自身を
+      // { sessionId: session.id, scan: waitThenScan } として登録しているため、
+      // 誰にも上書きされていない場合は「自分自身」を「既に他の誰かが予約した
+      // エントリ」と誤認識してしまう。waitThenScan はまだ解決していない
+      // 自分自身の Promise なので、それを返すと解決不能な自己参照になり
+      // 応答が永久に届かなくなる。
+      const waitThenScan: ReturnType<typeof getSlashCommands> = inFlightCommandListScan.scan
+        .then(
+          () => {},
+          () => {},
+        )
+        .then(() => {
+          if (
+            inFlightCommandListScan &&
+            inFlightCommandListScan.scan !== waitThenScan &&
+            inFlightCommandListScan.sessionId === session.id
+          ) {
+            return inFlightCommandListScan.scan
+          }
+          // 待っている間にソケットが閉じていれば応答はどのみち破棄される
+          // （command_list_request ハンドラ側の readyState チェック）。
+          // 無駄な fs アクセスを避けるため、ここで打ち切る
+          if (ws.readyState !== WebSocket.OPEN) {
+            return { commands: [], truncated: false }
+          }
+          return startCommandListScan(session)
+        })
+      inFlightCommandListScan = { sessionId: session.id, scan: waitThenScan }
+      return waitThenScan
+    }
 
     const authTimeout = setTimeout(() => {
       if (!authenticated) ws.close()
@@ -926,42 +1006,12 @@ export function startPtyServer(port = DEFAULT_WS_PORT, callbacks: PtyServerCallb
         // getSlashCommands は非同期の fs I/O（fs/promises）で走査するため、
         // ここでの待ち時間中に接続が切れることがある。応答を送る前に
         // readyState を確認し、切れていれば何もしない。
-        // Promise.resolve().then(...) で包むのは、モック等が同期的に throw する
-        // 場合でも rejected Promise として扱い、catch で確実に拾うため。
         //
-        // このソケットで既に同じセッションに対する走査が進行中なら、新しい走査は
-        // 始めずそれに相乗りする。認証済みクライアントが command_list_request を
-        // 連打すると、応答の遅いファイルシステム上では in-flight の走査が際限
-        // なく積み上がりうるため、ソケットごとに同時実行を1本に制限する
-        // （getSlashCommands 自身の raw キー相乗りは呼び出し元をまたいだ
-        // 検証・走査の重複を防ぐものであり、ここでの「1ソケットにつき1本」
-        // という上限とは別の防御レイヤーである）。
-        //
-        // セッションが一致する場合のみ相乗りするのは、走査中に session_attach
-        // で別セッションへ切り替わった場合に、古いセッションの走査結果を
-        // 新しい session.id で返してしまわないため。モバイル側は
-        // command_list.sessionId を今アタッチ中のセッションと突き合わせて
-        // 不一致を捨てる検証を行っており、ソケット単位でしか相乗りを制限
-        // していないとその検証をすり抜けてしまう（詳細は上の変数の doc 参照）。
-        const inFlightForThisSession =
-          inFlightCommandListScan?.sessionId === session.id ? inFlightCommandListScan.scan : null
-
-        const scan: ReturnType<typeof getSlashCommands> =
-          inFlightForThisSession ??
-          Promise.resolve()
-            .then(() => getSlashCommands(session.source))
-            .finally(() => {
-              // cleanup()（ws close）が先に null へ戻している場合や、この走査が
-              // 既に別の走査（同一セッションの後続 or 別セッションへの
-              // 切り替え）に置き換わっている場合に誤って上書きしないよう、
-              // 自分自身がまだ追跡対象であることを確認してから外す
-              if (inFlightCommandListScan?.scan === scan) inFlightCommandListScan = null
-            })
-        // セッションが変わっていた場合はここで古いエントリを新しい走査に
-        // 置き換える（古い走査自身は取り消されないが、相乗りの対象からは外れる。
-        // 古い走査を要求した元のリクエストへは、その走査結果が引き続き
-        // 正しく返る）
-        inFlightCommandListScan = { sessionId: session.id, scan }
+        // 実際の相乗り・待ち行列のロジックは getOrQueueCommandListScan
+        // （上の inFlightCommandListScan の doc 参照）が担う。ここでは
+        // 「ソケットごとに実行中の走査は最大1本」を保ったまま、session.id に
+        // 対応した結果を待つだけでよい。
+        const scan = getOrQueueCommandListScan(session)
 
         scan
           .then(({ commands, truncated }) => {

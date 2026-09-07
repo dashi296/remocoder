@@ -523,15 +523,16 @@ describe('startPtyServer', () => {
       }
     })
 
-    it('走査中に別セッションへ session_attach してから command_list_request を送ると、古い走査に相乗りせず新しく走査する', async () => {
-      // 相乗りをソケット単位だけで制限すると、走査が完了する前に session_attach で
-      // 別セッションへ切り替えた場合、2回目の応答が「新しい session.id」を名乗り
-      // つつ「古いセッションの走査結果」を返してしまう。モバイル側は
-      // command_list.sessionId を現在アタッチ中のセッションと突き合わせて
-      // 不一致を捨てる検証をしているため、これだとその検証をすり抜けて
-      // 別プロジェクトのコマンド一覧を今のセッションのものとして受け取ってしまう。
-      // ここではソケットではなくセッション単位で相乗りを制限し、この事故が
-      // 起きないことを確認する。
+    it('走査中に別セッションへ session_attach してから command_list_request を送ると、古い走査の決着を待ってから新しい走査を始める（2本目を並行して走らせない）', async () => {
+      // Codex round 5 (Finding 1): 以前の実装は「セッションが一致する場合だけ
+      // 相乗りし、一致しなければ即座に2本目の走査を並行して始める」という
+      // ものだった。これは古いセッションの走査結果を新しい session.id で
+      // 返してしまう事故は防げていたが、ソケットごとに同時実行数を1本に
+      // 制限するという前段（round 4）の防御そのものを再び壊していた。
+      // ここでは、別セッションへの切り替え後の command_list_request が、
+      // 古い走査が決着する（このテストでは resolveOldScan を呼ぶ）まで
+      // 2本目の走査を始めないこと、決着後に初めて自分のセッション向けの
+      // 走査を始めて正しい session.id で応答することを確認する。
       mockUuidv4.mockReturnValueOnce('session-old').mockReturnValueOnce('session-new')
 
       let resolveOldScan!: (value: { commands: unknown[]; truncated: boolean }) => void
@@ -572,37 +573,170 @@ describe('startPtyServer', () => {
         sendMessage(ws, { type: 'command_list_request' })
         await flushAsync()
 
-        // session-new 向けは相乗りせず独立して走査したはず
-        expect(callCount).toBe(2)
-        const newSessionCalls = ws.send.mock.calls.map((c: any) => JSON.parse(c[0]))
-        const newSessionResponse = newSessionCalls.find((m: any) => m.type === 'command_list')
-        expect(newSessionResponse).toBeDefined()
-        expect(newSessionResponse.sessionId).toBe('session-new')
-        expect(newSessionResponse.commands).toEqual([{ name: 'new-session-result', scope: 'user' }])
+        // 古い走査（session-old 向け）がまだ決着していないため、2本目の走査を
+        // 並行して始めてはならない。session-new 向けの応答もまだ届かない
+        expect(callCount).toBe(1)
+        expect(ws.send).not.toHaveBeenCalled()
 
-        // 古い走査（session-old 向け）を今ここで完了させる。この応答は
-        // session-old を要求した元のリクエストへ正しく返ってよいが、
-        // session-new を名乗ってはならない
+        // 古い走査を決着させる。これで初めて session-new 向けの走査が始まる
         resolveOldScan({ commands: [{ name: 'old-session-result', scope: 'user' }], truncated: false })
         await flushAsync()
 
-        const allCalls = ws.send.mock.calls.map((c: any) => JSON.parse(c[0]))
-        const commandListResponses = allCalls.filter((m: any) => m.type === 'command_list')
-        // old-session-result を含む応答は session-old を名乗っているはず。
-        // session-new を名乗りながら old-session-result を運ぶ応答があってはならない
-        for (const response of commandListResponses) {
-          const hasOldResult = response.commands.some((c: any) => c.name === 'old-session-result')
-          if (hasOldResult) {
-            expect(response.sessionId).toBe('session-old')
-          }
+        expect(callCount).toBe(2)
+        const calls = ws.send.mock.calls.map((c: any) => JSON.parse(c[0]))
+        const responses = calls.filter((m: any) => m.type === 'command_list')
+
+        // session-old を要求した最初のリクエストへは old-session-result が
+        // 正しく返り（相乗り・待ち行列の対象から外れても応答自体は届く）、
+        // session-new を要求したリクエストへは new-session-result が返る
+        const oldResponse = responses.find((m: any) => m.sessionId === 'session-old')
+        const newResponse = responses.find((m: any) => m.sessionId === 'session-new')
+        expect(oldResponse?.commands).toEqual([{ name: 'old-session-result', scope: 'user' }])
+        expect(newResponse?.commands).toEqual([{ name: 'new-session-result', scope: 'user' }])
+      } finally {
+        scannerState.impl = null
+      }
+    })
+
+    it('ソケットを何度も別セッションへ切り替えて command_list_request を送っても、同時に実行中の走査は常に1本を超えない', async () => {
+      // Finding 1 の核心: 「セッション切り替え＋即リクエスト」を連打しても、
+      // 実際に fs へアクセスしている走査（scannerState.impl の呼び出し）が
+      // 同時に2本以上動くことは決してあってはならない。ここでは
+      // Deferred（外から resolve できる Promise）を使い、走査の「開始」と
+      // 「決着」を明示的に制御しながら、活性中（開始済み・未決着）の呼び出し数を
+      // 数える。
+      // 「途中で待ち行列が止まっても maxActive ≤ 1 は満たされたまま」という
+      // 見せかけの合格を防ぐため、activeState は「同時実行数」だけでなく
+      // 「実際に開始された走査の総数」も数える。待ち行列が2段目・3段目以降で
+      // 止まってしまうと totalStarts が 5 に届かない
+      let active = 0
+      let maxActive = 0
+      let totalStarts = 0
+      const deferreds: Array<{ sessionSource: unknown; resolve: (value: { commands: unknown[]; truncated: boolean }) => void }> = []
+      scannerState.impl = (source: unknown) => {
+        active++
+        totalStarts++
+        maxActive = Math.max(maxActive, active)
+        return new Promise<{ commands: unknown[]; truncated: boolean }>((resolve) => {
+          deferreds.push({
+            sessionSource: source,
+            resolve: (value) => {
+              active--
+              resolve(value)
+            },
+          })
+        })
+      }
+      try {
+        startPtyServer()
+        const ws = createMockWs()
+        wssState.instance!.emit('connection', ws)
+        sendMessage(ws, { type: 'auth', token: 'test-token' })
+
+        const sessionIds: string[] = []
+        for (let i = 0; i < 5; i++) {
+          const sessionId = `session-${i}`
+          sessionIds.push(sessionId)
+          mockUuidv4.mockReturnValueOnce(sessionId)
+          // session_create は作成したセッションへ即座にアタッチする（session_attach は不要）。
+          // projectPath にセッション名を入れておき、後で「どのセッション向けの
+          // 走査が実際に始まったか」を scannerState.impl 側から見分けられるようにする
+          sendMessage(ws, { type: 'session_create', projectPath: sessionId })
+          sendMessage(ws, { type: 'command_list_request' })
+          // 次の切り替えへ進む前にマイクロタスクを一部消化するが、意図的に
+          // 走査そのものは決着させない（≒ 実運用でファイルシステムの応答が
+          // 遅いまま、次々に切り替えられるケースを模す）
+          await Promise.resolve()
+          await Promise.resolve()
         }
-        expect(
-          commandListResponses.some(
-            (m: any) =>
-              m.sessionId === 'session-new' &&
-              m.commands.some((c: any) => c.name === 'old-session-result'),
-          ),
-        ).toBe(false)
+
+        // ここまでで「決着させていない」走査の起動が複数回試みられているが、
+        // 直列化により、同時に活性化していたのは常に高々1本のはず
+        expect(maxActive).toBeLessThanOrEqual(1)
+
+        // 溜まった待ち行列を、各セッション名を含む区別可能な結果で1本ずつ決着させる。
+        // ここで「今、待ち行列の先頭にいる走査がどのセッション向けか」を
+        // deferreds に記録した sessionSource から取り出して結果に埋め込むことで、
+        // 待ち行列が正しい順序で正しいセッションの走査を始めていることも
+        // 併せて確認する
+        while (deferreds.length > 0) {
+          const { sessionSource, resolve } = deferreds.shift()!
+          resolve({ commands: [{ name: `result-for-${(sessionSource as any)?.projectPath ?? 'unknown'}` }], truncated: false })
+          await flushAsync()
+        }
+
+        expect(maxActive).toBeLessThanOrEqual(1)
+        // 待ち行列が途中で止まっていないこと（5回すべて走査が始まったこと）を確認する。
+        // これがないと、2段目以降が永久に止まったままでも
+        // maxActive ≤ 1 だけは満たされてしまい、テストが見せかけの合格になる
+        expect(totalStarts).toBe(5)
+
+        const calls = ws.send.mock.calls.map((c: any) => JSON.parse(c[0]))
+        const responses = calls.filter((m: any) => m.type === 'command_list')
+        // 5セッション分すべてに、正しい sessionId で応答が届いている
+        expect(responses.map((r: any) => r.sessionId).sort()).toEqual([...sessionIds].sort())
+        // 各応答の中身（projectPath 由来の結果）も自分自身の sessionId と対応している。
+        // 待ち行列の途中でセッションが取り違えられていないことの最終確認
+        for (const response of responses) {
+          expect(response.commands).toEqual([{ name: `result-for-${response.sessionId}` }])
+        }
+      } finally {
+        scannerState.impl = null
+      }
+    })
+
+    it('別セッションの走査を待ってキューイングされたリクエストは、ソケットが先に閉じても応答を送らない', async () => {
+      // Finding 1: 待ち行列に入っている間にソケットが閉じた場合、決着後の
+      // 応答送信は readyState チェックで抑止されるはず（既存の「走査中に
+      // 接続が閉じた場合」テストと同種の確認を、待ち行列に入ったケースにも
+      // 適用する）
+      mockUuidv4.mockReturnValueOnce('session-old').mockReturnValueOnce('session-new')
+
+      let resolveOldScan!: (value: { commands: unknown[]; truncated: boolean }) => void
+      let callCount = 0
+      scannerState.impl = () => {
+        callCount++
+        if (callCount === 1) {
+          return new Promise((resolve) => {
+            resolveOldScan = resolve
+          })
+        }
+        return Promise.resolve({ commands: [{ name: 'should-not-be-sent', scope: 'user' }], truncated: false })
+      }
+      try {
+        startPtyServer()
+        const ws = createMockWs()
+        wssState.instance!.emit('connection', ws)
+        sendMessage(ws, { type: 'auth', token: 'test-token' })
+        sendMessage(ws, { type: 'session_create' }) // uuidv4() → 'session-old'
+        ws.send.mockClear()
+
+        sendMessage(ws, { type: 'command_list_request' })
+        await Promise.resolve()
+        expect(callCount).toBe(1)
+
+        const otherWs = createMockWs()
+        wssState.instance!.emit('connection', otherWs)
+        sendMessage(otherWs, { type: 'auth', token: 'test-token' })
+        sendMessage(otherWs, { type: 'session_create' }) // uuidv4() → 'session-new'
+
+        sendMessage(ws, { type: 'session_attach', sessionId: 'session-new' })
+        ws.send.mockClear()
+        sendMessage(ws, { type: 'command_list_request' })
+        await flushAsync()
+
+        // まだ session-new 向けの走査は始まっていない（待ち行列にいる段階）。
+        // ここでソケットを閉じる
+        ws.readyState = 3 // WebSocket.CLOSED
+        ws.emit('close')
+
+        // 古い走査を決着させ、待ち行列にいた session-new 向けのリクエストが
+        // 処理される機会を与える
+        resolveOldScan({ commands: [{ name: 'old-session-result', scope: 'user' }], truncated: false })
+        await flushAsync()
+
+        const calls = ws.send.mock.calls.map((c: any) => JSON.parse(c[0]))
+        expect(calls.some((m: any) => m.type === 'command_list')).toBe(false)
       } finally {
         scannerState.impl = null
       }

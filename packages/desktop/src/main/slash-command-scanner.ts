@@ -210,6 +210,9 @@ export async function scanCommandsDir(
     if (depth >= MAX_DEPTH) return
     if (isExhausted(ctx)) return
     if (!(await enterDirectory(dir, ctx))) return
+    // enterDirectory 内の realpath で時間が経過している可能性があるため、
+    // readdir という次の I/O を始める前に再確認する
+    if (isExhausted(ctx)) return
 
     let entries: DirEntry[]
     try {
@@ -281,6 +284,9 @@ export async function scanSkillsDir(
 ): Promise<SlashCommandInfo[]> {
   if (isExhausted(ctx)) return []
   if (!(await enterDirectory(root, ctx))) return []
+  // enterDirectory 内の realpath で時間が経過している可能性があるため、
+  // readdir という次の I/O を始める前に再確認する
+  if (isExhausted(ctx)) return []
 
   let entries: DirEntry[]
   try {
@@ -297,6 +303,9 @@ export async function scanSkillsDir(
     const skillDir = join(root, entry.name)
     const skillFile = join(skillDir, 'SKILL.md')
     if (!(await pathExists(skillFile))) continue
+    // pathExists の stat で時間が経過している可能性があるため、
+    // 実際に読む（ctx.fileCount++ / readHead）前に再確認する
+    if (isExhausted(ctx)) break
 
     const name = pluginName ? `${pluginName}:${entry.name}` : entry.name
     if (!isSafeCommandName(name)) continue
@@ -339,6 +348,9 @@ export async function scanPluginRootSkill(
   if (isExhausted(ctx)) return []
   const skillFile = join(installPath, 'SKILL.md')
   if (!(await pathExists(skillFile))) return []
+  // pathExists の stat で時間が経過している可能性があるため、
+  // 実際に読む（ctx.fileCount++ / readHead）前に再確認する
+  if (isExhausted(ctx)) return []
 
   ctx.fileCount++
   let front: Record<string, string> = {}
@@ -405,6 +417,9 @@ async function readJson(filePath: string, ctx?: ScanContext): Promise<unknown> {
   if (!opened) return null
   const { handle, size } = opened
   try {
+    // openRegularFile 内の open/fstat で時間が経過している可能性があるため、
+    // 実際の読み取りを始める前に再確認する（handle は finally で必ず閉じる）
+    if (ctx && isExhausted(ctx)) return null
     if (size > MAX_JSON_BYTES) return null
     const buf = Buffer.alloc(size)
     let offset = 0
@@ -730,6 +745,13 @@ async function performScan(
       byName.set(cmd.name, cmd)
     }
   }
+
+  // 走査中の各所で isExhausted を呼んでいても、最後に行われた I/O（例えば
+  // 最後のプラグインの root SKILL.md 読み取り）が完了した直後に deadline を
+  // 超えていた場合、それ以降どこにも isExhausted の呼び出し機会がなければ
+  // truncated に反映されないまま返ってしまう。budget 超過を見逃さないよう、
+  // 返す直前に必ずもう一度評価する（呼び出し自体が ctx.truncated を更新する）
+  isExhausted(ctx)
 
   return {
     commands: [...byName.values()].sort((a, b) => a.name.localeCompare(b.name)),

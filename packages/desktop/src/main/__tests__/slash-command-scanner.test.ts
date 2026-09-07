@@ -206,9 +206,11 @@ describe('scanCommandsDir / scanSkillsDir', () => {
     }
     const ctx = createScanContext()
     let calls = 0
+    // walk 開始時・enterDirectory 後・readdir 後の3回分の isExhausted 呼び出しは
+    // まだ deadline 内としてやり過ごし、エントリのループに入ってから超過させる
     const nowSpy = vi.spyOn(Date, 'now').mockImplementation(() => {
       calls++
-      return calls <= 3 ? ctx.deadline - 1000 : ctx.deadline + 1000
+      return calls <= 4 ? ctx.deadline - 1000 : ctx.deadline + 1000
     })
     try {
       const result = await scanCommandsDir(join(tmp, 'commands'), 'user', ctx)
@@ -1080,5 +1082,64 @@ describe('getSlashCommands', () => {
     expect(truncated).toBe(true)
     // project は優先度が最も高いスコープなので、budget が尽きても落とされてはならない
     expect(commands.some((c) => c.name === 'priority-check' && c.scope === 'project')).toBe(true)
+  })
+
+  it('最後の操作（有効なプラグイン1件だけの root SKILL.md 読み取り）の最中に budget を使い切っても truncated: true を返す', async () => {
+    // このテストが再現したいバグの形: プラグイン root skill の読み取りが走査全体で
+    // 最後に行われる I/O であり、かつその読み取りが完了した時点で budget
+    // （ここでは MAX_FILES）をちょうど使い切った場合。読み取り自体は正常に完了して
+    // 結果に反映されるため、呼び出し元が最後にもう一度 isExhausted を評価しない限り
+    // truncated が false のまま返ってしまう。
+    //
+    // deadline（実時間）を使うと「何回目の Date.now 呼び出しで超過させるか」を
+    // 手で数える必要があり実装の些細な変更で崩れやすいため、ここでは
+    // fileCount ベースの budget を使う。事前に用意するダミーファイル数を逆算し、
+    // 「root SKILL.md の直前チェック時点でちょうど MAX_FILES - 1」
+    // 「読み取り後にちょうど MAX_FILES」になるよう仕込む。
+    //
+    // 内訳: ユーザーコマンド 496 件 → fileCount=496。
+    // その後 installed_plugins.json / settings.json / plugin.json の読み取りで
+    // +1 ずつ（resolveEnabledPlugins 側）→ fileCount=499。
+    // ここで root SKILL.md の直前チェックが走り、499 < 500 なので通過する。
+    // 直後の ctx.fileCount++ で 500 になり、以降どこにも isExhausted の
+    // 呼び出し機会がなければ truncated が反映されないまま返ってしまう。
+    mkdirSync(join(claudeDir, 'commands'), { recursive: true })
+    for (let i = 0; i < MAX_FILES - 4; i++) {
+      writeFileSync(
+        join(claudeDir, 'commands', `cmd${i}.md`),
+        '---\ndescription: d\n---\n',
+        'utf-8',
+      )
+    }
+
+    const pluginsDir = join(claudeDir, 'plugins')
+    const installPath = join(pluginsDir, 'cache', 'mp', 'demo', '1.0.0')
+    mkdirSync(join(installPath, '.claude-plugin'), { recursive: true })
+    writeFileSync(
+      join(installPath, '.claude-plugin', 'plugin.json'),
+      JSON.stringify({ name: 'demo-plugin' }),
+      'utf-8',
+    )
+    writeFileSync(join(installPath, 'SKILL.md'), '---\ndescription: d\n---\n', 'utf-8')
+    writeFileSync(
+      join(pluginsDir, 'installed_plugins.json'),
+      JSON.stringify({
+        version: 2,
+        plugins: { 'demo@mp': [{ scope: 'user', installPath, version: '1.0.0' }] },
+      }),
+      'utf-8',
+    )
+    writeFileSync(
+      join(claudeDir, 'settings.json'),
+      JSON.stringify({ enabledPlugins: { 'demo@mp': true } }),
+      'utf-8',
+    )
+
+    const { commands, truncated } = await getSlashCommands({ kind: 'claude' }, { claudeDir })
+
+    // 走査自体は正常に完了しており、プラグインのコマンドも結果に含まれている
+    // （= 「途中で例外になった」のではなく「完了はしたが budget を使い切った」ケース）
+    expect(commands.some((c) => c.name === 'demo-plugin')).toBe(true)
+    expect(truncated).toBe(true)
   })
 })

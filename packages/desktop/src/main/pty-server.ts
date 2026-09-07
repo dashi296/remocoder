@@ -622,14 +622,27 @@ export function startPtyServer(port = DEFAULT_WS_PORT, callbacks: PtyServerCallb
     let pongTimeoutId: ReturnType<typeof setTimeout> | null = null
     const clientIP = req?.socket?.remoteAddress
     /**
-     * このソケットで現在進行中のスラッシュコマンド走査。
+     * このソケットで現在進行中のスラッシュコマンド走査と、それがどのセッション
+     * （session.id）に対して開始されたかの組。
      * 認証済みクライアントは command_list_request を連打して走査を無制限に
      * 積み重ねられるため、ソケットごとに同時実行を1本に制限する。
-     * 走査中に届いた後続のリクエストは新しい走査を始めず、この Promise に
-     * 相乗りして同じ結果から応答する。走査が完了（成功・失敗いずれも）したら
-     * null に戻し、次のリクエストは新しい走査を開始できるようにする。
+     * 走査中に届いた後続のリクエストが同じセッションに対するものであれば、
+     * 新しい走査を始めずこの Promise に相乗りして同じ結果から応答する。
+     *
+     * sessionId も一緒に持つのは、走査中に session_attach で別セッションへ
+     * 切り替わってから command_list_request が届くケースがあるため。
+     * ソケット単位でしか見ていないと、古いセッションの走査結果が新しい
+     * セッションの応答として（新しい sessionId を名乗って）返ってしまい、
+     * モバイル側が command_list.sessionId で行っている「今アタッチしている
+     * セッションのものか」という検証を素通りしてしまう。sessionId が一致する
+     * 場合だけ相乗りし、一致しなければ新しい走査で古いエントリを置き換える
+     * （古い走査自身の応答は、それを最初に要求したリクエストへ引き続き
+     * 正しく返る。相乗りの対象から外れるだけである）。
+     *
+     * 走査が完了（成功・失敗いずれも）したら null に戻し、次のリクエストは
+     * 新しい走査を開始できるようにする。
      */
-    let inFlightCommandListScan: ReturnType<typeof getSlashCommands> | null = null
+    let inFlightCommandListScan: { sessionId: string; scan: ReturnType<typeof getSlashCommands> } | null = null
 
     const authTimeout = setTimeout(() => {
       if (!authenticated) ws.close()
@@ -916,32 +929,39 @@ export function startPtyServer(port = DEFAULT_WS_PORT, callbacks: PtyServerCallb
         // Promise.resolve().then(...) で包むのは、モック等が同期的に throw する
         // 場合でも rejected Promise として扱い、catch で確実に拾うため。
         //
-        // このソケットで既に走査が進行中なら、新しい走査は始めずそれに相乗りする。
-        // 認証済みクライアントが command_list_request を連打すると、応答の遅い
-        // ファイルシステム上では in-flight の走査が際限なく積み上がりうるため、
-        // ソケットごとに同時実行を1本に制限する（getSlashCommands 自身の
-        // raw キー相乗りは呼び出し元をまたいだ検証・走査の重複を防ぐものであり、
-        // ここでの「1ソケットにつき1本」という上限とは別の防御レイヤーである）。
+        // このソケットで既に同じセッションに対する走査が進行中なら、新しい走査は
+        // 始めずそれに相乗りする。認証済みクライアントが command_list_request を
+        // 連打すると、応答の遅いファイルシステム上では in-flight の走査が際限
+        // なく積み上がりうるため、ソケットごとに同時実行を1本に制限する
+        // （getSlashCommands 自身の raw キー相乗りは呼び出し元をまたいだ
+        // 検証・走査の重複を防ぐものであり、ここでの「1ソケットにつき1本」
+        // という上限とは別の防御レイヤーである）。
         //
-        // 既知のトレードオフ: 相乗りした応答は「1回目のリクエスト時点の
-        // session.source」で走査した結果を返す。走査が進行中（通常は数十ms、
-        // 遅いファイルシステムでは最大3秒）の間に同じソケットが session_attach
-        // で別セッションへ切り替えてから2回目の command_list_request を送ると、
-        // 2回目の応答は新しい session.id を名乗りつつ古いセッションの走査結果を
-        // 返すことになる。キャンセルは実装しない方針（レビュー指示）と両立する
-        // 範囲でこの相乗りを最小限に留めており、この程度のレアケースまでは
-        // 追わない判断とする。
+        // セッションが一致する場合のみ相乗りするのは、走査中に session_attach
+        // で別セッションへ切り替わった場合に、古いセッションの走査結果を
+        // 新しい session.id で返してしまわないため。モバイル側は
+        // command_list.sessionId を今アタッチ中のセッションと突き合わせて
+        // 不一致を捨てる検証を行っており、ソケット単位でしか相乗りを制限
+        // していないとその検証をすり抜けてしまう（詳細は上の変数の doc 参照）。
+        const inFlightForThisSession =
+          inFlightCommandListScan?.sessionId === session.id ? inFlightCommandListScan.scan : null
+
         const scan: ReturnType<typeof getSlashCommands> =
-          inFlightCommandListScan ??
+          inFlightForThisSession ??
           Promise.resolve()
             .then(() => getSlashCommands(session.source))
             .finally(() => {
               // cleanup()（ws close）が先に null へ戻している場合や、この走査が
-              // 既に新しい走査に置き換わっている場合に誤って上書きしないよう、
+              // 既に別の走査（同一セッションの後続 or 別セッションへの
+              // 切り替え）に置き換わっている場合に誤って上書きしないよう、
               // 自分自身がまだ追跡対象であることを確認してから外す
-              if (inFlightCommandListScan === scan) inFlightCommandListScan = null
+              if (inFlightCommandListScan?.scan === scan) inFlightCommandListScan = null
             })
-        inFlightCommandListScan = scan
+        // セッションが変わっていた場合はここで古いエントリを新しい走査に
+        // 置き換える（古い走査自身は取り消されないが、相乗りの対象からは外れる。
+        // 古い走査を要求した元のリクエストへは、その走査結果が引き続き
+        // 正しく返る）
+        inFlightCommandListScan = { sessionId: session.id, scan }
 
         scan
           .then(({ commands, truncated }) => {

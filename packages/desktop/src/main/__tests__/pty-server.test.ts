@@ -522,6 +522,91 @@ describe('startPtyServer', () => {
         scannerState.impl = null
       }
     })
+
+    it('走査中に別セッションへ session_attach してから command_list_request を送ると、古い走査に相乗りせず新しく走査する', async () => {
+      // 相乗りをソケット単位だけで制限すると、走査が完了する前に session_attach で
+      // 別セッションへ切り替えた場合、2回目の応答が「新しい session.id」を名乗り
+      // つつ「古いセッションの走査結果」を返してしまう。モバイル側は
+      // command_list.sessionId を現在アタッチ中のセッションと突き合わせて
+      // 不一致を捨てる検証をしているため、これだとその検証をすり抜けて
+      // 別プロジェクトのコマンド一覧を今のセッションのものとして受け取ってしまう。
+      // ここではソケットではなくセッション単位で相乗りを制限し、この事故が
+      // 起きないことを確認する。
+      mockUuidv4.mockReturnValueOnce('session-old').mockReturnValueOnce('session-new')
+
+      let resolveOldScan!: (value: { commands: unknown[]; truncated: boolean }) => void
+      let callCount = 0
+      scannerState.impl = () => {
+        callCount++
+        if (callCount === 1) {
+          return new Promise((resolve) => {
+            resolveOldScan = resolve
+          })
+        }
+        return Promise.resolve({ commands: [{ name: 'new-session-result', scope: 'user' }], truncated: false })
+      }
+      try {
+        startPtyServer()
+
+        // ws: session-old を作成してアタッチし、走査を開始する（まだ完了しない）
+        const ws = createMockWs()
+        wssState.instance!.emit('connection', ws)
+        sendMessage(ws, { type: 'auth', token: 'test-token' })
+        sendMessage(ws, { type: 'session_create' }) // uuidv4() → 'session-old'
+        ws.send.mockClear()
+
+        sendMessage(ws, { type: 'command_list_request' })
+        await Promise.resolve()
+        expect(callCount).toBe(1)
+
+        // session-new を別ソケットで作っておく（ws を session-new へ attach するため）
+        const otherWs = createMockWs()
+        wssState.instance!.emit('connection', otherWs)
+        sendMessage(otherWs, { type: 'auth', token: 'test-token' })
+        sendMessage(otherWs, { type: 'session_create' }) // uuidv4() → 'session-new'
+
+        // 走査（session-old 向け）がまだ完了していないうちに、同じソケット ws を
+        // session-new へ attach してから command_list_request を送る
+        sendMessage(ws, { type: 'session_attach', sessionId: 'session-new' })
+        ws.send.mockClear()
+        sendMessage(ws, { type: 'command_list_request' })
+        await flushAsync()
+
+        // session-new 向けは相乗りせず独立して走査したはず
+        expect(callCount).toBe(2)
+        const newSessionCalls = ws.send.mock.calls.map((c: any) => JSON.parse(c[0]))
+        const newSessionResponse = newSessionCalls.find((m: any) => m.type === 'command_list')
+        expect(newSessionResponse).toBeDefined()
+        expect(newSessionResponse.sessionId).toBe('session-new')
+        expect(newSessionResponse.commands).toEqual([{ name: 'new-session-result', scope: 'user' }])
+
+        // 古い走査（session-old 向け）を今ここで完了させる。この応答は
+        // session-old を要求した元のリクエストへ正しく返ってよいが、
+        // session-new を名乗ってはならない
+        resolveOldScan({ commands: [{ name: 'old-session-result', scope: 'user' }], truncated: false })
+        await flushAsync()
+
+        const allCalls = ws.send.mock.calls.map((c: any) => JSON.parse(c[0]))
+        const commandListResponses = allCalls.filter((m: any) => m.type === 'command_list')
+        // old-session-result を含む応答は session-old を名乗っているはず。
+        // session-new を名乗りながら old-session-result を運ぶ応答があってはならない
+        for (const response of commandListResponses) {
+          const hasOldResult = response.commands.some((c: any) => c.name === 'old-session-result')
+          if (hasOldResult) {
+            expect(response.sessionId).toBe('session-old')
+          }
+        }
+        expect(
+          commandListResponses.some(
+            (m: any) =>
+              m.sessionId === 'session-new' &&
+              m.commands.some((c: any) => c.name === 'old-session-result'),
+          ),
+        ).toBe(false)
+      } finally {
+        scannerState.impl = null
+      }
+    })
   })
 
   describe('session_create の projectPath 保持', () => {

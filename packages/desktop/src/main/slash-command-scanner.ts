@@ -238,6 +238,9 @@ export async function scanCommandsDir(
         } catch {
           continue
         }
+        // stat() の await 中に時間が経過している可能性があるため、次の I/O
+        // （walk への再帰 or readHead）を始める前に再確認する
+        if (isExhausted(ctx)) return
       }
 
       if (isDir) {
@@ -427,6 +430,12 @@ async function readJson(filePath: string, ctx?: ScanContext): Promise<unknown> {
       const { bytesRead } = await handle.read(buf, offset, size - offset, offset)
       if (bytesRead === 0) break
       offset += bytesRead
+      // 部分的な読み取り（await）の直後に時間が経過している可能性があるため、
+      // 次の handle.read() を始める前に再確認する。ここで打ち切った場合、
+      // buf は最後まで埋まっていないため、そのまま JSON.parse すると
+      // たまたま途中まででも構文として妥当な断片を誤って解釈しかねない。
+      // budget 超過は「読めなかった」場合と同様に扱い、明示的に null を返す
+      if (ctx && isExhausted(ctx)) return null
     }
     return JSON.parse(buf.subarray(0, offset).toString('utf-8'))
   } catch {

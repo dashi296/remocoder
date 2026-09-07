@@ -19,7 +19,18 @@ import { join, resolve } from 'path'
 // 「同じ raw input への同時呼び出しがパス検証（validProjectPath）を1回しか
 // 行わないこと」を検証するのに使う。挙動を変えない透過的なラッパーなので、
 // recording が false（デフォルト）の間は他のテストの fs 呼び出しに影響しない。
-const fsHookState = vi.hoisted(() => ({ realpathCalls: [] as string[], recording: false }))
+//
+// fakeOpen は、指定した1パスへの open() だけを差し替えて、その FileHandle の
+// read() を完全にテストからコントロールするためのフック。JSON 読み取りループ
+// （readJson 内の handle.read() 連続呼び出し）で、1回の read() が要求量より
+// 少ないバイト数しか返さない「部分読み」を確実に再現するために使う（実ファイル
+// では小さな JSON を1回の read() で読み切ってしまい、部分読みを決定的に
+// 起こせないため）。null（デフォルト）の間は他のテストの open() に影響しない。
+const fsHookState = vi.hoisted(() => ({
+  realpathCalls: [] as string[],
+  recording: false,
+  fakeOpen: null as null | { path: string; handle: unknown },
+}))
 
 vi.mock('node:fs/promises', async (importOriginal) => {
   const actual = await importOriginal<typeof import('fs/promises')>()
@@ -28,6 +39,12 @@ vi.mock('node:fs/promises', async (importOriginal) => {
     realpath: (path: Parameters<typeof actual.realpath>[0], ...rest: unknown[]) => {
       if (fsHookState.recording) fsHookState.realpathCalls.push(String(path))
       return (actual.realpath as (...a: unknown[]) => ReturnType<typeof actual.realpath>)(path, ...rest)
+    },
+    open: (path: Parameters<typeof actual.open>[0], ...rest: unknown[]) => {
+      if (fsHookState.fakeOpen && String(path) === fsHookState.fakeOpen.path) {
+        return Promise.resolve(fsHookState.fakeOpen.handle)
+      }
+      return (actual.open as (...a: unknown[]) => ReturnType<typeof actual.open>)(path, ...rest)
     },
   }
 })
@@ -237,6 +254,36 @@ describe('scanCommandsDir / scanSkillsDir', () => {
       expect(ctx.truncated).toBe(true)
       expect(result.length).toBeGreaterThan(0)
       expect(result.length).toBeLessThan(10)
+    } finally {
+      nowSpy.mockRestore()
+    }
+  })
+
+  it('シンボリックリンクの種別確認（stat）直後に deadline を超えた場合、読み取りを始めず truncated を立てる', async () => {
+    // Codex round 5 (Finding 2): entry.isSymbolicLink() の場合、種別を判定する
+    // ために stat(full) を await する。この await 中に budget（deadline）を
+    // 使い切っても、直後に isExhausted を再確認していなければ、そのまま
+    // readHead（次の I/O）を始めてしまう。
+    // 単一のシンボリックリンクだけを置き、
+    // walk 開始時 / enterDirectory 後 / readdir 後 / エントリループ先頭
+    // の4回分の isExhausted 呼び出しはまだ deadline 内としてやり過ごし、
+    // symlink の stat() 直後の（今回追加した）チェックから超過させる。
+    write('target.md', '---\ndescription: real\n---\n')
+    mkdirSync(join(tmp, 'commands'), { recursive: true })
+    symlinkSync(join(tmp, 'target.md'), join(tmp, 'commands', 'link.md'), 'file')
+
+    const ctx = createScanContext()
+    let calls = 0
+    const nowSpy = vi.spyOn(Date, 'now').mockImplementation(() => {
+      calls++
+      return calls <= 4 ? ctx.deadline - 1000 : ctx.deadline + 1000
+    })
+    try {
+      const result = await scanCommandsDir(join(tmp, 'commands'), 'user', ctx)
+      // symlink の stat() 直後に打ち切られるため、readHead（frontmatter の
+      // 読み取り）まで到達せず、この唯一のエントリは結果に含まれない
+      expect(result).toEqual([])
+      expect(ctx.truncated).toBe(true)
     } finally {
       nowSpy.mockRestore()
     }
@@ -597,6 +644,61 @@ describe('resolveEnabledPlugins', () => {
     // manifest を1つも読んでいないため、有効なはずのプラグインも見つからない
     expect(roots).toEqual([])
     expect(ctx.truncated).toBe(true)
+  })
+
+  it('JSON の部分読みの直後に deadline を超えた場合、次の read() を呼ばずに打ち切る', async () => {
+    // Codex round 5 (Finding 2): readJson の while ループは、bytesRead 分だけ
+    // offset を進めてから次の handle.read() を呼ぶ。ここで budget（deadline）を
+    // 再確認していないと、budget を使い切った後も追加の read I/O を始めて
+    // しまう。実ファイルでは小さな JSON を1回の read() で読み切ってしまい
+    // 部分読みを決定的に再現できないため、fakeOpen で1回に2バイトしか
+    // 返さない FileHandle に差し替え、複数回の read() を強制する。
+    const p = join(tmp, 'plugins', 'cache', 'mp', 'x', '1.0.0')
+    makePlugin(p, { name: 'x-plugin' })
+    const { pluginsDir, settingsPaths } = setup(
+      { version: 2, plugins: { 'x@mp': [{ scope: 'user', installPath: p, version: '1.0.0' }] } },
+      [{ enabledPlugins: { 'x@mp': true } }],
+    )
+
+    const installedPath = join(pluginsDir, 'installed_plugins.json')
+    const content = Buffer.from(JSON.stringify({ version: 2, plugins: {} }), 'utf-8')
+    let readCallCount = 0
+    fsHookState.fakeOpen = {
+      path: installedPath,
+      handle: {
+        stat: async () => ({ isFile: () => true, size: content.length }),
+        read: async (buf: Buffer, offset: number, _length: number, position: number) => {
+          readCallCount++
+          // 1回あたり最大2バイトしか返さず、必ず複数回の read() を要求させる
+          const chunk = content.subarray(position, position + 2)
+          chunk.copy(buf, offset)
+          return { bytesRead: chunk.length }
+        },
+        close: async () => {},
+      },
+    }
+
+    const ctx = createScanContext()
+    let calls = 0
+    // resolveEnabledPlugins 冒頭 / readJson 冒頭 / openRegularFile 後、の3回分は
+    // deadline 内としてやり過ごし、1回目の read() 直後の再チェック（今回追加した
+    // もの）から超過させる
+    const nowSpy = vi.spyOn(Date, 'now').mockImplementation(() => {
+      calls++
+      return calls <= 3 ? ctx.deadline - 1000 : ctx.deadline + 1000
+    })
+
+    try {
+      const roots = await resolveEnabledPlugins(pluginsDir, settingsPaths, ctx)
+      expect(readCallCount).toBe(1)
+      expect(ctx.truncated).toBe(true)
+      // 読み取りが打ち切られ不完全な JSON になるため、有効なはずのプラグインも
+      // 見つからない
+      expect(roots).toEqual([])
+    } finally {
+      nowSpy.mockRestore()
+      fsHookState.fakeOpen = null
+    }
   })
 
   it('ctx.fileCount が上限に達している場合、以降の manifest を読まない', async () => {

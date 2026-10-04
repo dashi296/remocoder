@@ -30,6 +30,10 @@ const fsHookState = vi.hoisted(() => ({
   realpathCalls: [] as string[],
   recording: false,
   fakeOpen: null as null | { path: string; handle: unknown },
+  // 指定した1パスへの realpath() を永久に返さないようにするためのフック。
+  // NFS / FUSE 上で fs 呼び出しが返らない状況を再現する。null（デフォルト）の
+  // 間は他のテストの realpath() に影響しない
+  hangRealpath: null as null | string,
 }))
 
 vi.mock('node:fs/promises', async (importOriginal) => {
@@ -38,6 +42,9 @@ vi.mock('node:fs/promises', async (importOriginal) => {
     ...actual,
     realpath: (path: Parameters<typeof actual.realpath>[0], ...rest: unknown[]) => {
       if (fsHookState.recording) fsHookState.realpathCalls.push(String(path))
+      if (fsHookState.hangRealpath !== null && String(path) === fsHookState.hangRealpath) {
+        return new Promise(() => {})
+      }
       return (actual.realpath as (...a: unknown[]) => ReturnType<typeof actual.realpath>)(path, ...rest)
     },
     open: (path: Parameters<typeof actual.open>[0], ...rest: unknown[]) => {
@@ -1087,6 +1094,28 @@ describe('getSlashCommands', () => {
     } finally {
       fsHookState.recording = false
     }
+  })
+
+  it('fs 呼び出しが返らなくても、実時間の上限で reject し、相乗り用の Map からも外れる', async () => {
+    // deadline（SCAN_TIMEOUT_MS）は I/O の前後で確認するだけなので、1回の fs 呼び出しが
+    // 返らないと走査は打ち切られない。validProjectPath の realpath を永久に止めて、
+    // 検証段階で止まった場合でも hardTimeoutMs で決着することを確認する
+    const projectPath = makeProject(['shared'])
+    fsHookState.hangRealpath = resolve(projectPath)
+    try {
+      const first = getSlashCommands({ kind: 'claude', projectPath }, { claudeDir, hardTimeoutMs: 50 })
+      // 同じ raw キーへの相乗りも同じく決着する（永久に待たされない）
+      const piggyback = getSlashCommands({ kind: 'claude', projectPath }, { claudeDir, hardTimeoutMs: 50 })
+      await expect(first).rejects.toThrow(/timed out/)
+      await expect(piggyback).rejects.toThrow(/timed out/)
+      expect(getInFlightRawKeyCount()).toBe(0)
+    } finally {
+      fsHookState.hangRealpath = null
+    }
+
+    // fs が復旧すれば、次の呼び出しは新しく検証・走査をやり直せる
+    const { commands } = await getSlashCommands({ kind: 'claude', projectPath }, { claudeDir })
+    expect(commands.some((c) => c.name === 'shared')).toBe(true)
   })
 
   it('走査が失敗した場合、失敗した Promise をキャッシュに残さず、次の呼び出しで再走査できる', async () => {

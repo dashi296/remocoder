@@ -794,7 +794,7 @@ const inFlightByRawKey = new Map<string, Promise<SlashCommandsResult>>()
  * 遅い（あるいは応答しない）ファイルシステム上では、複数のソケットや
  * raw な綴りの違い（symlink エイリアス・末尾の "/." など）から同時に
  * 多数のエントリが積み上がりうる。ソケットごとの同時実行数は pty-server 側
- * （inFlightCommandListScan）で1本に制限しているが、それはソケット単位の
+ * （commandListQueueTail による直列化）で1本に制限しているが、それはソケット単位の
  * 上限であり、この Map はソケットをまたいだグローバルな状態である。
  * commandsCache（MAX_CACHE_ENTRIES）と同様に、ここでも上限を設けて
  * 無制限に増え続けないようにする。
@@ -822,14 +822,49 @@ export function getInFlightRawKeyCount(): number {
 }
 
 /**
+ * getSlashCommands 1回分（validProjectPath の検証を含む）の実時間上限。
+ *
+ * SCAN_TIMEOUT_MS は I/O の前後で deadline を確認するだけなので、NFS や
+ * 応答しない FUSE 上で stat / realpath / readdir / read の1回が返らないと
+ * 走査は打ち切られない。また validProjectPath はその budget の外で走る。
+ * そうした場合でも呼び出し元（pty-server のソケットごとの待ち行列や、
+ * inFlightByRawKey に相乗りした呼び出し）が永久に待たされないよう、
+ * 全体をこの時間で reject させる。モバイル側のタイムアウト（5秒）より短くし、
+ * 期限内に scan_failed を返せるようにしている。
+ *
+ * 返らない fs 呼び出し自体は中断できない（Node の fs API に手段がない）。
+ * performScan の途中で止まった場合は、commandsCache に残った未決着の Promise に
+ * CACHE_TTL_MS の間は相乗りするため、その間の再要求も同じくこの時間で失敗する。
+ */
+export const HARD_TIMEOUT_MS = SCAN_TIMEOUT_MS + 1000
+
+function withHardTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`slash command scan timed out after ${ms}ms`)), ms)
+    // Electron のメインプロセス終了やテストの完了をこのタイマーで引き止めない
+    timer.unref?.()
+    promise.then(
+      (value) => {
+        clearTimeout(timer)
+        resolve(value)
+      },
+      (err) => {
+        clearTimeout(timer)
+        reject(err)
+      },
+    )
+  })
+}
+
+/**
  * セッションの起動元に応じたスラッシュコマンド一覧を返す。
  *
  * Codex など別ツールに対応する場合は、この switch に case を足す。
  */
 export async function getSlashCommands(
   source: SessionSource | undefined,
-  // claudeDir はテストから一時ディレクトリを渡すための引数。本番では省略する
-  options: { claudeDir?: string } = {},
+  // claudeDir / hardTimeoutMs はテストから差し替えるための引数。本番では省略する
+  options: { claudeDir?: string; hardTimeoutMs?: number } = {},
 ): Promise<SlashCommandsResult> {
   switch (source?.kind) {
     case 'claude':
@@ -848,7 +883,10 @@ export async function getSlashCommands(
   const existing = inFlightByRawKey.get(rawKey)
   if (existing) return existing
 
-  const resultPromise: Promise<SlashCommandsResult> = (async () => {
+  // 検証も含めた全体を withHardTimeout で包み、その結果を inFlightByRawKey に
+  // 登録する。相乗りした呼び出しも同じ時間で決着し、タイムアウトしたエントリは
+  // 下の clearInFlight で外れるため、次の要求は新しく検証・走査をやり直せる。
+  const resultPromise: Promise<SlashCommandsResult> = withHardTimeout((async () => {
     // validProjectPath は ScanContext（walk の budget）が作られる前に走る検証であり、
     // ここで費やす時間は意図的に「500ファイル/3秒」の budget の外側にある。
     // キャッシュキー（正規化された projectPath）を決めるための前処理であって
@@ -876,7 +914,7 @@ export async function getSlashCommands(
     pruneCache(now, cacheKey)
     commandsCache.set(cacheKey, { promise: scanPromise, expiry: now + CACHE_TTL_MS })
     return scanPromise
-  })()
+  })(), options.hardTimeoutMs ?? HARD_TIMEOUT_MS)
 
   pruneInFlightByRawKey(rawKey)
   inFlightByRawKey.set(rawKey, resultPromise)

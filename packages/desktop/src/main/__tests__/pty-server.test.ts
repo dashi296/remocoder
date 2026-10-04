@@ -685,6 +685,85 @@ describe('startPtyServer', () => {
       }
     })
 
+    it('走査中にセッションを B → C → B と切り替えて要求しても、待ち行列が循環せず全員に応答が届く', async () => {
+      // Codex review: 以前の実装では、走査 A の実行中に B → C → B の順で要求すると、
+      // 1回目の B の待機が決着時に「最新の B の予約（C の後ろにつながった待機）」を
+      // 自分の結果として返し、B・C の Promise が循環して永久に解決しなかった。
+      // 応答は ws.send で確認する（scan の Promise 自体を await すると、旧実装では
+      // テストが失敗せずハングしてしまうため）
+      mockUuidv4.mockReturnValueOnce('session-a').mockReturnValueOnce('session-b').mockReturnValueOnce('session-c')
+
+      let resolveA!: (value: { commands: unknown[]; truncated: boolean }) => void
+      let callCount = 0
+      scannerState.impl = (source: unknown) => {
+        callCount++
+        if (callCount === 1) {
+          return new Promise((resolve) => {
+            resolveA = resolve
+          })
+        }
+        return Promise.resolve({
+          commands: [{ name: `result-for-${(source as any)?.projectPath}`, scope: 'user' }],
+          truncated: false,
+        })
+      }
+      try {
+        startPtyServer()
+        const ws = createMockWs()
+        wssState.instance!.emit('connection', ws)
+        sendMessage(ws, { type: 'auth', token: 'test-token' })
+        sendMessage(ws, { type: 'session_create', projectPath: 'session-a' }) // → session-a
+
+        // session-b / session-c は別ソケットで作っておく（ws から attach するため）
+        const otherWs = createMockWs()
+        wssState.instance!.emit('connection', otherWs)
+        sendMessage(otherWs, { type: 'auth', token: 'test-token' })
+        sendMessage(otherWs, { type: 'session_create', projectPath: 'session-b' }) // → session-b
+        sendMessage(otherWs, { type: 'session_create', projectPath: 'session-c' }) // → session-c
+        ws.send.mockClear()
+
+        sendMessage(ws, { type: 'command_list_request' }) // A（決着させない）
+        await Promise.resolve()
+        expect(callCount).toBe(1)
+
+        sendMessage(ws, { type: 'session_attach', sessionId: 'session-b' })
+        sendMessage(ws, { type: 'command_list_request' }) // B
+        sendMessage(ws, { type: 'session_attach', sessionId: 'session-c' })
+        sendMessage(ws, { type: 'command_list_request' }) // C
+        sendMessage(ws, { type: 'session_attach', sessionId: 'session-b' })
+        sendMessage(ws, { type: 'command_list_request' }) // B（2回目）
+        await flushAsync()
+        expect(callCount).toBe(1)
+
+        resolveA({ commands: [{ name: 'result-for-session-a', scope: 'user' }], truncated: false })
+        await flushAsync()
+
+        // A・B・C の3回だけ走査される（2回目の B は予約済みの B に相乗りする）
+        expect(callCount).toBe(3)
+        const responses = ws.send.mock.calls
+          .map((c: any) => JSON.parse(c[0]))
+          .filter((m: any) => m.type === 'command_list')
+        expect(responses.map((r: any) => r.sessionId).sort()).toEqual([
+          'session-a',
+          'session-b',
+          'session-b',
+          'session-c',
+        ])
+        for (const response of responses) {
+          expect(response.commands).toEqual([{ name: `result-for-${response.sessionId}`, scope: 'user' }])
+        }
+
+        // 循環が残っていないこと: その後の要求にも通常どおり応答する
+        ws.send.mockClear()
+        sendMessage(ws, { type: 'command_list_request' })
+        await flushAsync()
+        const after = ws.send.mock.calls.map((c: any) => JSON.parse(c[0])).filter((m: any) => m.type === 'command_list')
+        expect(after.map((r: any) => r.sessionId)).toEqual(['session-b'])
+      } finally {
+        scannerState.impl = null
+      }
+    })
+
     it('別セッションの走査を待ってキューイングされたリクエストは、ソケットが先に閉じても応答を送らない', async () => {
       // Finding 1: 待ち行列に入っている間にソケットが閉じた場合、決着後の
       // 応答送信は readyState チェックで抑止されるはず（既存の「走査中に

@@ -15,7 +15,10 @@ jobs:
     strategy:
       matrix:
         include:
-          - os: macos-latest
+          # macos-latest（macos-26 イメージ）では electron-builder の一時キーチェーンへの
+          # set-key-partition-list が SecKeychainUnlock エラーで失敗するため固定する
+          # （electron-builder が -k にキーチェーンではなく証明書のパスワードを渡している）
+          - os: macos-15
             dist_args: --mac
     steps:
       - uses: actions/checkout@v4

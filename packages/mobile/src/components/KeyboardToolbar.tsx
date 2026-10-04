@@ -7,9 +7,13 @@ import {
   StyleSheet,
 } from 'react-native'
 import WebView from 'react-native-webview'
+import { SessionSource } from '@remocoder/shared'
 
 interface Props {
   webViewRef: React.RefObject<WebView | null>
+  /** 現在のセッションの起動元。claude のときだけコマンドボタンを出す */
+  source?: SessionSource | null
+  onOpenCommands?: () => void
 }
 
 type Key =
@@ -35,7 +39,7 @@ const BASE_KEYS: Key[] = [
 // Ctrl+X のキー一覧（大文字英字）
 const CTRL_KEYS = ['C', 'D', 'Z', 'L', 'A', 'E', 'W', 'U', 'K', 'R']
 
-export function KeyboardToolbar({ webViewRef }: Props) {
+export function KeyboardToolbar({ webViewRef, source, onOpenCommands }: Props) {
   const [ctrlActive, setCtrlActive] = useState(false)
 
   function sendInput(data: string) {
@@ -62,6 +66,19 @@ export function KeyboardToolbar({ webViewRef }: Props) {
       >
         <Text style={[styles.keyText, ctrlActive && styles.ctrlActiveText]}>CTRL</Text>
       </TouchableOpacity>
+
+      {/* スラッシュコマンドボタン（claude セッションのみ）。
+          BASE_KEYS のリテラル '/' キーと見分けるためラベルは '/…' にする */}
+      {source?.kind === 'claude' && onOpenCommands && (
+        <TouchableOpacity
+          testID="slash-command-button"
+          style={styles.ctrlToggle}
+          onPress={onOpenCommands}
+          activeOpacity={0.7}
+        >
+          <Text style={styles.keyText}>/…</Text>
+        </TouchableOpacity>
+      )}
 
       {/* スクロール可能なキー行 */}
       <ScrollView

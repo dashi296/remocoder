@@ -1,5 +1,5 @@
 name: Setup
-description: Setup pnpm/Node 20, and install dependencies.
+description: Setup pnpm/Node 22, and install dependencies.
 
 inputs:
   node-pty-deps:
@@ -14,7 +14,7 @@ runs:
 
     - uses: actions/setup-node@v4
       with:
-        node-version: 20
+        node-version: 22
         cache: pnpm
 
     - name: Install system dependencies for node-pty (Linux)

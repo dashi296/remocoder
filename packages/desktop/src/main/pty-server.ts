@@ -8,6 +8,7 @@ import { WsMessage, SessionInfo, ProjectInfo, MultiplexerSessionInfo, SessionSou
 import { v4 as uuidv4 } from 'uuid'
 import { tryParsePermission, stripAnsi } from './permission-parser'
 import { execAsync, EXEC_ENV } from './exec-env'
+import { getSlashCommands } from './slash-command-scanner'
 
 let AUTH_TOKEN = process.env.REMOTE_TOKEN ?? uuidv4()
 const SERVER_NAME = osHostname()
@@ -620,6 +621,63 @@ export function startPtyServer(port = DEFAULT_WS_PORT, callbacks: PtyServerCallb
     let pingIntervalId: ReturnType<typeof setInterval> | null = null
     let pongTimeoutId: ReturnType<typeof setTimeout> | null = null
     const clientIP = req?.socket?.remoteAddress
+    /**
+     * このソケットのスラッシュコマンド走査の待ち行列。
+     *
+     * 認証済みクライアントは command_list_request を連打したり、走査中に
+     * session_attach で別セッションへ切り替えたりできる。ソケットごとに
+     * 「実際に fs へアクセスしている走査は常に最大1本」という上限を厳密に
+     * 守るため、command_list_request のハンドラは次のように振る舞う。
+     *
+     *   - 走査は commandListQueueTail に直列につなぐ。新しい走査は、それより
+     *     前に予約されたすべての走査が決着する（成功・失敗いずれでも、失敗は
+     *     無視する）まで始まらない。
+     *   - 同じセッションに対する走査が既に予約されていれば（実行中・実行待ちの
+     *     どちらでも）、新しい走査は予約せずその Promise にそのまま相乗りする。
+     *
+     * 各走査は「自分より前の tail」だけを待ち、後から予約された走査の Promise を
+     * 自分の結果として返すことはない。そのため、セッションを B → C → B のように
+     * 切り替えても Promise 同士が循環して永久に解決しない状態にはならない。
+     *
+     * 古い走査自体はキャンセルされない（Node の fs API に中断手段がないため）が、
+     * getSlashCommands 側の実時間タイムアウトで必ず決着するので、待ち行列が
+     * 止まり続けることはない。
+     */
+    let commandListQueueTail: Promise<void> = Promise.resolve()
+    /** 予約済み（実行中 or 実行待ち）の走査を session.id ごとに保持する。決着したら外す */
+    const pendingCommandListScans = new Map<string, ReturnType<typeof getSlashCommands>>()
+
+    /**
+     * command_list_request 1件分の走査を、相乗り／待ち行列を経て取得する。
+     * 「ソケットごとに実行中の走査は最大1本」を保ったまま、session.id に
+     * 対応した結果を返す。
+     */
+    const getOrQueueCommandListScan = (session: PtySession): ReturnType<typeof getSlashCommands> => {
+      const existing = pendingCommandListScans.get(session.id)
+      if (existing) return existing
+
+      // .then のコールバック内で呼ぶため、モック等が同期的に throw しても
+      // rejected Promise として扱われ、呼び出し元の catch で確実に拾える
+      const scan: ReturnType<typeof getSlashCommands> = commandListQueueTail.then(() => {
+        // 待っている間にソケットが閉じていれば応答はどのみち破棄される
+        // （command_list_request ハンドラ側の readyState チェック）。
+        // 無駄な fs アクセスを避けるため、ここで打ち切る
+        if (ws.readyState !== WebSocket.OPEN) return { commands: [], truncated: false }
+        return getSlashCommands(session.source)
+      })
+      const settle = (): void => {}
+      commandListQueueTail = scan.then(settle, settle)
+      pendingCommandListScans.set(session.id, scan)
+      // .finally() だと元の rejection を伝播した新しい Promise ができ、誰も
+      // 待たないその Promise が unhandled rejection になりうるため .then を使う。
+      // 自分自身がまだ登録されている場合だけ外す（cleanup() で既に消えている場合や
+      // 同じ session.id で新しい走査が予約し直されている場合に誤って消さない）
+      const clearPending = (): void => {
+        if (pendingCommandListScans.get(session.id) === scan) pendingCommandListScans.delete(session.id)
+      }
+      scan.then(clearPending, clearPending)
+      return scan
+    }
 
     const authTimeout = setTimeout(() => {
       if (!authenticated) ws.close()
@@ -643,6 +701,9 @@ export function startPtyServer(port = DEFAULT_WS_PORT, callbacks: PtyServerCallb
       clearTimeout(authTimeout)
       if (pingIntervalId) clearInterval(pingIntervalId)
       if (pongTimeoutId) clearTimeout(pongTimeoutId)
+      // 走査自体は勝手にキャンセルされないが（readyState チェックで送信だけ
+      // 抑止される）、切断済みソケットの追跡はここで明示的に手放しておく
+      pendingCommandListScans.clear()
     }
 
     const detachFromSession = () => {
@@ -866,6 +927,71 @@ export function startPtyServer(port = DEFAULT_WS_PORT, callbacks: PtyServerCallb
           clearTimeout(pongTimeoutId)
           pongTimeoutId = null
         }
+        return
+      }
+
+      if (msg.type === 'command_list_request') {
+        if (!attachedSessionId) {
+          ws.send(
+            JSON.stringify({
+              type: 'command_list',
+              sessionId: null,
+              commands: [],
+              error: 'not_attached',
+            } satisfies WsMessage),
+          )
+          return
+        }
+
+        const session = ptySessions.get(attachedSessionId)
+        if (!session) {
+          ws.send(
+            JSON.stringify({
+              type: 'command_list',
+              sessionId: null,
+              commands: [],
+              error: 'not_attached',
+            } satisfies WsMessage),
+          )
+          return
+        }
+
+        // source が保持するのはセッション作成時のプロジェクトパスであり、
+        // Claude Code 内で /cd した後の現在の cwd ではない。
+        // getSlashCommands は非同期の fs I/O（fs/promises）で走査するため、
+        // ここでの待ち時間中に接続が切れることがある。応答を送る前に
+        // readyState を確認し、切れていれば何もしない。
+        //
+        // 実際の相乗り・待ち行列のロジックは getOrQueueCommandListScan
+        // （上の commandListQueueTail の doc 参照）が担う。ここでは
+        // 「ソケットごとに実行中の走査は最大1本」を保ったまま、session.id に
+        // 対応した結果を待つだけでよい。
+        const scan = getOrQueueCommandListScan(session)
+
+        scan
+          .then(({ commands, truncated }) => {
+            if (ws.readyState !== WebSocket.OPEN) return
+            ws.send(
+              JSON.stringify({
+                type: 'command_list',
+                sessionId: session.id,
+                commands,
+                truncated,
+              } satisfies WsMessage),
+            )
+          })
+          .catch((err) => {
+            console.error('[pty-server] スラッシュコマンドの走査に失敗しました:', err)
+            if (ws.readyState !== WebSocket.OPEN) return
+            ws.send(
+              JSON.stringify({
+                type: 'command_list',
+                sessionId: session.id,
+                commands: [],
+                error: 'scan_failed',
+              } satisfies WsMessage),
+            )
+          })
         return
       }
 

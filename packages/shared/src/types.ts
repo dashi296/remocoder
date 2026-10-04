@@ -58,10 +58,34 @@ export type WsMessage =
   | { type: 'permission_request'; requestId: string; toolName: string; details: string[]; requiresAlways: boolean; createdAt: number }
   /** モバイルがデスクトップへ承認結果を返す */
   | { type: 'permission_response'; requestId: string; decision: 'approve' | 'reject' | 'always' }
+  /** モバイルがスラッシュコマンド一覧を要求する */
+  | { type: 'command_list_request' }
+  /** command_list_request への応答 */
+  | {
+      type: 'command_list'
+      sessionId: string | null
+      commands: SlashCommandInfo[]
+      truncated?: boolean
+      error?: string
+    }
   /** モバイルがデスクトップへセッション削除を要求する */
   | { type: 'session_delete'; sessionId: string }
   /** session_delete への応答（削除完了） */
   | { type: 'session_deleted'; sessionId: string }
+
+/** スラッシュコマンド（コマンド定義またはスキル）の情報 */
+export interface SlashCommandInfo {
+  /** 呼び出し名（先頭の / は含まない）。例: "commit", "commit-commands:commit" */
+  name: string
+  /** frontmatter の description。デスクトップ側で 120 文字に切り詰め済み */
+  description?: string
+  /** 提供元 */
+  scope: 'builtin' | 'user' | 'project' | 'plugin'
+  /** 表示用の名前空間注記。例: "project:ci"。呼び出し名には含まれない */
+  namespace?: string
+  /** scope が 'plugin' のときの plugin.json の name */
+  pluginName?: string
+}
 
 export interface ProjectInfo {
   /** プロジェクトのフルパス */

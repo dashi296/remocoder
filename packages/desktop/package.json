@@ -40,7 +40,8 @@
       "gatekeeperAssess": false,
       "entitlements": "build/entitlements.mac.plist",
       "entitlementsInherit": "build/entitlements.mac.plist",
-      "notarize": true
+      "notarize": true,
+      "x64ArchFiles": "Contents/Resources/app.asar.unpacked/node_modules/node-pty/{bin,prebuilds}/**"
     },
     "win": {
       "target": [
@@ -95,7 +96,7 @@
     "@vitejs/plugin-react": "^4.0.0",
     "@vitest/coverage-v8": "^2.0.0",
     "electron": "^30.0.0",
-    "electron-builder": "^25.0.0",
+    "electron-builder": "^26.16.1",
     "electron-vite": "^2.0.0",
     "jsdom": "^24.0.0",
     "typescript": "^5.5.0",

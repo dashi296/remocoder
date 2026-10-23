@@ -12,6 +12,10 @@ jobs:
     environment: production
     permissions:
       contents: write
+    # 同じタグの再実行が並行すると Draft の存在確認と作成が競合するため直列化する
+    concurrency:
+      group: electron-release-${{ github.ref }}
+      cancel-in-progress: false
     strategy:
       matrix:
         include:
@@ -22,6 +26,27 @@ jobs:
       - uses: ./.github/actions/setup
         with:
           node-pty-deps: 'true'
+
+      # electron-builder 26 は成果物ごとの publisher 生成が競合し、Draft を重複作成するため先に作っておく
+      - name: Create draft release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          # electron-builder は v${version} のリリースを探すため、タグと一致しなければ別の Draft ができる
+          version=$(jq -r .version packages/desktop/package.json)
+          if [ "$TAG" != "v$version" ]; then
+            echo "::error::タグ $TAG と desktop のバージョン v$version が一致しません"
+            exit 1
+          fi
+          if out=$(gh release view "$TAG" 2>&1 >/dev/null); then
+            echo "既存のリリース $TAG を使います"
+          elif [ "$out" = "release not found" ]; then
+            gh release create "$TAG" --draft --verify-tag --title "$version" --notes ""
+          else
+            echo "$out" >&2
+            exit 1
+          fi
 
       - name: Build and publish Electron app
         working-directory: packages/desktop

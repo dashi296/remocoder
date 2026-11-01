@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import type { SessionInfo, MultiplexerSessionInfo } from '@remocoder/shared'
+import type { SessionInfo, MultiplexerSessionInfo, AgentStatus } from '@remocoder/shared'
 import { MULTIPLEXER_KINDS, sessionSourceIcon, sessionProjectName, formatSessionElapsed } from '@remocoder/shared'
 
 interface SessionListProps {
@@ -217,6 +217,23 @@ function toolLabel(tool: MultiplexerSessionInfo['tool']): string {
   return tool.toUpperCase()
 }
 
+const AGENT_STATUS_COLOR: Record<AgentStatus, string> = {
+  working: 'var(--green)',
+  blocked: 'var(--amber)',
+  error: 'var(--red)',
+  done: 'var(--green-dim)',
+  idle: 'var(--text-muted)',
+}
+
+function AgentStatusBadge({ status }: { status: AgentStatus }) {
+  const color = AGENT_STATUS_COLOR[status]
+  return (
+    <span style={{ ...styles.phaseBadge, color, borderColor: color }} title={`agent status: ${status}`}>
+      {status.toUpperCase()}
+    </span>
+  )
+}
+
 function MultiplexerRow({
   info,
   index,
@@ -236,6 +253,7 @@ function MultiplexerRow({
           <span style={styles.labelText}>{info.sessionName}</span>
         </div>
         <div style={styles.cardRight}>
+          {info.agentStatus && <AgentStatusBadge status={info.agentStatus} />}
           {onAttach && (
             <button style={styles.openButton} onClick={() => onAttach(info.tool, info.sessionName)} title="Attach">
               <AttachIcon />
@@ -243,17 +261,28 @@ function MultiplexerRow({
           )}
         </div>
       </div>
-      {(info.detail || info.workingDirectory) && (
+      {(info.agent || info.detail || info.workingDirectory) && (
         <div style={styles.cardMeta}>
-          {info.detail && <span style={styles.metaText}>{info.detail}</span>}
+          {info.agent && <span style={styles.metaText}>{info.agent}</span>}
+          {info.detail && (
+            <>
+              {info.agent && <span style={styles.metaSep}>·</span>}
+              <span style={styles.metaText}>{info.detail}</span>
+            </>
+          )}
           {info.workingDirectory && (
             <>
-              {info.detail && <span style={styles.metaSep}>·</span>}
+              {(info.agent || info.detail) && <span style={styles.metaSep}>·</span>}
               <span style={{ ...styles.metaText, fontFamily: 'monospace' }} title={info.workingDirectory}>
                 {info.workingDirectory}
               </span>
             </>
           )}
+        </div>
+      )}
+      {info.agentStatusMessage && (
+        <div style={styles.cardMeta}>
+          <span style={styles.metaText} title={info.agentStatusMessage}>▸ {info.agentStatusMessage}</span>
         </div>
       )}
     </div>

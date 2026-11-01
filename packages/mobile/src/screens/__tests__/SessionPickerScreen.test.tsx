@@ -92,6 +92,32 @@ describe('SessionPickerScreen', () => {
     expect(screen.getByText('myapp', { exact: false })).toBeTruthy()
   })
 
+  it('herdr-core セッションのエージェント状態とメッセージを表示する', async () => {
+    render(<SessionPickerScreen />, { wrapper: createWrapper() })
+    triggerOpen()
+    triggerMessage({ type: 'auth_ok' })
+    triggerMessage({ type: 'project_list', projects: [] })
+    triggerMessage({
+      type: 'session_list',
+      sessions: [],
+      multiplexerSessions: [
+        {
+          tool: 'herdr-core',
+          sessionName: 't2',
+          detail: 'math-card / 1',
+          workingDirectory: '/p/math-card',
+          agent: 'claude-code',
+          agentStatus: 'done',
+          agentStatusMessage: 'PR #171 fixed',
+        },
+      ],
+    })
+
+    await waitFor(() => expect(screen.getByText('t2')).toBeTruthy())
+    expect(screen.getByText('HERDR-CORE · DONE · claude-code · math-card / 1')).toBeTruthy()
+    expect(screen.getByText('▸ PR #171 fixed')).toBeTruthy()
+  })
+
   it('project_list を受信すると「新規セッション」セクションにプロジェクトが表示される', async () => {
     render(<SessionPickerScreen />, { wrapper: createWrapper() })
     triggerOpen()

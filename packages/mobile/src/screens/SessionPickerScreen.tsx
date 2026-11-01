@@ -13,9 +13,18 @@ import {
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { useLocalSearchParams, useRouter } from 'expo-router'
-import { MultiplexerSessionInfo, ProjectInfo, SessionInfo, SessionSource, sessionSourceIcon, sessionProjectName, formatSessionElapsed } from '@remocoder/shared'
+import { AgentStatus, MultiplexerSessionInfo, ProjectInfo, SessionInfo, SessionSource, sessionSourceIcon, sessionProjectName, formatSessionElapsed } from '@remocoder/shared'
 import { firstParam, formatDate, getSessionDisplayName } from '../utils'
 import { useSessionPickerWs } from '../hooks/useSessionPickerWs'
+
+/** herdr-core のエージェント状態ごとのドット色 */
+const AGENT_STATUS_DOT_COLOR: Record<AgentStatus, string> = {
+  working: '#4ec9b0',
+  blocked: '#d29922',
+  error: '#f85149',
+  done: '#58a6ff',
+  idle: '#dcdcaa',
+}
 
 // ── モバイル用ヘルパー ──────────────────────────────────────────────────────
 
@@ -340,12 +349,27 @@ export function SessionPickerScreen() {
                   style={styles.sessionRow}
                   onPress={() => handleAttachMultiplexer(mux)}
                 >
-                  <View style={[styles.statusDot, styles.dotIdle]} />
+                  <View
+                    style={[
+                      styles.statusDot,
+                      mux.agentStatus
+                        ? { backgroundColor: AGENT_STATUS_DOT_COLOR[mux.agentStatus] }
+                        : styles.dotIdle,
+                    ]}
+                  />
                   <View style={styles.sessionInfo}>
                     <Text style={styles.sessionName}>{mux.sessionName}</Text>
                     <Text style={styles.sessionMeta}>
-                      {mux.tool.toUpperCase()}{mux.detail ? ` · ${mux.detail}` : ''}
+                      {mux.tool.toUpperCase()}
+                      {mux.agentStatus ? ` · ${mux.agentStatus.toUpperCase()}` : ''}
+                      {mux.agent ? ` · ${mux.agent}` : ''}
+                      {mux.detail ? ` · ${mux.detail}` : ''}
                     </Text>
+                    {mux.agentStatusMessage ? (
+                      <Text style={mobileSessionStyles.outputPreview} numberOfLines={1}>
+                        ▸ {mux.agentStatusMessage}
+                      </Text>
+                    ) : null}
                     {mux.workingDirectory ? (
                       <Text style={styles.sessionPath} numberOfLines={1} ellipsizeMode="middle">
                         {mux.workingDirectory}

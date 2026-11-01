@@ -123,4 +123,32 @@ describe('SessionList', () => {
       expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
     })
   })
+
+  describe('herdr-core セッション', () => {
+    const mux = [
+      {
+        tool: 'herdr-core' as const,
+        sessionName: 't4',
+        detail: 'ongli / 1',
+        workingDirectory: '/p/ongli',
+        agent: 'claude-code',
+        agentStatus: 'working' as const,
+        agentStatusMessage: 'running tests',
+      },
+      { tool: 'herdr-core' as const, sessionName: 't9', agent: 'zsh' },
+    ]
+
+    it('エージェント状態バッジ・エージェント名・メッセージを表示する', () => {
+      render(<SessionList sessions={[]} multiplexerSessions={mux} />)
+      expect(screen.getByText('WORKING')).toBeInTheDocument()
+      expect(screen.getByText('claude-code')).toBeInTheDocument()
+      expect(screen.getByText('▸ running tests')).toBeInTheDocument()
+    })
+
+    it('状態を報告していないセッションにはバッジを表示しない', () => {
+      render(<SessionList sessions={[]} multiplexerSessions={[mux[1]]} />)
+      expect(screen.getByText('t9')).toBeInTheDocument()
+      expect(screen.queryByTitle(/agent status/)).not.toBeInTheDocument()
+    })
+  })
 })

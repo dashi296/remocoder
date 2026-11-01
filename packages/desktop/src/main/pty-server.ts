@@ -9,16 +9,22 @@ import { v4 as uuidv4 } from 'uuid'
 import { tryParsePermission, stripAnsi } from './permission-parser'
 import { execAsync, EXEC_ENV } from './exec-env'
 import { getSlashCommands } from './slash-command-scanner'
+import { HERDR_CORE_BINARY, herdrCoreAttachArgs, herdrCoreEnv, collectHerdrCoreSessions } from './herdr-core'
 
 let AUTH_TOKEN = process.env.REMOTE_TOKEN ?? uuidv4()
 const SERVER_NAME = osHostname()
 const ALLOWED_SOURCE_KINDS = ['claude', ...MULTIPLEXER_KINDS, 'shell'] as const
 
-const MUX_SPAWN_CONFIG: Record<MultiplexerKind, { binary: string; args: (name: string) => string[] }> = {
+const MUX_SPAWN_CONFIG: Record<MultiplexerKind, {
+  binary: string
+  args: (name: string) => string[]
+  env?: (base: NodeJS.ProcessEnv) => NodeJS.ProcessEnv
+}> = {
   tmux:   { binary: 'tmux',   args: (n) => ['attach-session', '-t', n] },
   screen: { binary: 'screen', args: (n) => ['-r', n] },
   zellij: { binary: 'zellij', args: (n) => ['attach', n] },
   herdr:  { binary: 'herdr',  args: (n) => ['session', 'attach', n] },
+  'herdr-core': { binary: HERDR_CORE_BINARY, args: herdrCoreAttachArgs, env: herdrCoreEnv },
 }
 
 // ─── Claude プロジェクト一覧取得 ───────────────────────────────────────────────
@@ -831,7 +837,8 @@ export function startPtyServer(port = DEFAULT_WS_PORT, callbacks: PtyServerCallb
         const rawName = (rawSource as Record<string, unknown>).sessionName
         const isInvalid =
           !ALLOWED_SOURCE_KINDS.includes(rawSource.kind as (typeof ALLOWED_SOURCE_KINDS)[number]) ||
-          (isMultiplexer && (typeof rawName !== 'string' || rawName.length === 0))
+          // 不正な名前は spawnSource が throw し、ハンドラ外へ例外が漏れるためここで弾く
+          (isMultiplexer && (typeof rawName !== 'string' || !SAFE_SESSION_NAME_RE.test(rawName)))
         if (isInvalid) {
           console.warn(`[pty-server] Rejected session_create: invalid source ${JSON.stringify(rawSource)}`)
           ws.send(JSON.stringify({ type: 'auth_error', reason: 'invalid session source' } satisfies WsMessage))
@@ -1106,7 +1113,8 @@ function resolveShell(): string {
 
 // セッション名として許可する文字: 英数字・ドット・アンダースコア・ハイフン
 // tmux の "session:window.pane" 構文を避けるためコロンを禁止
-const SAFE_SESSION_NAME_RE = /^[a-zA-Z0-9._-]+$/
+// 先頭の '-' はコマンドラインオプションと解釈されるため禁止
+const SAFE_SESSION_NAME_RE = /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/
 
 /**
  * マルチプレクサのセッション名を検証する。
@@ -1130,11 +1138,12 @@ function spawnSource(source: SessionSource): pty.IPty {
     case 'tmux':
     case 'screen':
     case 'zellij':
-    case 'herdr': {
+    case 'herdr':
+    case 'herdr-core': {
       assertSafeSessionName(source.sessionName, source.kind)
       console.log(`[pty-server] Attaching to ${source.kind} session: ${source.sessionName}`)
-      const { binary, args } = MUX_SPAWN_CONFIG[source.kind]
-      return pty.spawn(binary, args(source.sessionName), baseOpts)
+      const { binary, args, env } = MUX_SPAWN_CONFIG[source.kind]
+      return pty.spawn(binary, args(source.sessionName), env ? { ...baseOpts, env: env(baseOpts.env) } : baseOpts)
     }
     case 'shell': {
       const loginShell = resolveShell()
@@ -1240,6 +1249,7 @@ export async function getMultiplexerSessions(): Promise<MultiplexerSessionInfo[]
     screen: collectScreen,
     zellij: collectZellij,
     herdr: collectHerdr,
+    'herdr-core': collectHerdrCoreSessions,
   }
   const settled = await Promise.allSettled(MULTIPLEXER_KINDS.map((k) => collectors[k]()))
   return settled.flatMap((r) => r.status === 'fulfilled' ? r.value : [])

@@ -1,0 +1,140 @@
+import { createConnection } from 'net'
+import { homedir } from 'os'
+import { join } from 'path'
+import { type MultiplexerSessionInfo, isAgentStatus } from '@remocoder/shared'
+import { execAsync, EXEC_ENV } from './exec-env'
+
+/** herdr-core の CLI。`hc` はこのバイナリへのシンボリックリンク */
+export const HERDR_CORE_BINARY = 'herdr-core'
+
+/** アタッチ時に xterm.js 側へ渡すスクロールバック行数（hc attach はホイール操作を中継しないため） */
+export const HERDR_CORE_ATTACH_HISTORY_LINES = 1000
+
+/**
+ * アドレス（例: t7, t1b）として許可する文字。別マシンの `machine/t7` は対象外。
+ * 先頭の `-` はコマンドラインオプションと解釈されるため禁止する。
+ */
+const SAFE_ADDRESS_RE = /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/
+
+/**
+ * herdr-core を呼び出すための環境変数。
+ * remocoder 自体が herdr-core のターミナル内で起動された場合、HC_TERMINAL_ID / HC_SCOPE を
+ * 引き継ぐと hc がそのターミナルを親とみなして通知などを行うため取り除く。
+ */
+export function herdrCoreEnv(base: NodeJS.ProcessEnv = EXEC_ENV): NodeJS.ProcessEnv {
+  const env = { ...base }
+  delete env.HC_TERMINAL_ID
+  delete env.HC_SCOPE
+  return env
+}
+
+export function herdrCoreAttachArgs(address: string): string[] {
+  return ['attach', '--history', String(HERDR_CORE_ATTACH_HISTORY_LINES), address]
+}
+
+/** herdr-core のコアのソケットパス（herdr-core 内で起動された場合は HC_TERMINAL_SOCKET を優先） */
+export function herdrCoreSocketPath(env: NodeJS.ProcessEnv = process.env): string {
+  if (env.HC_TERMINAL_SOCKET) return env.HC_TERMINAL_SOCKET
+  const stateHome = env.XDG_STATE_HOME || join(homedir(), '.local/state')
+  return join(stateHome, 'herdr-core', 'default', 'default.sock')
+}
+
+/**
+ * コアが起動中か（ソケットが接続を受け付けるか）を確認する。
+ * `hc ls` はコア停止中だとコアを起動してしまうため、一覧取得前に必ず確認する。
+ */
+export function isHerdrCoreRunning(socketPath = herdrCoreSocketPath(), timeoutMs = 500): Promise<boolean> {
+  return new Promise((resolve) => {
+    const socket = createConnection(socketPath)
+    const done = (ok: boolean) => {
+      socket.removeAllListeners()
+      socket.destroy()
+      resolve(ok)
+    }
+    socket.setTimeout(timeoutMs, () => done(false))
+    socket.once('connect', () => done(true))
+    socket.once('error', () => done(false))
+  })
+}
+
+interface HcTerminal {
+  address?: unknown
+  agent?: unknown
+  cwd?: unknown
+  state?: unknown
+  status?: unknown
+  where?: unknown
+}
+
+/** `hc ls --json` の出力をセッション一覧へ変換する */
+export function parseHerdrCoreList(stdout: string): MultiplexerSessionInfo[] {
+  const parsed = JSON.parse(stdout) as { terminals?: unknown; error?: { message?: string } }
+  if (parsed.error) {
+    throw new Error(`[herdr-core] hc ls failed: ${parsed.error.message ?? 'unknown error'}`)
+  }
+  const terminals = Array.isArray(parsed.terminals) ? (parsed.terminals as HcTerminal[]) : []
+
+  const results: MultiplexerSessionInfo[] = []
+  for (const t of terminals) {
+    if (typeof t.address !== 'string' || !SAFE_ADDRESS_RE.test(t.address)) continue
+    if (t.state !== undefined && t.state !== 'live') continue
+
+    // CLI の ls は status を文字列で返す。API の Terminal 型はオブジェクト（{ state, msg }）なので両対応する
+    let statusWord: unknown = t.status
+    let statusMessage: string | undefined
+    if (t.status && typeof t.status === 'object') {
+      const s = t.status as { state?: unknown; msg?: unknown }
+      statusWord = s.state
+      if (typeof s.msg === 'string' && s.msg) statusMessage = s.msg
+    }
+
+    results.push({
+      tool: 'herdr-core',
+      sessionName: t.address,
+      detail: typeof t.where === 'string' && t.where ? t.where : undefined,
+      workingDirectory: typeof t.cwd === 'string' && t.cwd ? t.cwd : undefined,
+      agent: typeof t.agent === 'string' && t.agent ? t.agent : undefined,
+      agentStatus: isAgentStatus(statusWord) ? statusWord : undefined,
+      agentStatusMessage: statusMessage,
+    })
+  }
+  return results
+}
+
+/** `hc get <t> --json` から状態メッセージを取り出す（`hc ls` の status は文字列のみでメッセージを含まないため） */
+export function parseHerdrCoreStatusMessage(stdout: string): string | undefined {
+  const parsed = JSON.parse(stdout) as { status?: { msg?: unknown } | null }
+  const msg = parsed.status?.msg
+  return typeof msg === 'string' && msg ? msg : undefined
+}
+
+/**
+ * herdr-core のライブターミナル一覧を取得する。コア停止中は空配列。
+ * remocoder 自身が動いているターミナル（HC_TERMINAL_ID）は除外する。
+ */
+export async function collectHerdrCoreSessions(): Promise<MultiplexerSessionInfo[]> {
+  if (!(await isHerdrCoreRunning())) return []
+  const env = herdrCoreEnv()
+  const ownAddress = process.env.HC_TERMINAL_ID
+  let sessions: MultiplexerSessionInfo[]
+  try {
+    const { stdout } = await execAsync(`${HERDR_CORE_BINARY} ls --json`, { env })
+    sessions = parseHerdrCoreList(stdout).filter((s) => s.sessionName !== ownAddress)
+  } catch (err) {
+    // 呼び出し側は Promise.allSettled で失敗を捨てるため、原因をここで残す
+    console.warn('[herdr-core] failed to list terminals:', err instanceof Error ? err.message : err)
+    throw err
+  }
+  // 状態を報告しているターミナルのみメッセージを個別取得する。失敗してもメッセージなしで続行する
+  return Promise.all(
+    sessions.map(async (s) => {
+      if (!s.agentStatus || s.agentStatusMessage) return s
+      try {
+        const res = await execAsync(`${HERDR_CORE_BINARY} get ${s.sessionName} --json`, { env })
+        return { ...s, agentStatusMessage: parseHerdrCoreStatusMessage(res.stdout) }
+      } catch {
+        return s
+      }
+    }),
+  )
+}

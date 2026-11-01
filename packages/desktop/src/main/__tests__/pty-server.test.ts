@@ -233,6 +233,42 @@ describe('startPtyServer', () => {
       expect(attached).toBeDefined()
       expect(attached.scrollback).toBe('')
     })
+
+    it('herdr-core は HC_TERMINAL_ID / HC_SCOPE を除いた env で hc attach --history を起動する', async () => {
+      const pty = await import('node-pty')
+      const prev = { id: process.env.HC_TERMINAL_ID, scope: process.env.HC_SCOPE }
+      process.env.HC_TERMINAL_ID = 't10'
+      process.env.HC_SCOPE = 'scope-x'
+      try {
+        vi.resetModules()
+        const mod = await import('../pty-server')
+        const { ws } = connectAndAuth(mod.startPtyServer)
+        sendMessage(ws, { type: 'session_create', source: { kind: 'herdr-core', sessionName: 't2' } })
+
+        const spawn = vi.mocked(pty.spawn)
+        const [file, args, opts] = spawn.mock.calls[spawn.mock.calls.length - 1] as [string, string[], { env: NodeJS.ProcessEnv }]
+        expect(file).toBe('herdr-core')
+        expect(args).toEqual(['attach', '--history', '1000', 't2'])
+        expect(opts.env.HC_TERMINAL_ID).toBeUndefined()
+        expect(opts.env.HC_SCOPE).toBeUndefined()
+        expect(opts.env.PATH).toContain('.local/bin')
+      } finally {
+        if (prev.id === undefined) delete process.env.HC_TERMINAL_ID
+        else process.env.HC_TERMINAL_ID = prev.id
+        if (prev.scope === undefined) delete process.env.HC_SCOPE
+        else process.env.HC_SCOPE = prev.scope
+      }
+    })
+
+    it('先頭が - のセッション名ではマルチプレクサを起動しない', async () => {
+      const pty = await import('node-pty')
+      const { ws } = connectAndAuth(startPtyServer)
+      const before = vi.mocked(pty.spawn).mock.calls.length
+      expect(() => sendMessage(ws, { type: 'session_create', source: { kind: 'herdr-core', sessionName: '--help' } })).not.toThrow()
+      expect(vi.mocked(pty.spawn).mock.calls.length).toBe(before)
+      const calls = ws.send.mock.calls.map((c: any) => JSON.parse(c[0]))
+      expect(calls).toContainEqual({ type: 'auth_error', reason: 'invalid session source' })
+    })
   })
 
   describe('session_attach', () => {

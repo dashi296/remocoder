@@ -1,5 +1,19 @@
-export const MULTIPLEXER_KINDS = ['tmux', 'screen', 'zellij', 'herdr'] as const
+export const MULTIPLEXER_KINDS = ['tmux', 'screen', 'zellij', 'herdr', 'herdr-core'] as const
 export type MultiplexerKind = (typeof MULTIPLEXER_KINDS)[number]
+
+/**
+ * SGR マウスホイールシーケンスを自身のスクロール操作として解釈するマルチプレクサ。
+ * herdr-core (`hc attach`) はホイールシーケンスをそのままプログラムへ渡すため含めない。
+ */
+export const SGR_SCROLL_MULTIPLEXER_KINDS: readonly MultiplexerKind[] = ['tmux', 'screen', 'zellij', 'herdr']
+
+/** herdr-core が OSC 7501 で報告するエージェント状態 */
+export const AGENT_STATUSES = ['idle', 'working', 'done', 'blocked', 'error'] as const
+export type AgentStatus = (typeof AGENT_STATUSES)[number]
+
+export function isAgentStatus(value: unknown): value is AgentStatus {
+  return typeof value === 'string' && (AGENT_STATUSES as readonly string[]).includes(value)
+}
 
 export function isMultiplexerKind(kind: string): kind is MultiplexerKind {
   return (MULTIPLEXER_KINDS as readonly string[]).includes(kind)
@@ -25,6 +39,12 @@ export interface MultiplexerSessionInfo {
   detail?: string
   /** セッションのカレントディレクトリ */
   workingDirectory?: string
+  /** 内部で動作しているエージェント/プログラム名（例: claude-code, zsh）。herdr-core のみ */
+  agent?: string
+  /** エージェント自身が報告した状態。報告がなければ undefined。herdr-core のみ */
+  agentStatus?: AgentStatus
+  /** 状態に付随するメッセージ（例: 完了内容の要約）。herdr-core のみ */
+  agentStatusMessage?: string
 }
 
 /** WebSocketメッセージの型定義 */
@@ -146,6 +166,7 @@ export function sessionSourceIcon(source?: SessionSource): string {
     case 'screen': return '🖥'
     case 'zellij': return '🪟'
     case 'herdr':  return '🐑'
+    case 'herdr-core': return '🐏'
     default: {
       const _exhaustive: never = source
       return '🖥'

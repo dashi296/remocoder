@@ -1,3 +1,4 @@
+import { readFileSync } from 'fs'
 import { createConnection } from 'net'
 import { homedir } from 'os'
 import { join } from 'path'
@@ -14,7 +15,7 @@ export const HERDR_CORE_ATTACH_HISTORY_LINES = 1000
  * アドレス（例: t7, t1b）として許可する文字。別マシンの `machine/t7` は対象外。
  * 先頭の `-` はコマンドラインオプションと解釈されるため禁止する。
  */
-const SAFE_ADDRESS_RE = /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/
+const SAFE_ADDRESS_RE = /^[a-zA-Z0-9._][a-zA-Z0-9._-]*$/
 
 /**
  * herdr-core を呼び出すための環境変数。
@@ -32,18 +33,42 @@ export function herdrCoreAttachArgs(address: string): string[] {
   return ['attach', '--history', String(HERDR_CORE_ATTACH_HISTORY_LINES), address]
 }
 
-/** herdr-core のコアのソケットパス（herdr-core 内で起動された場合は HC_TERMINAL_SOCKET を優先） */
-export function herdrCoreSocketPath(env: NodeJS.ProcessEnv = process.env): string {
-  if (env.HC_TERMINAL_SOCKET) return env.HC_TERMINAL_SOCKET
-  const stateHome = env.XDG_STATE_HOME || join(homedir(), '.local/state')
-  return join(stateHome, 'herdr-core', 'default', 'default.sock')
+/**
+ * コアのソケットパスの候補を優先順に返す。herdr-core 本体の解決順に合わせている:
+ * - HC_TERMINAL_SOCKET: herdr-core のターミナル内で起動された場合にコアが渡すパス
+ * - HC_SOCKET: 明示指定
+ * - <state>/herdr-core/<session>/core.lock: 起動中のコアが実際に使っているパス（config の socket 指定も反映される）
+ * - XDG_RUNTIME_DIR があれば <runtime>/herdr-core/<session>.sock（一般的な Linux）
+ * - なければ <state>/herdr-core/<session>/<session>.sock（macOS など）
+ */
+export function herdrCoreSocketCandidates(env: NodeJS.ProcessEnv = process.env): string[] {
+  const session = env.HC_SESSION || 'default'
+  const stateDir = join(env.XDG_STATE_HOME || join(homedir(), '.local/state'), 'herdr-core', session)
+  const candidates: string[] = []
+  if (env.HC_TERMINAL_SOCKET) candidates.push(env.HC_TERMINAL_SOCKET)
+  if (env.HC_SOCKET) candidates.push(env.HC_SOCKET)
+  try {
+    const locked = readFileSync(join(stateDir, 'core.lock'), 'utf8').split('\n')[0].trim()
+    if (locked) candidates.push(locked)
+  } catch { /* コアが一度も起動していない */ }
+  if (env.XDG_RUNTIME_DIR) candidates.push(join(env.XDG_RUNTIME_DIR, 'herdr-core', `${session}.sock`))
+  candidates.push(join(stateDir, `${session}.sock`))
+  return [...new Set(candidates)]
+}
+
+/** 接続を受け付けるコアのソケットを返す。どれも応答しなければ null（コア停止中） */
+export async function findHerdrCoreSocket(env: NodeJS.ProcessEnv = process.env): Promise<string | null> {
+  for (const candidate of herdrCoreSocketCandidates(env)) {
+    if (await isHerdrCoreRunning(candidate)) return candidate
+  }
+  return null
 }
 
 /**
  * コアが起動中か（ソケットが接続を受け付けるか）を確認する。
  * `hc ls` はコア停止中だとコアを起動してしまうため、一覧取得前に必ず確認する。
  */
-export function isHerdrCoreRunning(socketPath = herdrCoreSocketPath(), timeoutMs = 500): Promise<boolean> {
+export function isHerdrCoreRunning(socketPath: string, timeoutMs = 500): Promise<boolean> {
   return new Promise((resolve) => {
     const socket = createConnection(socketPath)
     const done = (ok: boolean) => {
@@ -113,8 +138,10 @@ export function parseHerdrCoreStatusMessage(stdout: string): string | undefined 
  * remocoder 自身が動いているターミナル（HC_TERMINAL_ID）は除外する。
  */
 export async function collectHerdrCoreSessions(): Promise<MultiplexerSessionInfo[]> {
-  if (!(await isHerdrCoreRunning())) return []
-  const env = herdrCoreEnv()
+  const socket = await findHerdrCoreSocket()
+  if (!socket) return []
+  // 確認したソケットを明示し、hc が別のパスを解決して新しいコアを起動するのを防ぐ
+  const env = { ...herdrCoreEnv(), HC_SOCKET: socket }
   const ownAddress = process.env.HC_TERMINAL_ID
   let sessions: MultiplexerSessionInfo[]
   try {

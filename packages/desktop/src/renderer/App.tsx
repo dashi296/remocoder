@@ -139,7 +139,12 @@ export default function App() {
   }
 
   async function handleAttachMultiplexer(tool: MultiplexerSessionInfo['tool'], sessionName: string) {
-    await openSession(await api.ptyCreate({ kind: tool, sessionName } as SessionSource))
+    try {
+      await openSession(await api.ptyCreate({ kind: tool, sessionName } as SessionSource))
+    } catch (err) {
+      // バイナリ未検出などで PTY の起動に失敗した場合（未処理の reject にしない）
+      console.error(`[App] Failed to attach ${tool}:${sessionName}:`, err)
+    }
   }
 
   async function handleDownloadUpdate(): Promise<void> {

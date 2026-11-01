@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { createServer, type Server } from 'net'
-import { mkdtempSync, rmSync } from 'fs'
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 
@@ -18,7 +18,8 @@ import {
   parseHerdrCoreList,
   herdrCoreEnv,
   herdrCoreAttachArgs,
-  herdrCoreSocketPath,
+  herdrCoreSocketCandidates,
+  findHerdrCoreSocket,
   isHerdrCoreRunning,
   collectHerdrCoreSessions,
   parseHerdrCoreStatusMessage,
@@ -78,9 +79,10 @@ describe('parseHerdrCoreList', () => {
         { address: '--help', state: 'live' },
         { state: 'live' },
         { address: 't5', state: 'live' },
+        { address: '_named', state: 'live' },
       ],
     })
-    expect(parseHerdrCoreList(stdout).map((s) => s.sessionName)).toEqual(['t5'])
+    expect(parseHerdrCoreList(stdout).map((s) => s.sessionName)).toEqual(['t5', '_named'])
   })
 
   it('error 応答は例外にする', () => {
@@ -111,13 +113,42 @@ describe('parseHerdrCoreStatusMessage', () => {
   })
 })
 
-describe('herdrCoreSocketPath', () => {
-  it('HC_TERMINAL_SOCKET を最優先する', () => {
-    expect(herdrCoreSocketPath({ HC_TERMINAL_SOCKET: '/x.sock', XDG_STATE_HOME: '/state' })).toBe('/x.sock')
+describe('herdrCoreSocketCandidates', () => {
+  it('macOS 既定: state ディレクトリの <session>/<session>.sock', () => {
+    expect(herdrCoreSocketCandidates({ XDG_STATE_HOME: '/nonexistent-state' })).toEqual([
+      '/nonexistent-state/herdr-core/default/default.sock',
+    ])
   })
 
-  it('XDG_STATE_HOME を優先する', () => {
-    expect(herdrCoreSocketPath({ XDG_STATE_HOME: '/state' })).toBe('/state/herdr-core/default/default.sock')
+  it('XDG_RUNTIME_DIR と HC_SESSION を反映し、HC_TERMINAL_SOCKET > HC_SOCKET の順に優先する', () => {
+    expect(
+      herdrCoreSocketCandidates({
+        HC_TERMINAL_SOCKET: '/t.sock',
+        HC_SOCKET: '/h.sock',
+        HC_SESSION: 'work',
+        XDG_RUNTIME_DIR: '/run/user/1000',
+        XDG_STATE_HOME: '/nonexistent-state',
+      }),
+    ).toEqual([
+      '/t.sock',
+      '/h.sock',
+      '/run/user/1000/herdr-core/work.sock',
+      '/nonexistent-state/herdr-core/work/work.sock',
+    ])
+  })
+
+  it('core.lock に書かれた実際のソケットパスを既定パスより優先する', () => {
+    const state = mkdtempSync(join(tmpdir(), 'hc-lock-'))
+    try {
+      mkdirSync(join(state, 'herdr-core', 'default'), { recursive: true })
+      writeFileSync(join(state, 'herdr-core', 'default', 'core.lock'), '/custom/core.sock\n')
+      expect(herdrCoreSocketCandidates({ XDG_STATE_HOME: state })).toEqual([
+        '/custom/core.sock',
+        join(state, 'herdr-core', 'default', 'default.sock'),
+      ])
+    } finally {
+      rmSync(state, { recursive: true, force: true })
+    }
   })
 })
 
@@ -147,21 +178,34 @@ describe('isHerdrCoreRunning / collectHerdrCoreSessions', () => {
     expect(await isHerdrCoreRunning(sock)).toBe(true)
   })
 
+  const SOCKET_ENV_KEYS = ['XDG_STATE_HOME', 'XDG_RUNTIME_DIR', 'HC_TERMINAL_SOCKET', 'HC_SOCKET', 'HC_SESSION'] as const
+
+  /** ソケット解決に関わる環境変数を一時ディレクトリだけに向けて fn を実行する（CI の XDG_RUNTIME_DIR などを遮断） */
   function withSocketDir(fn: () => Promise<void>) {
     return async () => {
-      const prevState = process.env.XDG_STATE_HOME
-      const prevSock = process.env.HC_TERMINAL_SOCKET
+      const prev = Object.fromEntries(SOCKET_ENV_KEYS.map((k) => [k, process.env[k]]))
+      for (const k of SOCKET_ENV_KEYS) delete process.env[k]
       process.env.XDG_STATE_HOME = dir
-      delete process.env.HC_TERMINAL_SOCKET
       try {
         await fn()
       } finally {
-        if (prevState === undefined) delete process.env.XDG_STATE_HOME
-        else process.env.XDG_STATE_HOME = prevState
-        if (prevSock !== undefined) process.env.HC_TERMINAL_SOCKET = prevSock
+        for (const k of SOCKET_ENV_KEYS) {
+          if (prev[k] === undefined) delete process.env[k]
+          else process.env[k] = prev[k]
+        }
       }
     }
   }
+
+  it('候補のうち接続を受け付ける最初のソケットを返す', withSocketDir(async () => {
+    const live = join(dir, 'live.sock')
+    server = createServer((c) => c.end())
+    await new Promise<void>((r) => server!.listen(live, () => r()))
+    // 応答しない HC_TERMINAL_SOCKET を飛ばし、次の候補 HC_SOCKET を採用する
+    expect(await findHerdrCoreSocket({ HC_TERMINAL_SOCKET: join(dir, 'dead.sock'), HC_SOCKET: live, XDG_STATE_HOME: dir })).toBe(live)
+    // どの候補も応答しなければ null
+    expect(await findHerdrCoreSocket({ HC_SOCKET: join(dir, 'dead.sock'), XDG_STATE_HOME: dir })).toBeNull()
+  }))
 
   it('コア停止中は hc を実行せず空配列を返す（hc ls がコアを起動するのを防ぐ）', withSocketDir(async () => {
     expect(await collectHerdrCoreSessions()).toEqual([])
@@ -198,6 +242,9 @@ describe('isHerdrCoreRunning / collectHerdrCoreSessions', () => {
     ])
     const calls = mockExecAsync.mock.calls.map((c) => c[0] as string)
     expect(calls.some((c) => c.includes('get t3 '))).toBe(false)
+    // 確認済みのソケットを HC_SOCKET で渡し、hc が別のコアを起動しないようにする
+    const lsEnv = mockExecAsync.mock.calls[0][1].env as NodeJS.ProcessEnv
+    expect(lsEnv.HC_SOCKET).toBe(join(dir, 'herdr-core', 'default', 'default.sock'))
   }))
 
   it('remocoder 自身のターミナル（HC_TERMINAL_ID）を除外する', withSocketDir(async () => {

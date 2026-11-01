@@ -260,6 +260,29 @@ describe('startPtyServer', () => {
       }
     })
 
+    it('_ 始まりのマルチプレクサセッション名は従来どおり受け付ける', async () => {
+      const pty = await import('node-pty')
+      const { ws } = connectAndAuth(startPtyServer)
+      sendMessage(ws, { type: 'session_create', source: { kind: 'tmux', sessionName: '_popup' } })
+      const spawn = vi.mocked(pty.spawn)
+      expect(spawn.mock.calls[spawn.mock.calls.length - 1].slice(0, 2)).toEqual(['tmux', ['attach-session', '-t', '_popup']])
+    })
+
+    it('pty.spawn が throw しても例外を漏らさずエラーを返す', async () => {
+      const pty = await import('node-pty')
+      vi.mocked(pty.spawn).mockImplementationOnce(() => { throw new Error('posix_spawnp failed.') })
+      const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+      try {
+        const { ws } = connectAndAuth(startPtyServer)
+        expect(() => sendMessage(ws, { type: 'session_create', source: { kind: 'herdr-core', sessionName: 't2' } })).not.toThrow()
+        const calls = ws.send.mock.calls.map((c: any) => JSON.parse(c[0]))
+        expect(calls).toContainEqual({ type: 'auth_error', reason: 'failed to start session' })
+        expect(calls.some((m: any) => m.type === 'session_attached')).toBe(false)
+      } finally {
+        errSpy.mockRestore()
+      }
+    })
+
     it('先頭が - のセッション名ではマルチプレクサを起動しない', async () => {
       const pty = await import('node-pty')
       const { ws } = connectAndAuth(startPtyServer)

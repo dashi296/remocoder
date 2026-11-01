@@ -845,12 +845,20 @@ export function startPtyServer(port = DEFAULT_WS_PORT, callbacks: PtyServerCallb
           return
         }
         const source = rawSource as SessionSource
-        pickerSockets.delete(ws)
         // マルチプレクサは同名セッションが既存なら再利用する（Desktop と同じ挙動）
         const existingMux = isMultiplexerSource(source)
           ? findExistingMuxSession(source)
           : undefined
-        const session = existingMux ?? createPtySession(source, clientIP)
+        let session: PtySession
+        try {
+          session = existingMux ?? createPtySession(source, clientIP)
+        } catch (err) {
+          // pty.spawn はバイナリ未検出（posix_spawnp failed）などで同期 throw する。ハンドラ外へ漏らさない
+          console.error(`[pty-server] Failed to start session ${JSON.stringify(source)}:`, err)
+          ws.send(JSON.stringify({ type: 'auth_error', reason: 'failed to start session' } satisfies WsMessage))
+          return
+        }
+        pickerSockets.delete(ws)
         // 既存セッションを再利用する場合は session_attach と同じ手順で安全にアタッチする
         if (existingMux) {
           if (existingMux.detachCleanupId) {
@@ -1113,8 +1121,8 @@ function resolveShell(): string {
 
 // セッション名として許可する文字: 英数字・ドット・アンダースコア・ハイフン
 // tmux の "session:window.pane" 構文を避けるためコロンを禁止
-// 先頭の '-' はコマンドラインオプションと解釈されるため禁止
-const SAFE_SESSION_NAME_RE = /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/
+// 先頭の '-' はコマンドラインオプションと解釈されるため禁止（'_' や '.' 始まりは従来どおり許可）
+const SAFE_SESSION_NAME_RE = /^[a-zA-Z0-9._][a-zA-Z0-9._-]*$/
 
 /**
  * マルチプレクサのセッション名を検証する。

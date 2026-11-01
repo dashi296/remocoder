@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import type { SessionInfo, MultiplexerSessionInfo } from '@remocoder/shared'
+import type { SessionInfo, MultiplexerSessionInfo, AgentStatus } from '@remocoder/shared'
 import { MULTIPLEXER_KINDS, sessionSourceIcon, sessionProjectName, formatSessionElapsed } from '@remocoder/shared'
 
 interface SessionListProps {
@@ -9,6 +9,8 @@ interface SessionListProps {
   onNewSession?: () => void
   onAttachMultiplexer?: (tool: MultiplexerSessionInfo['tool'], sessionName: string) => void
   onRefreshMultiplexer?: () => void
+  /** マルチプレクサへのアタッチ失敗メッセージ（null / undefined なら非表示） */
+  multiplexerError?: string | null
 }
 
 // ── ヘルパー関数 ──────────────────────────────────────────────────────────────
@@ -217,6 +219,23 @@ function toolLabel(tool: MultiplexerSessionInfo['tool']): string {
   return tool.toUpperCase()
 }
 
+const AGENT_STATUS_COLOR: Record<AgentStatus, string> = {
+  working: 'var(--green)',
+  blocked: 'var(--amber)',
+  error: 'var(--red)',
+  done: 'var(--green-dim)',
+  idle: 'var(--text-muted)',
+}
+
+function AgentStatusBadge({ status }: { status: AgentStatus }) {
+  const color = AGENT_STATUS_COLOR[status]
+  return (
+    <span style={{ ...styles.phaseBadge, color, borderColor: color }} title={`agent status: ${status}`}>
+      {status.toUpperCase()}
+    </span>
+  )
+}
+
 function MultiplexerRow({
   info,
   index,
@@ -236,6 +255,7 @@ function MultiplexerRow({
           <span style={styles.labelText}>{info.sessionName}</span>
         </div>
         <div style={styles.cardRight}>
+          {info.agentStatus && <AgentStatusBadge status={info.agentStatus} />}
           {onAttach && (
             <button style={styles.openButton} onClick={() => onAttach(info.tool, info.sessionName)} title="Attach">
               <AttachIcon />
@@ -243,17 +263,28 @@ function MultiplexerRow({
           )}
         </div>
       </div>
-      {(info.detail || info.workingDirectory) && (
+      {(info.agent || info.detail || info.workingDirectory) && (
         <div style={styles.cardMeta}>
-          {info.detail && <span style={styles.metaText}>{info.detail}</span>}
+          {info.agent && <span style={styles.metaText}>{info.agent}</span>}
+          {info.detail && (
+            <>
+              {info.agent && <span style={styles.metaSep}>·</span>}
+              <span style={styles.metaText}>{info.detail}</span>
+            </>
+          )}
           {info.workingDirectory && (
             <>
-              {info.detail && <span style={styles.metaSep}>·</span>}
+              {(info.agent || info.detail) && <span style={styles.metaSep}>·</span>}
               <span style={{ ...styles.metaText, fontFamily: 'monospace' }} title={info.workingDirectory}>
                 {info.workingDirectory}
               </span>
             </>
           )}
+        </div>
+      )}
+      {info.agentStatusMessage && (
+        <div style={styles.cardMeta}>
+          <span style={styles.metaText} title={info.agentStatusMessage}>▸ {info.agentStatusMessage}</span>
         </div>
       )}
     </div>
@@ -269,6 +300,7 @@ export function SessionList({
   onNewSession,
   onAttachMultiplexer,
   onRefreshMultiplexer,
+  multiplexerError,
 }: SessionListProps) {
   const hasMux = multiplexerSessions && multiplexerSessions.length > 0
 
@@ -325,6 +357,10 @@ export function SessionList({
               </button>
             )}
           </div>
+
+          {multiplexerError ? (
+            <p role="alert" style={styles.errorText}>{multiplexerError}</p>
+          ) : null}
 
           {!hasMux ? (
             <div style={styles.empty}>
@@ -427,6 +463,10 @@ const styles: Record<string, React.CSSProperties> = {
   emptyIcon: { color: 'var(--text-dim)', marginBottom: 4 },
   emptyText: { fontSize: 11, fontWeight: 500, color: 'var(--text-muted)', letterSpacing: '0.05em' },
   emptySubText: { fontSize: 9, color: 'var(--text-dim)', letterSpacing: '0.05em', textAlign: 'center' },
+  errorText: {
+    fontSize: 9, color: 'var(--red)', letterSpacing: '0.03em', margin: '0 0 8px',
+    padding: '4px 8px', border: '1px solid var(--red-dim)', background: 'var(--red-glow)', borderRadius: 2,
+  },
   newSessionBtn: {
     marginTop: 8, padding: '5px 12px',
     background: 'var(--bg-elevated)', border: '1px solid var(--green-dim)',

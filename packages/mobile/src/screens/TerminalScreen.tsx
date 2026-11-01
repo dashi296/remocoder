@@ -12,7 +12,7 @@ import { SlashCommandSheet, ERROR_CLIENT_TIMEOUT, ERROR_SESSION_ENDED } from '..
 import { useKeyboardHeight } from '../hooks/useKeyboardHeight'
 import { firstParam } from '../utils'
 
-type ConnectionStatus = 'connecting' | 'connected' | 'reconnecting' | 'auth_error' | 'shell_exit'
+type ConnectionStatus = 'connecting' | 'connected' | 'reconnecting' | 'auth_error' | 'session_error' | 'shell_exit'
 
 /**
  * command_list_request を送ってから command_list が届くまでの許容時間。
@@ -29,6 +29,7 @@ const STATUS_CONFIG: Record<
   connected: { label: 'Connected', color: '#4ec9b0', bgColor: 'rgba(0,80,60,0.8)' },
   reconnecting: { label: 'Reconnecting...', color: '#dcdcaa', bgColor: 'rgba(80,70,0,0.8)' },
   auth_error: { label: 'Auth Error', color: '#f44747', bgColor: 'rgba(80,0,0,0.8)' },
+  session_error: { label: 'Session Error', color: '#f44747', bgColor: 'rgba(80,0,0,0.8)' },
   shell_exit: { label: 'Session Ended', color: '#d4d4d4', bgColor: 'rgba(50,50,50,0.8)' },
 }
 
@@ -178,6 +179,10 @@ export function TerminalScreen() {
           setStatus('reconnecting')
           setPendingPermission(null)
           break
+        case 'session_error':
+          setStatus('session_error')
+          resetCommandState()
+          break
         case 'shell_exit':
           setStatus('shell_exit')
           resetCommandState()
@@ -249,7 +254,7 @@ export function TerminalScreen() {
     [wsUrl, token, projectPath, sessionId, source],
   )
   const statusCfg = STATUS_CONFIG[status]
-  const showRetry = status === 'auth_error' || status === 'shell_exit'
+  const showRetry = status === 'auth_error' || status === 'session_error' || status === 'shell_exit'
 
   return (
     <SafeAreaView style={[styles.container, { paddingBottom: bottomPadding }]} edges={['top', 'left', 'right']}>

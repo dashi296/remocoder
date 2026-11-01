@@ -9,16 +9,22 @@ import { v4 as uuidv4 } from 'uuid'
 import { tryParsePermission, stripAnsi } from './permission-parser'
 import { execAsync, EXEC_ENV } from './exec-env'
 import { getSlashCommands } from './slash-command-scanner'
+import { HERDR_CORE_BINARY, HerdrCoreNotRunningError, herdrCoreAttachArgs, herdrCoreEnv, resolveHerdrCoreAttachEnv, collectHerdrCoreSessions } from './herdr-core'
 
 let AUTH_TOKEN = process.env.REMOTE_TOKEN ?? uuidv4()
 const SERVER_NAME = osHostname()
 const ALLOWED_SOURCE_KINDS = ['claude', ...MULTIPLEXER_KINDS, 'shell'] as const
 
-const MUX_SPAWN_CONFIG: Record<MultiplexerKind, { binary: string; args: (name: string) => string[] }> = {
+const MUX_SPAWN_CONFIG: Record<MultiplexerKind, {
+  binary: string
+  args: (name: string) => string[]
+  env?: (base: NodeJS.ProcessEnv) => NodeJS.ProcessEnv
+}> = {
   tmux:   { binary: 'tmux',   args: (n) => ['attach-session', '-t', n] },
   screen: { binary: 'screen', args: (n) => ['-r', n] },
   zellij: { binary: 'zellij', args: (n) => ['attach', n] },
   herdr:  { binary: 'herdr',  args: (n) => ['session', 'attach', n] },
+  'herdr-core': { binary: HERDR_CORE_BINARY, args: herdrCoreAttachArgs, env: herdrCoreEnv },
 }
 
 // ─── Claude プロジェクト一覧取得 ───────────────────────────────────────────────
@@ -450,9 +456,27 @@ function setSessionActive(session: PtySession) {
   }
 }
 
-function createPtySession(source: SessionSource = { kind: 'claude' }, clientIP?: string): PtySession {
+/**
+ * PTY を起動する前に非同期で確定すべき環境変数を返す。herdr-core はアタッチ直前に
+ * コアのソケットへの接続を確認する必要があるため（spawn 自体は同期処理）。
+ * それ以外の種別は undefined。
+ */
+async function prepareSpawnEnv(source: SessionSource): Promise<NodeJS.ProcessEnv | undefined> {
+  return source.kind === 'herdr-core' ? resolveHerdrCoreAttachEnv() : undefined
+}
+
+/** セッション作成失敗をクライアントへ伝える理由文。生の例外文はパスを含みうるので送らない */
+function sessionErrorReason(err: unknown): string {
+  return err instanceof HerdrCoreNotRunningError ? 'herdr-core is not running' : 'failed to start session'
+}
+
+function createPtySession(
+  source: SessionSource = { kind: 'claude' },
+  clientIP?: string,
+  spawnEnv?: NodeJS.ProcessEnv,
+): PtySession {
   const id = uuidv4()
-  const ptyProc = spawnSource(source)
+  const ptyProc = spawnSource(source, spawnEnv)
   const projectPath = source.kind === 'claude' ? source.projectPath : undefined
 
   const session: PtySession = {
@@ -536,16 +560,23 @@ function createExternalSession(providerWs: WebSocket): PtySession {
 // ─── デスクトップRenderer向けパブリックAPI ─────────────────────────────────────
 
 /** デスクトップから新規PTYセッションを作成する */
-export function desktopCreateSession(source: SessionSource = { kind: 'claude' }): string {
+export async function desktopCreateSession(source: SessionSource = { kind: 'claude' }): Promise<string> {
   // マルチプレクサの場合、同じセッションにアタッチ済みのPTYセッションがあれば再利用する
-  if (isMultiplexerSource(source)) {
+  const findReusable = () => {
+    if (!isMultiplexerSource(source)) return undefined
     const existing = findExistingMuxSession(source)
     if (existing) {
       console.log(`[pty-server] Reusing existing PTY session ${existing.id.slice(0, 8)} for ${source.kind}:${source.sessionName}`)
-      return existing.id
     }
+    return existing
   }
-  return createPtySession(source).id
+  const before = findReusable()
+  if (before) return before.id
+  const spawnEnv = await prepareSpawnEnv(source)
+  // 待っている間に同じセッションが作られていれば、それを使う
+  const after = findReusable()
+  if (after) return after.id
+  return createPtySession(source, undefined, spawnEnv).id
 }
 
 /** デスクトップからセッションのスクロールバックを取得する */
@@ -612,6 +643,13 @@ export function startPtyServer(port = DEFAULT_WS_PORT, callbacks: PtyServerCallb
 
   wss.on('connection', (ws, req: IncomingMessage) => {
     let authenticated = false
+    /** クライアントが session_error を解釈できるか（auth の capabilities で宣言される） */
+    let supportsSessionError = false
+    /** セッション作成失敗を通知する。古いクライアントは session_error を知らないため auth_error で代替する */
+    const sendSessionError = (reason: string) => {
+      const msg: WsMessage = supportsSessionError ? { type: 'session_error', reason } : { type: 'auth_error', reason }
+      ws.send(JSON.stringify(msg))
+    }
     let attachedSessionId: string | null = null
     /** この接続が外部ターミナルのプロバイダーとして機能しているか */
     let isProvider = false
@@ -741,6 +779,54 @@ export function startPtyServer(port = DEFAULT_WS_PORT, callbacks: PtyServerCallb
       }
     }
 
+    /** session_create / session_attach ごとに増える。非同期の作成待ちが古くなったかの判定に使う */
+    let sessionRequestSeq = 0
+
+    /** session_create の後半: 既存マルチプレクサの再利用または PTY 作成を行い、アタッチする */
+    const completeSessionCreate = (source: SessionSource, spawnEnv?: NodeJS.ProcessEnv) => {
+      // マルチプレクサは同名セッションが既存なら再利用する（Desktop と同じ挙動）
+      const existingMux = isMultiplexerSource(source)
+        ? findExistingMuxSession(source)
+        : undefined
+      let session: PtySession
+      try {
+        session = existingMux ?? createPtySession(source, clientIP, spawnEnv)
+      } catch (err) {
+        // pty.spawn はバイナリ未検出（posix_spawnp failed）などで同期 throw する。ハンドラ外へ漏らさない
+        console.error(`[pty-server] Failed to start session ${JSON.stringify(source)}:`, err)
+        sendSessionError(sessionErrorReason(err))
+        return
+      }
+      pickerSockets.delete(ws)
+      // 既存セッションを再利用する場合は session_attach と同じ手順で安全にアタッチする
+      if (existingMux) {
+        if (existingMux.detachCleanupId) {
+          clearTimeout(existingMux.detachCleanupId)
+          existingMux.detachCleanupId = null
+        }
+        if (
+          existingMux.wsClient &&
+          existingMux.wsClient !== ws &&
+          existingMux.wsClient.readyState === WebSocket.OPEN
+        ) {
+          existingMux.wsClient.close()
+        }
+      }
+      attachedSessionId = session.id
+      session.wsClient = ws
+      session.clientIP = clientIP
+      notifySessions()
+      ws.send(
+        JSON.stringify({
+          type: 'session_attached',
+          sessionId: session.id,
+          scrollback: existingMux ? getScrollback(session) : '',
+          source: session.source,
+        } satisfies WsMessage),
+      )
+      checkPermissionOnAttach(session)
+    }
+
     ws.on('message', (raw) => {
       let msg: WsMessage
       try {
@@ -754,6 +840,7 @@ export function startPtyServer(port = DEFAULT_WS_PORT, callbacks: PtyServerCallb
       if (!authenticated) {
         if (msg.type === 'auth' && msg.token === AUTH_TOKEN) {
           authenticated = true
+          supportsSessionError = Array.isArray(msg.capabilities) && msg.capabilities.includes('session_error')
           pickerSockets.add(ws)
           clearTimeout(authTimeout)
           startPingInterval()
@@ -824,6 +911,8 @@ export function startPtyServer(port = DEFAULT_WS_PORT, callbacks: PtyServerCallb
 
       // ── セッション選択フェーズ ─────────────────────────────────────────
       if (msg.type === 'session_create') {
+        // 受信した時点で番号を進め、不正な要求でも保留中の herdr-core 作成を無効化する
+        const requestSeq = ++sessionRequestSeq
         detachFromSession()
         // source が指定されていればそれを使用、なければ後方互換で claude として扱う
         const rawSource = msg.source ?? { kind: 'claude', projectPath: msg.projectPath }
@@ -831,50 +920,36 @@ export function startPtyServer(port = DEFAULT_WS_PORT, callbacks: PtyServerCallb
         const rawName = (rawSource as Record<string, unknown>).sessionName
         const isInvalid =
           !ALLOWED_SOURCE_KINDS.includes(rawSource.kind as (typeof ALLOWED_SOURCE_KINDS)[number]) ||
-          (isMultiplexer && (typeof rawName !== 'string' || rawName.length === 0))
+          // 不正な名前は spawnSource が throw し、ハンドラ外へ例外が漏れるためここで弾く
+          (isMultiplexer && (typeof rawName !== 'string' || !SAFE_SESSION_NAME_RE.test(rawName)))
         if (isInvalid) {
           console.warn(`[pty-server] Rejected session_create: invalid source ${JSON.stringify(rawSource)}`)
-          ws.send(JSON.stringify({ type: 'auth_error', reason: 'invalid session source' } satisfies WsMessage))
+          sendSessionError('invalid session source')
           return
         }
         const source = rawSource as SessionSource
-        pickerSockets.delete(ws)
-        // マルチプレクサは同名セッションが既存なら再利用する（Desktop と同じ挙動）
-        const existingMux = isMultiplexerSource(source)
-          ? findExistingMuxSession(source)
-          : undefined
-        const session = existingMux ?? createPtySession(source, clientIP)
-        // 既存セッションを再利用する場合は session_attach と同じ手順で安全にアタッチする
-        if (existingMux) {
-          if (existingMux.detachCleanupId) {
-            clearTimeout(existingMux.detachCleanupId)
-            existingMux.detachCleanupId = null
-          }
-          if (
-            existingMux.wsClient &&
-            existingMux.wsClient !== ws &&
-            existingMux.wsClient.readyState === WebSocket.OPEN
-          ) {
-            existingMux.wsClient.close()
-          }
+        // herdr-core はアタッチ直前にコアへの接続を確認する（非同期）。再利用できる既存セッションがあれば不要
+        if (source.kind === 'herdr-core' && !findExistingMuxSession(source)) {
+          // 確認を待つ間に別の session_create / session_attach が来たり切断されたりしたら、この要求は捨てる
+          const isStale = () => requestSeq !== sessionRequestSeq || ws.readyState !== WebSocket.OPEN
+          prepareSpawnEnv(source).then(
+            (spawnEnv) => {
+              if (!isStale()) completeSessionCreate(source, spawnEnv)
+            },
+            (err) => {
+              if (isStale()) return
+              console.error(`[pty-server] Failed to start session ${JSON.stringify(source)}:`, err)
+              sendSessionError(sessionErrorReason(err))
+            },
+          )
+          return
         }
-        attachedSessionId = session.id
-        session.wsClient = ws
-        session.clientIP = clientIP
-        notifySessions()
-        ws.send(
-          JSON.stringify({
-            type: 'session_attached',
-            sessionId: session.id,
-            scrollback: existingMux ? getScrollback(session) : '',
-            source: session.source,
-          } satisfies WsMessage),
-        )
-        checkPermissionOnAttach(session)
+        completeSessionCreate(source)
         return
       }
 
       if (msg.type === 'session_attach') {
+        ++sessionRequestSeq
         const session = ptySessions.get(msg.sessionId)
         if (!session) {
           ws.send(
@@ -1106,7 +1181,8 @@ function resolveShell(): string {
 
 // セッション名として許可する文字: 英数字・ドット・アンダースコア・ハイフン
 // tmux の "session:window.pane" 構文を避けるためコロンを禁止
-const SAFE_SESSION_NAME_RE = /^[a-zA-Z0-9._-]+$/
+// 先頭の '-' はコマンドラインオプションと解釈されるため禁止（'_' や '.' 始まりは従来どおり許可）
+const SAFE_SESSION_NAME_RE = /^[a-zA-Z0-9._][a-zA-Z0-9._-]*$/
 
 /**
  * マルチプレクサのセッション名を検証する。
@@ -1118,7 +1194,7 @@ function assertSafeSessionName(name: string, tool: string): void {
   }
 }
 
-function spawnSource(source: SessionSource): pty.IPty {
+function spawnSource(source: SessionSource, spawnEnv?: NodeJS.ProcessEnv): pty.IPty {
   const baseOpts = { name: 'xterm-color', cols: 80, rows: 30, env: { ...EXEC_ENV } }
   switch (source.kind) {
     case 'claude': {
@@ -1130,11 +1206,17 @@ function spawnSource(source: SessionSource): pty.IPty {
     case 'tmux':
     case 'screen':
     case 'zellij':
-    case 'herdr': {
+    case 'herdr':
+    case 'herdr-core': {
       assertSafeSessionName(source.sessionName, source.kind)
       console.log(`[pty-server] Attaching to ${source.kind} session: ${source.sessionName}`)
-      const { binary, args } = MUX_SPAWN_CONFIG[source.kind]
-      return pty.spawn(binary, args(source.sessionName), baseOpts)
+      if (source.kind === 'herdr-core' && !spawnEnv) {
+        // prepareSpawnEnv を通さずに呼ばれた（接続確認なしに hc attach するとコアを起動しうる）
+        throw new Error('[pty-server] herdr-core requires an env resolved by prepareSpawnEnv')
+      }
+      const { binary, args, env } = MUX_SPAWN_CONFIG[source.kind]
+      const resolvedEnv = spawnEnv ?? (env ? env(baseOpts.env) : baseOpts.env)
+      return pty.spawn(binary, args(source.sessionName), { ...baseOpts, env: resolvedEnv })
     }
     case 'shell': {
       const loginShell = resolveShell()
@@ -1240,6 +1322,7 @@ export async function getMultiplexerSessions(): Promise<MultiplexerSessionInfo[]
     screen: collectScreen,
     zellij: collectZellij,
     herdr: collectHerdr,
+    'herdr-core': collectHerdrCoreSessions,
   }
   const settled = await Promise.allSettled(MULTIPLEXER_KINDS.map((k) => collectors[k]()))
   return settled.flatMap((r) => r.status === 'fulfilled' ? r.value : [])

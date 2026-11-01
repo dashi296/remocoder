@@ -58,6 +58,14 @@ const mockAPI = {
 
 const api = MOCK_MODE ? mockAPI : (window as any).electronAPI
 
+/**
+ * Electron の IPC が付ける "Error invoking remote method 'x': <name>: " を取り除くための正規表現。
+ * <name> は Error のほか HerdrCoreNotRunningError など独自のエラー名になる
+ */
+const IPC_ERROR_PREFIX_RE = /^Error invoking remote method '[^']*': (?:\w*Error: )?/
+/** マルチプレクサへのアタッチ失敗表示を自動で消すまでの時間 */
+const MULTIPLEXER_ERROR_DISMISS_MS = 10_000
+
 // ─────────────────────────────────────────────────────────
 
 export default function App() {
@@ -70,12 +78,26 @@ export default function App() {
   const [updateAvailable, setUpdateAvailable] = useState<UpdateInfo | null>(null)
   const [updateDownloaded, setUpdateDownloaded] = useState<UpdateInfo | null>(null)
   const [updateError, setUpdateError] = useState<string | null>(null)
+  // id は同じ文言のエラーが続いたときも自動消去のタイマーを張り直すための連番
+  const [multiplexerError, setMultiplexerError] = useState<{ id: number; message: string } | null>(null)
   const [powerSettings, setPowerSettings] = useState<PowerSettings>({ preventSleepOnAC: false, preventSleepOnBattery: false })
   const [isOnAC, setIsOnAC] = useState(true)
   const [isBlockerActive, setIsBlockerActive] = useState(false)
 
   function loadMultiplexerSessions() {
     api.getMultiplexerSessions?.().then(setMultiplexerSessions).catch(() => {})
+  }
+
+  // アタッチ失敗表示は一定時間で消す（一覧の更新でコアの復帰が反映されても残り続けないように）
+  useEffect(() => {
+    if (!multiplexerError) return
+    const id = setTimeout(() => setMultiplexerError(null), MULTIPLEXER_ERROR_DISMISS_MS)
+    return () => clearTimeout(id)
+  }, [multiplexerError])
+
+  function refreshMultiplexerSessions() {
+    setMultiplexerError(null)
+    loadMultiplexerSessions()
   }
 
   function applyPowerStatus(s: { isOnAC: boolean; isBlockerActive: boolean }) {
@@ -139,7 +161,19 @@ export default function App() {
   }
 
   async function handleAttachMultiplexer(tool: MultiplexerSessionInfo['tool'], sessionName: string) {
-    await openSession(await api.ptyCreate({ kind: tool, sessionName } as SessionSource))
+    try {
+      await openSession(await api.ptyCreate({ kind: tool, sessionName } as SessionSource))
+      setMultiplexerError(null)
+    } catch (err) {
+      // バイナリ未検出・herdr-core 停止中などで PTY の起動に失敗した場合
+      console.error(`[App] Failed to attach ${tool}:${sessionName}:`, err)
+      // IPC 経由のエラーは "Error invoking remote method 'x': Error: ..." で包まれるので本文だけ表示する
+      const raw = err instanceof Error ? err.message : String(err)
+      const message = raw.replace(IPC_ERROR_PREFIX_RE, '')
+      setMultiplexerError((prev) => ({ id: (prev?.id ?? 0) + 1, message: `Failed to attach ${tool}:${sessionName} — ${message}` }))
+      // 一覧が古くなっている可能性が高い（コア停止など）ので更新する
+      loadMultiplexerSessions()
+    }
   }
 
   async function handleDownloadUpdate(): Promise<void> {
@@ -225,7 +259,8 @@ export default function App() {
           onOpenTerminal={openSession}
           onNewSession={handleNewSession}
           onAttachMultiplexer={handleAttachMultiplexer}
-          onRefreshMultiplexer={loadMultiplexerSessions}
+          onRefreshMultiplexer={refreshMultiplexerSessions}
+          multiplexerError={multiplexerError?.message ?? null}
         />
       </main>
 

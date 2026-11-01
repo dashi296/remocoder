@@ -46,6 +46,11 @@ describe('buildTerminalHtml', () => {
       expect(html).toContain('10000')
     })
 
+    it('auth で session_error capability を宣言し、session_error のハンドラを持つ', () => {
+      expect(html).toContain("capabilities: ['session_error']")
+      expect(html).toContain("msg.type === 'session_error'")
+    })
+
     it('shell_exit メッセージのハンドラが含まれる', () => {
       expect(html).toContain('shell_exit')
     })

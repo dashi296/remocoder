@@ -1,4 +1,4 @@
-import { MULTIPLEXER_KINDS, type SessionSource } from '@remocoder/shared'
+import { SGR_SCROLL_MULTIPLEXER_KINDS, type SessionSource } from '@remocoder/shared'
 
 /**
  * @param wsUrl WebSocket URL
@@ -67,7 +67,8 @@ export function buildTerminalHtml(
       function getScrollTarget() {
         const bufType = term.buffer && term.buffer.active && term.buffer.active.type
         const src = currentSource || SESSION_SOURCE
-        const isMultiplexer = src && MULTIPLEXER_KINDS.includes(src.kind)
+        // SGR ホイールを自前で解釈するマルチプレクサのみ（herdr-core は素通しするため xterm.js 側でスクロールする）
+        const isMultiplexer = src && SGR_SCROLL_MULTIPLEXER_KINDS.includes(src.kind)
         return { bufType, isMultiplexer }
       }
 
@@ -150,7 +151,7 @@ export function buildTerminalHtml(
     const ATTACH_SESSION_ID = ${sessionIdJs}
     // セッション起動元（null = projectPath を使用）
     const SESSION_SOURCE = ${sourceJs}
-    const MULTIPLEXER_KINDS = ${JSON.stringify(MULTIPLEXER_KINDS)}
+    const SGR_SCROLL_MULTIPLEXER_KINDS = ${JSON.stringify(SGR_SCROLL_MULTIPLEXER_KINDS)}
 
     // 接続間でセッションIDを維持して再接続時に再アタッチする
     let currentSessionId = ATTACH_SESSION_ID
@@ -222,7 +223,7 @@ export function buildTerminalHtml(
         clearTimeout(connectTimeoutId)
         reconnectDelay = 1000
         reconnectAttempt = 0
-        currentWs.send(JSON.stringify({ type: 'auth', token: '${token}' }))
+        currentWs.send(JSON.stringify({ type: 'auth', token: '${token}', capabilities: ['session_error'] }))
         postToNative({ type: 'connected' })
       }
 
@@ -282,6 +283,13 @@ export function buildTerminalHtml(
           stopKeepalive()
           currentWs.close()
           postToNative({ type: 'auth_error', reason: msg.reason })
+        } else if (msg.type === 'session_error') {
+          // 認証は有効。セッションの作成・起動だけが失敗した（herdr-core 停止中など）
+          term.write('\\r\\n[Session error: ' + msg.reason + ']\\r\\n')
+          noReconnect = true
+          stopKeepalive()
+          currentWs.close()
+          postToNative({ type: 'session_error', reason: msg.reason })
         } else if (msg.type === 'shell_exit') {
           term.write('\\r\\n[Session exited (exit code: ' + msg.exitCode + ')]\\r\\n')
           noReconnect = true

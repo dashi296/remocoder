@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'fs'
+import { readFileSync } from 'fs'
 import { createConnection } from 'net'
 import { homedir } from 'os'
 import { join } from 'path'
@@ -29,8 +29,13 @@ export function herdrCoreEnv(base: NodeJS.ProcessEnv = EXEC_ENV): NodeJS.Process
   return env
 }
 
-/** 直近の一覧取得で接続を確認したコアのソケット。アタッチ時も同じコアを指すために使う */
-let lastHerdrCoreSocket: string | null = null
+/** herdr-core のコアが起動していない（呼び出し側で利用者向けの理由文に変換する） */
+export class HerdrCoreNotRunningError extends Error {
+  constructor() {
+    super('herdr-core is not running')
+    this.name = 'HerdrCoreNotRunningError'
+  }
+}
 
 /** 確認済みのソケットを HC_SOCKET で指定し、古い HC_TERMINAL_SOCKET が残らないようにする */
 function withHerdrCoreSocket(env: NodeJS.ProcessEnv, socket: string): NodeJS.ProcessEnv {
@@ -40,32 +45,19 @@ function withHerdrCoreSocket(env: NodeJS.ProcessEnv, socket: string): NodeJS.Pro
 }
 
 /**
- * `hc attach` 用の環境変数。ソケットを HC_SOCKET で明示する。
- * 渡さないと hc が自身の環境変数（XDG_RUNTIME_DIR / HC_SESSION）から解決し直し、
- * 一覧と別のパスを選ぶと「HC_SOCKET differs from where the core started」で即終了する。
- *
- * spawn は同期処理のため接続確認はできず、ソケットファイルの存在で判断する。
- * 優先順は一覧取得と同じ herdrCoreSocketCandidates の順（HC_SOCKET > core.lock > HC_TERMINAL_SOCKET > 既定パス）で、
- * 直近の一覧で接続を確認したソケットを core.lock の次に挟む。core.lock は最後に起動したコアが書き込むため、
- * クラッシュで古いソケットファイルが残っていても再起動後の新しいパスを指す。
- * 既知の制約: クラッシュ後に再起動していない場合は残ったソケットファイルを有効とみなすため、hc attach がコアを起動しうる
- *
- * どのソケットファイルも無ければコア停止中とみなして throw する。`hc attach` はコア停止中だと
- * コアを起動してしまうため（実機で確認）、呼び出し側（session_create / IPC）でエラーとして扱う。
+ * `hc attach` 用の環境変数を、一覧取得と同じ接続確認（findHerdrCoreSocket）で確定して返す。
+ * - HC_SOCKET で接続を確かめたソケットを明示する。渡さないと hc が自身の環境変数から解決し直し、
+ *   一覧と別のパスを選ぶと「HC_SOCKET differs from where the core started」で即終了する
+ * - ソケットファイルの存在だけでは、クラッシュで残った古いファイルと稼働中のコアを区別できないため、
+ *   アタッチ直前にも接続を確認する
+ * - どれも応答しなければ HerdrCoreNotRunningError を投げる。hc attach はコア停止中だとコアを起動してしまう
  */
-export function herdrCoreAttachEnv(
+export async function resolveHerdrCoreAttachEnv(
   base: NodeJS.ProcessEnv = EXEC_ENV,
   resolveEnv: NodeJS.ProcessEnv = process.env,
-): NodeJS.ProcessEnv {
-  const socket = [
-    resolveEnv.HC_SOCKET,
-    readCoreLockSocket(resolveEnv),
-    lastHerdrCoreSocket,
-    ...herdrCoreSocketCandidates(resolveEnv),
-  ].find(
-    (p): p is string => !!p && existsSync(p),
-  )
-  if (!socket) throw new Error('[herdr-core] core is not running (no socket found)')
+): Promise<NodeJS.ProcessEnv> {
+  const socket = await findHerdrCoreSocket(resolveEnv)
+  if (!socket) throw new HerdrCoreNotRunningError()
   return withHerdrCoreSocket(herdrCoreEnv(base), socket)
 }
 
@@ -190,7 +182,6 @@ export function parseHerdrCoreStatusMessage(stdout: string): string | undefined 
  */
 export async function collectHerdrCoreSessions(): Promise<MultiplexerSessionInfo[]> {
   const socket = await findHerdrCoreSocket()
-  lastHerdrCoreSocket = socket
   if (!socket) return []
   // 確認したソケットを明示し、hc が別のパスを解決して新しいコアを起動するのを防ぐ
   const env = withHerdrCoreSocket(herdrCoreEnv(), socket)

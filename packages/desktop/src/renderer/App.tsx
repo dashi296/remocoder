@@ -58,6 +58,11 @@ const mockAPI = {
 
 const api = MOCK_MODE ? mockAPI : (window as any).electronAPI
 
+/** Electron の IPC が付ける "Error invoking remote method 'x': Error: " を取り除くための正規表現 */
+const IPC_ERROR_PREFIX_RE = /^Error invoking remote method '[^']*': (?:Error: )?/
+/** マルチプレクサへのアタッチ失敗表示を自動で消すまでの時間 */
+const MULTIPLEXER_ERROR_DISMISS_MS = 10_000
+
 // ─────────────────────────────────────────────────────────
 
 export default function App() {
@@ -78,6 +83,13 @@ export default function App() {
   function loadMultiplexerSessions() {
     api.getMultiplexerSessions?.().then(setMultiplexerSessions).catch(() => {})
   }
+
+  // アタッチ失敗表示は一定時間で消す（一覧の更新でコアの復帰が反映されても残り続けないように）
+  useEffect(() => {
+    if (!multiplexerError) return
+    const id = setTimeout(() => setMultiplexerError(null), MULTIPLEXER_ERROR_DISMISS_MS)
+    return () => clearTimeout(id)
+  }, [multiplexerError])
 
   function refreshMultiplexerSessions() {
     setMultiplexerError(null)
@@ -153,7 +165,7 @@ export default function App() {
       console.error(`[App] Failed to attach ${tool}:${sessionName}:`, err)
       // IPC 経由のエラーは "Error invoking remote method 'x': Error: ..." で包まれるので本文だけ表示する
       const raw = err instanceof Error ? err.message : String(err)
-      const message = raw.replace(/^Error invoking remote method '[^']*': (?:Error: )?/, '')
+      const message = raw.replace(IPC_ERROR_PREFIX_RE, '')
       setMultiplexerError(`Failed to attach ${tool}:${sessionName} — ${message}`)
       // 一覧が古くなっている可能性が高い（コア停止など）ので更新する
       loadMultiplexerSessions()

@@ -23,7 +23,8 @@ import {
   isHerdrCoreRunning,
   collectHerdrCoreSessions,
   parseHerdrCoreStatusMessage,
-  herdrCoreAttachEnv,
+  resolveHerdrCoreAttachEnv,
+  HerdrCoreNotRunningError,
 } from '../herdr-core'
 
 describe('parseHerdrCoreList', () => {
@@ -211,40 +212,27 @@ describe('isHerdrCoreRunning / collectHerdrCoreSessions', () => {
   it('コア停止中は hc を実行せず空配列を返す（hc ls がコアを起動するのを防ぐ）', withSocketDir(async () => {
     expect(await collectHerdrCoreSessions()).toEqual([])
     expect(mockExecAsync).not.toHaveBeenCalled()
-    // ソケットファイルが一つも無ければ throw する（hc attach がコアを起動するのを防ぐ）
-    expect(() => herdrCoreAttachEnv({ PATH: '/bin' })).toThrow('core is not running')
+    // 応答するコアが無ければ HerdrCoreNotRunningError（hc attach がコアを起動するのを防ぐ）
+    await expect(resolveHerdrCoreAttachEnv({ PATH: '/bin' })).rejects.toBeInstanceOf(HerdrCoreNotRunningError)
   }))
 
-  it('一覧取得前でも、core.lock が指す存在するソケットをアタッチに使う', withSocketDir(async () => {
-    const live = join(dir, 'moved.sock')
-    server = createServer((c) => c.end())
-    await new Promise<void>((r) => server!.listen(live, () => r()))
-    mkdirSync(join(dir, 'herdr-core', 'default'), { recursive: true })
-    writeFileSync(join(dir, 'herdr-core', 'default', 'core.lock'), `${live}\n`)
-    expect(herdrCoreAttachEnv({ PATH: '/bin' }).HC_SOCKET).toBe(live)
-  }))
-
-  it('クラッシュで残った古いキャッシュのソケットより core.lock の新しいパスを優先する', withSocketDir(async () => {
+  it('アタッチは接続を確認したソケットを使い、クラッシュで残った古いソケットファイルを選ばない', withSocketDir(async () => {
     const lockDir = join(dir, 'herdr-core', 'default')
     mkdirSync(lockDir, { recursive: true })
-    const oldSock = join(lockDir, 'default.sock')
+    // HC_SOCKET と core.lock は停止済みコアの残骸（ファイルはあるが応答しない）
+    const staleExplicit = join(dir, 'stale-explicit.sock')
+    const staleLocked = join(dir, 'stale-lock.sock')
+    writeFileSync(staleExplicit, '')
+    writeFileSync(staleLocked, '')
+    writeFileSync(join(lockDir, 'core.lock'), `${staleLocked}\n`)
+    process.env.HC_SOCKET = staleExplicit
+    // 稼働中のコアは後順位の既定パスにいる
+    const live = join(lockDir, 'default.sock')
     server = createServer((c) => c.end())
-    await new Promise<void>((r) => server!.listen(oldSock, () => r()))
-    mockExecAsync.mockResolvedValue({ stdout: JSON.stringify({ terminals: [] }) })
-    await collectHerdrCoreSessions() // キャッシュ = oldSock
-    expect(herdrCoreAttachEnv({ PATH: '/bin' }).HC_SOCKET).toBe(oldSock)
+    await new Promise<void>((r) => server!.listen(live, () => r()))
 
-    // 古いソケットファイルは残したまま（クラッシュ相当）、コアが別パスで再起動して core.lock を更新
-    const newSock = join(dir, 'new.sock')
-    writeFileSync(newSock, '')
-    writeFileSync(join(lockDir, 'core.lock'), `${newSock}\n`)
-    expect(herdrCoreAttachEnv({ PATH: '/bin' }).HC_SOCKET).toBe(newSock)
-
-    // 明示指定の HC_SOCKET は core.lock より優先する
-    const explicit = join(dir, 'explicit.sock')
-    writeFileSync(explicit, '')
-    process.env.HC_SOCKET = explicit
-    expect(herdrCoreAttachEnv({ PATH: '/bin' }).HC_SOCKET).toBe(explicit)
+    const env = await resolveHerdrCoreAttachEnv({ PATH: '/bin', HC_TERMINAL_ID: 't10', HC_TERMINAL_SOCKET: '/stale.sock' })
+    expect(env).toEqual({ PATH: '/bin', HC_SOCKET: live })
   }))
 
   it('状態を報告しているターミナルのみ hc get でメッセージを補い、失敗は無視する', withSocketDir(async () => {
@@ -280,11 +268,6 @@ describe('isHerdrCoreRunning / collectHerdrCoreSessions', () => {
     // 確認済みのソケットを HC_SOCKET で渡し、hc が別のコアを起動しないようにする
     const lsEnv = mockExecAsync.mock.calls[0][1].env as NodeJS.ProcessEnv
     expect(lsEnv.HC_SOCKET).toBe(join(dir, 'herdr-core', 'default', 'default.sock'))
-    // アタッチも一覧と同じコアを指す
-    expect(herdrCoreAttachEnv({ PATH: '/bin', HC_TERMINAL_ID: 't10', HC_TERMINAL_SOCKET: '/stale.sock' })).toEqual({
-      PATH: '/bin',
-      HC_SOCKET: join(dir, 'herdr-core', 'default', 'default.sock'),
-    })
     expect(lsEnv.HC_TERMINAL_SOCKET).toBeUndefined()
   }))
 

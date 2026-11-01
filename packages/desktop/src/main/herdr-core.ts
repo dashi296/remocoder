@@ -1,4 +1,4 @@
-import { readFileSync } from 'fs'
+import { existsSync, readFileSync } from 'fs'
 import { createConnection } from 'net'
 import { homedir } from 'os'
 import { join } from 'path'
@@ -32,15 +32,30 @@ export function herdrCoreEnv(base: NodeJS.ProcessEnv = EXEC_ENV): NodeJS.Process
 /** 直近の一覧取得で接続を確認したコアのソケット。アタッチ時も同じコアを指すために使う */
 let lastHerdrCoreSocket: string | null = null
 
+/** 確認済みのソケットを HC_SOCKET で指定し、古い HC_TERMINAL_SOCKET が残らないようにする */
+function withHerdrCoreSocket(env: NodeJS.ProcessEnv, socket: string): NodeJS.ProcessEnv {
+  const next: NodeJS.ProcessEnv = { ...env, HC_SOCKET: socket }
+  delete next.HC_TERMINAL_SOCKET
+  return next
+}
+
 /**
- * `hc attach` 用の環境変数。一覧取得で確認したソケットを HC_SOCKET で渡す。
+ * `hc attach` 用の環境変数。ソケットを HC_SOCKET で明示する。
  * 渡さないと hc が自身の環境変数（XDG_RUNTIME_DIR / HC_SESSION）から解決し直し、
  * 一覧と別のパスを選ぶと「HC_SOCKET differs from where the core started」で即終了する。
+ * spawn は同期処理のため接続確認はできない。直近の一覧で確認したソケットのファイルが残っていればそれを、
+ * なければ候補（core.lock の最新パスを含む）のうちファイルが存在する最初のものを使う。
+ * コアは正常停止時にソケットファイルを削除するので、再起動でパスが変わった場合も新しいパスへ移る。
  */
-export function herdrCoreAttachEnv(base: NodeJS.ProcessEnv = EXEC_ENV): NodeJS.ProcessEnv {
+export function herdrCoreAttachEnv(
+  base: NodeJS.ProcessEnv = EXEC_ENV,
+  resolveEnv: NodeJS.ProcessEnv = process.env,
+): NodeJS.ProcessEnv {
   const env = herdrCoreEnv(base)
-  if (lastHerdrCoreSocket) env.HC_SOCKET = lastHerdrCoreSocket
-  return env
+  const socket = [lastHerdrCoreSocket, ...herdrCoreSocketCandidates(resolveEnv)].find(
+    (p): p is string => !!p && existsSync(p),
+  )
+  return socket ? withHerdrCoreSocket(env, socket) : env
 }
 
 export function herdrCoreAttachArgs(address: string): string[] {
@@ -156,7 +171,7 @@ export async function collectHerdrCoreSessions(): Promise<MultiplexerSessionInfo
   lastHerdrCoreSocket = socket
   if (!socket) return []
   // 確認したソケットを明示し、hc が別のパスを解決して新しいコアを起動するのを防ぐ
-  const env = { ...herdrCoreEnv(), HC_SOCKET: socket }
+  const env = withHerdrCoreSocket(herdrCoreEnv(), socket)
   const ownAddress = process.env.HC_TERMINAL_ID
   let sessions: MultiplexerSessionInfo[]
   try {

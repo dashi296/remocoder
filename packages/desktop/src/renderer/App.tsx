@@ -70,12 +70,18 @@ export default function App() {
   const [updateAvailable, setUpdateAvailable] = useState<UpdateInfo | null>(null)
   const [updateDownloaded, setUpdateDownloaded] = useState<UpdateInfo | null>(null)
   const [updateError, setUpdateError] = useState<string | null>(null)
+  const [multiplexerError, setMultiplexerError] = useState<string | null>(null)
   const [powerSettings, setPowerSettings] = useState<PowerSettings>({ preventSleepOnAC: false, preventSleepOnBattery: false })
   const [isOnAC, setIsOnAC] = useState(true)
   const [isBlockerActive, setIsBlockerActive] = useState(false)
 
   function loadMultiplexerSessions() {
     api.getMultiplexerSessions?.().then(setMultiplexerSessions).catch(() => {})
+  }
+
+  function refreshMultiplexerSessions() {
+    setMultiplexerError(null)
+    loadMultiplexerSessions()
   }
 
   function applyPowerStatus(s: { isOnAC: boolean; isBlockerActive: boolean }) {
@@ -141,9 +147,16 @@ export default function App() {
   async function handleAttachMultiplexer(tool: MultiplexerSessionInfo['tool'], sessionName: string) {
     try {
       await openSession(await api.ptyCreate({ kind: tool, sessionName } as SessionSource))
+      setMultiplexerError(null)
     } catch (err) {
-      // バイナリ未検出などで PTY の起動に失敗した場合（未処理の reject にしない）
+      // バイナリ未検出・herdr-core 停止中などで PTY の起動に失敗した場合
       console.error(`[App] Failed to attach ${tool}:${sessionName}:`, err)
+      // IPC 経由のエラーは "Error invoking remote method 'x': Error: ..." で包まれるので本文だけ表示する
+      const raw = err instanceof Error ? err.message : String(err)
+      const message = raw.replace(/^Error invoking remote method '[^']*': (?:Error: )?/, '')
+      setMultiplexerError(`Failed to attach ${tool}:${sessionName} — ${message}`)
+      // 一覧が古くなっている可能性が高い（コア停止など）ので更新する
+      loadMultiplexerSessions()
     }
   }
 
@@ -230,7 +243,8 @@ export default function App() {
           onOpenTerminal={openSession}
           onNewSession={handleNewSession}
           onAttachMultiplexer={handleAttachMultiplexer}
-          onRefreshMultiplexer={loadMultiplexerSessions}
+          onRefreshMultiplexer={refreshMultiplexerSessions}
+          multiplexerError={multiplexerError}
         />
       </main>
 

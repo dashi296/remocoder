@@ -44,11 +44,11 @@ function withHerdrCoreSocket(env: NodeJS.ProcessEnv, socket: string): NodeJS.Pro
  * 渡さないと hc が自身の環境変数（XDG_RUNTIME_DIR / HC_SESSION）から解決し直し、
  * 一覧と別のパスを選ぶと「HC_SOCKET differs from where the core started」で即終了する。
  *
- * spawn は同期処理のため接続確認はできず、ソケットファイルの存在で判断する。優先順:
- * 1. HC_SOCKET: 明示指定（hc 自身も最優先で使う）
- * 2. core.lock のパス: 最後に起動したコアが書き込むため、クラッシュで古いソケットファイルが残っていても新しいパスを指す
- * 3. 直近の一覧で接続を確認したソケット
- * 4. その他の候補（継承した HC_TERMINAL_SOCKET や既定パス）
+ * spawn は同期処理のため接続確認はできず、ソケットファイルの存在で判断する。
+ * 優先順は一覧取得と同じ herdrCoreSocketCandidates の順（HC_SOCKET > core.lock > HC_TERMINAL_SOCKET > 既定パス）で、
+ * 直近の一覧で接続を確認したソケットを core.lock の次に挟む。core.lock は最後に起動したコアが書き込むため、
+ * クラッシュで古いソケットファイルが残っていても再起動後の新しいパスを指す。
+ * 既知の制約: クラッシュ後に再起動していない場合は残ったソケットファイルを有効とみなすため、hc attach がコアを起動しうる
  *
  * どのソケットファイルも無ければコア停止中とみなして throw する。`hc attach` はコア停止中だと
  * コアを起動してしまうため（実機で確認）、呼び出し側（session_create / IPC）でエラーとして扱う。
@@ -74,10 +74,10 @@ export function herdrCoreAttachArgs(address: string): string[] {
 }
 
 /**
- * コアのソケットパスの候補を優先順に返す。herdr-core 本体の解決順に合わせている:
- * - HC_TERMINAL_SOCKET: herdr-core のターミナル内で起動された場合にコアが渡すパス
- * - HC_SOCKET: 明示指定
- * - <state>/herdr-core/<session>/core.lock: 起動中のコアが実際に使っているパス（config の socket 指定も反映される）
+ * コアのソケットパスの候補を優先順に返す。一覧取得とアタッチで同じ順を使う:
+ * - HC_SOCKET: 明示指定（hc 自身も HC_TERMINAL_SOCKET より優先する。実機で確認）
+ * - <state>/herdr-core/<session>/core.lock: 最後に起動したコアのパス（config の socket 指定も反映される）
+ * - HC_TERMINAL_SOCKET: herdr-core のターミナル内で起動された場合に継承されるパス
  * - XDG_RUNTIME_DIR があれば <runtime>/herdr-core/<session>.sock（一般的な Linux）
  * - なければ <state>/herdr-core/<session>/<session>.sock（macOS など）
  */
@@ -98,10 +98,10 @@ export function herdrCoreSocketCandidates(env: NodeJS.ProcessEnv = process.env):
   const session = env.HC_SESSION || 'default'
   const stateDir = herdrCoreStateDir(env)
   const candidates: string[] = []
-  if (env.HC_TERMINAL_SOCKET) candidates.push(env.HC_TERMINAL_SOCKET)
   if (env.HC_SOCKET) candidates.push(env.HC_SOCKET)
   const locked = readCoreLockSocket(env)
   if (locked) candidates.push(locked)
+  if (env.HC_TERMINAL_SOCKET) candidates.push(env.HC_TERMINAL_SOCKET)
   if (env.XDG_RUNTIME_DIR) candidates.push(join(env.XDG_RUNTIME_DIR, 'herdr-core', `${session}.sock`))
   candidates.push(join(stateDir, `${session}.sock`))
   return [...new Set(candidates)]

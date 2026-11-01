@@ -145,6 +145,11 @@ describe('SessionList', () => {
       expect(screen.getByText('▸ running tests')).toBeInTheDocument()
     })
 
+    it('アタッチ失敗メッセージを alert として表示する', () => {
+      render(<SessionList sessions={[]} multiplexerSessions={mux} multiplexerError="Failed to attach herdr-core:t4 — core is not running" />)
+      expect(screen.getByRole('alert')).toHaveTextContent('core is not running')
+    })
+
     it('状態を報告していないセッションにはバッジを表示しない', () => {
       render(<SessionList sessions={[]} multiplexerSessions={[mux[1]]} />)
       expect(screen.getByText('t9')).toBeInTheDocument()

@@ -19,6 +19,9 @@ export function isMultiplexerKind(kind: string): kind is MultiplexerKind {
   return (MULTIPLEXER_KINDS as readonly string[]).includes(kind)
 }
 
+/** auth メッセージで宣言するクライアント機能 */
+export type ClientCapability = 'session_error'
+
 /** PTYセッションの起動元を表す型 */
 export type SessionSource =
   | { kind: 'claude'; projectPath?: string }
@@ -54,10 +57,17 @@ export type WsMessage =
   | { type: 'resize'; cols: number; rows: number }
   | { type: 'ping' }
   | { type: 'pong' }
-  | { type: 'auth'; token: string }
+  /** capabilities: クライアントが解釈できる追加機能（古いクライアントは送らない） */
+  | { type: 'auth'; token: string; capabilities?: ClientCapability[] }
   | { type: 'auth_ok'; serverName: string }
   | { type: 'auth_error'; reason: string }
   | { type: 'shell_exit'; exitCode: number }
+  /**
+   * セッションの作成・起動に失敗した（不正なソース、PTY 起動失敗、herdr-core 停止中など）。
+   * 認証は有効なまま。capabilities に 'session_error' を含むクライアントにだけ送り、
+   * それ以外の（古い）クライアントには従来どおり auth_error を送る
+   */
+  | { type: 'session_error'; reason: string }
   | { type: 'session_list'; sessions: SessionInfo[]; multiplexerSessions?: MultiplexerSessionInfo[] }
   /** projectPath は後方互換のために保持。source が優先される */
   | { type: 'session_create'; projectPath?: string; source?: SessionSource }

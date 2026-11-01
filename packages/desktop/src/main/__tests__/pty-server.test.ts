@@ -322,6 +322,25 @@ describe('startPtyServer', () => {
       }
     })
 
+    it('capabilities に session_error を宣言したクライアントには session_error で失敗を返す', async () => {
+      const pty = await import('node-pty')
+      vi.mocked(pty.spawn).mockImplementationOnce(() => { throw new Error('posix_spawnp failed.') })
+      const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+      try {
+        startPtyServer()
+        const ws = createMockWs()
+        wssState.instance!.emit('connection', ws)
+        sendMessage(ws, { type: 'auth', token: 'test-token', capabilities: ['session_error'] })
+        ws.send.mockClear()
+        sendMessage(ws, { type: 'session_create', source: { kind: 'herdr-core', sessionName: 't2' } })
+        const calls = ws.send.mock.calls.map((c: any) => JSON.parse(c[0]))
+        expect(calls).toContainEqual({ type: 'session_error', reason: 'failed to start session' })
+        expect(calls.some((m: any) => m.type === 'auth_error')).toBe(false)
+      } finally {
+        errSpy.mockRestore()
+      }
+    })
+
     it('先頭が - のセッション名ではマルチプレクサを起動しない', async () => {
       const pty = await import('node-pty')
       const { ws } = connectAndAuth(startPtyServer)

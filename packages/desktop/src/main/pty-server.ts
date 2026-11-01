@@ -618,6 +618,13 @@ export function startPtyServer(port = DEFAULT_WS_PORT, callbacks: PtyServerCallb
 
   wss.on('connection', (ws, req: IncomingMessage) => {
     let authenticated = false
+    /** クライアントが session_error を解釈できるか（auth の capabilities で宣言される） */
+    let supportsSessionError = false
+    /** セッション作成失敗を通知する。古いクライアントは session_error を知らないため auth_error で代替する */
+    const sendSessionError = (reason: string) => {
+      const msg: WsMessage = supportsSessionError ? { type: 'session_error', reason } : { type: 'auth_error', reason }
+      ws.send(JSON.stringify(msg))
+    }
     let attachedSessionId: string | null = null
     /** この接続が外部ターミナルのプロバイダーとして機能しているか */
     let isProvider = false
@@ -760,6 +767,7 @@ export function startPtyServer(port = DEFAULT_WS_PORT, callbacks: PtyServerCallb
       if (!authenticated) {
         if (msg.type === 'auth' && msg.token === AUTH_TOKEN) {
           authenticated = true
+          supportsSessionError = Array.isArray(msg.capabilities) && msg.capabilities.includes('session_error')
           pickerSockets.add(ws)
           clearTimeout(authTimeout)
           startPingInterval()
@@ -841,7 +849,7 @@ export function startPtyServer(port = DEFAULT_WS_PORT, callbacks: PtyServerCallb
           (isMultiplexer && (typeof rawName !== 'string' || !SAFE_SESSION_NAME_RE.test(rawName)))
         if (isInvalid) {
           console.warn(`[pty-server] Rejected session_create: invalid source ${JSON.stringify(rawSource)}`)
-          ws.send(JSON.stringify({ type: 'auth_error', reason: 'invalid session source' } satisfies WsMessage))
+          sendSessionError('invalid session source')
           return
         }
         const source = rawSource as SessionSource
@@ -855,7 +863,7 @@ export function startPtyServer(port = DEFAULT_WS_PORT, callbacks: PtyServerCallb
         } catch (err) {
           // pty.spawn はバイナリ未検出（posix_spawnp failed）などで同期 throw する。ハンドラ外へ漏らさない
           console.error(`[pty-server] Failed to start session ${JSON.stringify(source)}:`, err)
-          ws.send(JSON.stringify({ type: 'auth_error', reason: 'failed to start session' } satisfies WsMessage))
+          sendSessionError('failed to start session')
           return
         }
         pickerSockets.delete(ws)

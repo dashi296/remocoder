@@ -121,7 +121,7 @@ describe('herdrCoreSocketCandidates', () => {
     ])
   })
 
-  it('XDG_RUNTIME_DIR と HC_SESSION を反映し、HC_TERMINAL_SOCKET > HC_SOCKET の順に優先する', () => {
+  it('XDG_RUNTIME_DIR と HC_SESSION を反映し、HC_SOCKET > HC_TERMINAL_SOCKET の順に優先する', () => {
     expect(
       herdrCoreSocketCandidates({
         HC_TERMINAL_SOCKET: '/t.sock',
@@ -131,8 +131,8 @@ describe('herdrCoreSocketCandidates', () => {
         XDG_STATE_HOME: '/nonexistent-state',
       }),
     ).toEqual([
-      '/t.sock',
       '/h.sock',
+      '/t.sock',
       '/run/user/1000/herdr-core/work.sock',
       '/nonexistent-state/herdr-core/work/work.sock',
     ])
@@ -202,8 +202,8 @@ describe('isHerdrCoreRunning / collectHerdrCoreSessions', () => {
     const live = join(dir, 'live.sock')
     server = createServer((c) => c.end())
     await new Promise<void>((r) => server!.listen(live, () => r()))
-    // 応答しない HC_TERMINAL_SOCKET を飛ばし、次の候補 HC_SOCKET を採用する
-    expect(await findHerdrCoreSocket({ HC_TERMINAL_SOCKET: join(dir, 'dead.sock'), HC_SOCKET: live, XDG_STATE_HOME: dir })).toBe(live)
+    // 応答しない HC_SOCKET を飛ばし、次の候補 HC_TERMINAL_SOCKET を採用する
+    expect(await findHerdrCoreSocket({ HC_SOCKET: join(dir, 'dead.sock'), HC_TERMINAL_SOCKET: live, XDG_STATE_HOME: dir })).toBe(live)
     // どの候補も応答しなければ null
     expect(await findHerdrCoreSocket({ HC_SOCKET: join(dir, 'dead.sock'), XDG_STATE_HOME: dir })).toBeNull()
   }))

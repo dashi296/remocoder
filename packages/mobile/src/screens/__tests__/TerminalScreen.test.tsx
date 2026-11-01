@@ -52,6 +52,13 @@ describe('TerminalScreen', () => {
     expect(mockRouterBack).not.toHaveBeenCalled()
   })
 
+  it('session_error メッセージ → 「Session Error」ステータスと「Retry」ボタンが表示される', () => {
+    render(<TerminalScreen />)
+    sendFromWebView({ type: 'session_error', reason: 'failed to start session' })
+    expect(screen.getByText('Session Error')).toBeTruthy()
+    expect(screen.getByText('Retry')).toBeTruthy()
+  })
+
   it('shell_exit メッセージ → 「Session Ended」ステータスと「Retry」ボタンが表示される', () => {
     render(<TerminalScreen />)
     sendFromWebView({ type: 'shell_exit', exitCode: 0 })

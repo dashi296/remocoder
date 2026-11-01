@@ -9,6 +9,8 @@ interface SessionListProps {
   onNewSession?: () => void
   onAttachMultiplexer?: (tool: MultiplexerSessionInfo['tool'], sessionName: string) => void
   onRefreshMultiplexer?: () => void
+  /** マルチプレクサへのアタッチ失敗メッセージ（null / undefined なら非表示） */
+  multiplexerError?: string | null
 }
 
 // ── ヘルパー関数 ──────────────────────────────────────────────────────────────
@@ -298,6 +300,7 @@ export function SessionList({
   onNewSession,
   onAttachMultiplexer,
   onRefreshMultiplexer,
+  multiplexerError,
 }: SessionListProps) {
   const hasMux = multiplexerSessions && multiplexerSessions.length > 0
 
@@ -354,6 +357,10 @@ export function SessionList({
               </button>
             )}
           </div>
+
+          {multiplexerError ? (
+            <p role="alert" style={styles.errorText}>{multiplexerError}</p>
+          ) : null}
 
           {!hasMux ? (
             <div style={styles.empty}>
@@ -456,6 +463,10 @@ const styles: Record<string, React.CSSProperties> = {
   emptyIcon: { color: 'var(--text-dim)', marginBottom: 4 },
   emptyText: { fontSize: 11, fontWeight: 500, color: 'var(--text-muted)', letterSpacing: '0.05em' },
   emptySubText: { fontSize: 9, color: 'var(--text-dim)', letterSpacing: '0.05em', textAlign: 'center' },
+  errorText: {
+    fontSize: 9, color: 'var(--red)', letterSpacing: '0.03em', margin: '0 0 8px',
+    padding: '4px 8px', border: '1px solid var(--red-dim)', background: 'var(--red-glow)', borderRadius: 2,
+  },
   newSessionBtn: {
     marginTop: 8, padding: '5px 12px',
     background: 'var(--bg-elevated)', border: '1px solid var(--green-dim)',

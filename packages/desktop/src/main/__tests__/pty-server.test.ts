@@ -365,6 +365,92 @@ describe('startPtyServer', () => {
       }
     })
 
+    /** 偽コアを HC_SOCKET に向け、実環境の core.lock を読まないようにして fn を実行する */
+    async function withFakeHerdrCore(fn: (sock: string) => Promise<void>) {
+      const core = await startFakeHerdrCore()
+      const prev = { sock: process.env.HC_SOCKET, state: process.env.XDG_STATE_HOME }
+      process.env.HC_SOCKET = core.sock
+      process.env.XDG_STATE_HOME = '/nonexistent-remocoder-test-state'
+      try {
+        await fn(core.sock)
+      } finally {
+        await core.close()
+        if (prev.sock === undefined) delete process.env.HC_SOCKET
+        else process.env.HC_SOCKET = prev.sock
+        if (prev.state === undefined) delete process.env.XDG_STATE_HOME
+        else process.env.XDG_STATE_HOME = prev.state
+      }
+    }
+
+    it('herdr-core の接続確認を待つ間に不正な session_create が来たら、保留中の要求ではアタッチしない', async () => {
+      const pty = await import('node-pty')
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      try {
+        await withFakeHerdrCore(async () => {
+          const { ws } = connectAndAuth(startPtyServer)
+          const spawn = vi.mocked(pty.spawn)
+          const before = spawn.mock.calls.length
+          sendMessage(ws, { type: 'session_create', source: { kind: 'herdr-core', sessionName: 't2' } })
+          sendMessage(ws, { type: 'session_create', source: { kind: 'tmux', sessionName: '--bad' } })
+          await new Promise((r) => setTimeout(r, 100))
+          expect(spawn.mock.calls.length).toBe(before)
+          const msgs = ws.send.mock.calls.map((c: any) => JSON.parse(c[0]))
+          expect(msgs).toContainEqual({ type: 'auth_error', reason: 'invalid session source' })
+          expect(msgs.some((m: any) => m.type === 'session_attached')).toBe(false)
+        })
+      } finally {
+        warnSpy.mockRestore()
+      }
+    })
+
+    it('herdr-core の接続確認を待つ間に切断されたら PTY を起動しない', async () => {
+      const pty = await import('node-pty')
+      await withFakeHerdrCore(async () => {
+        const { ws } = connectAndAuth(startPtyServer)
+        const spawn = vi.mocked(pty.spawn)
+        const before = spawn.mock.calls.length
+        sendMessage(ws, { type: 'session_create', source: { kind: 'herdr-core', sessionName: 't2' } })
+        ws.readyState = 3 // CLOSED
+        await new Promise((r) => setTimeout(r, 100))
+        expect(spawn.mock.calls.length).toBe(before)
+      })
+    })
+
+    it('desktopCreateSession は herdr-core の接続確認後に HC_SOCKET 付きで起動する', async () => {
+      const pty = await import('node-pty')
+      await withFakeHerdrCore(async (sock) => {
+        startPtyServer()
+        const id = await (desktopCreateSession as (s?: any) => Promise<string>)({ kind: 'herdr-core', sessionName: 't2' })
+        expect(typeof id).toBe('string')
+        const spawn = vi.mocked(pty.spawn)
+        const [file, , opts] = spawn.mock.calls[spawn.mock.calls.length - 1] as [string, string[], { env: NodeJS.ProcessEnv }]
+        expect(file).toBe('herdr-core')
+        expect(opts.env.HC_SOCKET).toBe(sock)
+        // 同じ対象は再利用する
+        expect(await (desktopCreateSession as (s?: any) => Promise<string>)({ kind: 'herdr-core', sessionName: 't2' })).toBe(id)
+      })
+    })
+
+    it('desktopCreateSession は herdr-core 停止中なら HerdrCoreNotRunningError で reject する', async () => {
+      const pty = await import('node-pty')
+      const keys = ['HC_TERMINAL_SOCKET', 'HC_SOCKET', 'XDG_RUNTIME_DIR', 'XDG_STATE_HOME', 'HC_SESSION'] as const
+      const prev = Object.fromEntries(keys.map((k) => [k, process.env[k]]))
+      for (const k of keys) delete process.env[k]
+      process.env.XDG_STATE_HOME = '/nonexistent-remocoder-test-state'
+      try {
+        startPtyServer()
+        const before = vi.mocked(pty.spawn).mock.calls.length
+        await expect((desktopCreateSession as (s?: any) => Promise<string>)({ kind: 'herdr-core', sessionName: 't2' }))
+          .rejects.toThrow('herdr-core is not running')
+        expect(vi.mocked(pty.spawn).mock.calls.length).toBe(before)
+      } finally {
+        for (const k of keys) {
+          if (prev[k] === undefined) delete process.env[k]
+          else process.env[k] = prev[k]
+        }
+      }
+    })
+
     it('herdr-core の接続確認を待つ間に次の session_create が来たら、古い要求ではアタッチしない', async () => {
       const pty = await import('node-pty')
       const core = await startFakeHerdrCore()

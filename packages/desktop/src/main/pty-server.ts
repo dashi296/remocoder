@@ -911,6 +911,8 @@ export function startPtyServer(port = DEFAULT_WS_PORT, callbacks: PtyServerCallb
 
       // ── セッション選択フェーズ ─────────────────────────────────────────
       if (msg.type === 'session_create') {
+        // 受信した時点で番号を進め、不正な要求でも保留中の herdr-core 作成を無効化する
+        const requestSeq = ++sessionRequestSeq
         detachFromSession()
         // source が指定されていればそれを使用、なければ後方互換で claude として扱う
         const rawSource = msg.source ?? { kind: 'claude', projectPath: msg.projectPath }
@@ -926,7 +928,6 @@ export function startPtyServer(port = DEFAULT_WS_PORT, callbacks: PtyServerCallb
           return
         }
         const source = rawSource as SessionSource
-        const requestSeq = ++sessionRequestSeq
         // herdr-core はアタッチ直前にコアへの接続を確認する（非同期）。再利用できる既存セッションがあれば不要
         if (source.kind === 'herdr-core' && !findExistingMuxSession(source)) {
           // 確認を待つ間に別の session_create / session_attach が来たり切断されたりしたら、この要求は捨てる

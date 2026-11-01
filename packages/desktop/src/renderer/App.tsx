@@ -58,8 +58,11 @@ const mockAPI = {
 
 const api = MOCK_MODE ? mockAPI : (window as any).electronAPI
 
-/** Electron の IPC が付ける "Error invoking remote method 'x': Error: " を取り除くための正規表現 */
-const IPC_ERROR_PREFIX_RE = /^Error invoking remote method '[^']*': (?:Error: )?/
+/**
+ * Electron の IPC が付ける "Error invoking remote method 'x': <name>: " を取り除くための正規表現。
+ * <name> は Error のほか HerdrCoreNotRunningError など独自のエラー名になる
+ */
+const IPC_ERROR_PREFIX_RE = /^Error invoking remote method '[^']*': (?:\w*Error: )?/
 /** マルチプレクサへのアタッチ失敗表示を自動で消すまでの時間 */
 const MULTIPLEXER_ERROR_DISMISS_MS = 10_000
 
@@ -75,7 +78,8 @@ export default function App() {
   const [updateAvailable, setUpdateAvailable] = useState<UpdateInfo | null>(null)
   const [updateDownloaded, setUpdateDownloaded] = useState<UpdateInfo | null>(null)
   const [updateError, setUpdateError] = useState<string | null>(null)
-  const [multiplexerError, setMultiplexerError] = useState<string | null>(null)
+  // id は同じ文言のエラーが続いたときも自動消去のタイマーを張り直すための連番
+  const [multiplexerError, setMultiplexerError] = useState<{ id: number; message: string } | null>(null)
   const [powerSettings, setPowerSettings] = useState<PowerSettings>({ preventSleepOnAC: false, preventSleepOnBattery: false })
   const [isOnAC, setIsOnAC] = useState(true)
   const [isBlockerActive, setIsBlockerActive] = useState(false)
@@ -166,7 +170,7 @@ export default function App() {
       // IPC 経由のエラーは "Error invoking remote method 'x': Error: ..." で包まれるので本文だけ表示する
       const raw = err instanceof Error ? err.message : String(err)
       const message = raw.replace(IPC_ERROR_PREFIX_RE, '')
-      setMultiplexerError(`Failed to attach ${tool}:${sessionName} — ${message}`)
+      setMultiplexerError((prev) => ({ id: (prev?.id ?? 0) + 1, message: `Failed to attach ${tool}:${sessionName} — ${message}` }))
       // 一覧が古くなっている可能性が高い（コア停止など）ので更新する
       loadMultiplexerSessions()
     }
@@ -256,7 +260,7 @@ export default function App() {
           onNewSession={handleNewSession}
           onAttachMultiplexer={handleAttachMultiplexer}
           onRefreshMultiplexer={refreshMultiplexerSessions}
-          multiplexerError={multiplexerError}
+          multiplexerError={multiplexerError?.message ?? null}
         />
       </main>
 

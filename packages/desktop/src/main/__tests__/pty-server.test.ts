@@ -236,9 +236,19 @@ describe('startPtyServer', () => {
 
     it('herdr-core は HC_TERMINAL_ID / HC_SCOPE を除いた env で hc attach --history を起動する', async () => {
       const pty = await import('node-pty')
-      const prev = { id: process.env.HC_TERMINAL_ID, scope: process.env.HC_SCOPE }
+      const prev = { id: process.env.HC_TERMINAL_ID, scope: process.env.HC_SCOPE, sock: process.env.HC_SOCKET, state: process.env.XDG_STATE_HOME }
+      // 実環境の core.lock を読まないよう state ディレクトリを切り離す
+      process.env.XDG_STATE_HOME = '/nonexistent-remocoder-test-state'
       process.env.HC_TERMINAL_ID = 't10'
       process.env.HC_SCOPE = 'scope-x'
+      // アタッチ時はソケットファイルの存在を確認するため、存在するファイルを HC_SOCKET に向ける
+      const { mkdtempSync, writeFileSync, rmSync } = await import('fs')
+      const { tmpdir } = await import('os')
+      const { join } = await import('path')
+      const sockDir = mkdtempSync(join(tmpdir(), 'hc-pty-'))
+      const sock = join(sockDir, 'core.sock')
+      writeFileSync(sock, '')
+      process.env.HC_SOCKET = sock
       try {
         vi.resetModules()
         const mod = await import('../pty-server')
@@ -252,7 +262,13 @@ describe('startPtyServer', () => {
         expect(opts.env.HC_TERMINAL_ID).toBeUndefined()
         expect(opts.env.HC_SCOPE).toBeUndefined()
         expect(opts.env.PATH).toContain('.local/bin')
+        expect(opts.env.HC_SOCKET).toBe(sock)
       } finally {
+        rmSync(sockDir, { recursive: true, force: true })
+        if (prev.sock === undefined) delete process.env.HC_SOCKET
+        else process.env.HC_SOCKET = prev.sock
+        if (prev.state === undefined) delete process.env.XDG_STATE_HOME
+        else process.env.XDG_STATE_HOME = prev.state
         if (prev.id === undefined) delete process.env.HC_TERMINAL_ID
         else process.env.HC_TERMINAL_ID = prev.id
         if (prev.scope === undefined) delete process.env.HC_SCOPE
@@ -280,6 +296,29 @@ describe('startPtyServer', () => {
         expect(calls.some((m: any) => m.type === 'session_attached')).toBe(false)
       } finally {
         errSpy.mockRestore()
+      }
+    })
+
+    it('herdr-core のコアが停止中（ソケットなし）ならアタッチせずエラーを返す', async () => {
+      const pty = await import('node-pty')
+      const keys = ['HC_TERMINAL_SOCKET', 'HC_SOCKET', 'XDG_RUNTIME_DIR', 'XDG_STATE_HOME', 'HC_SESSION'] as const
+      const prev = Object.fromEntries(keys.map((k) => [k, process.env[k]]))
+      for (const k of keys) delete process.env[k]
+      process.env.XDG_STATE_HOME = '/nonexistent-remocoder-test-state'
+      const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+      try {
+        const { ws } = connectAndAuth(startPtyServer)
+        const before = vi.mocked(pty.spawn).mock.calls.length
+        expect(() => sendMessage(ws, { type: 'session_create', source: { kind: 'herdr-core', sessionName: 't2' } })).not.toThrow()
+        expect(vi.mocked(pty.spawn).mock.calls.length).toBe(before)
+        const calls = ws.send.mock.calls.map((c: any) => JSON.parse(c[0]))
+        expect(calls).toContainEqual({ type: 'auth_error', reason: 'failed to start session' })
+      } finally {
+        errSpy.mockRestore()
+        for (const k of keys) {
+          if (prev[k] === undefined) delete process.env[k]
+          else process.env[k] = prev[k]
+        }
       }
     })
 

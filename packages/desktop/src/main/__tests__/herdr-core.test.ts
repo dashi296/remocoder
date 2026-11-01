@@ -211,8 +211,8 @@ describe('isHerdrCoreRunning / collectHerdrCoreSessions', () => {
   it('コア停止中は hc を実行せず空配列を返す（hc ls がコアを起動するのを防ぐ）', withSocketDir(async () => {
     expect(await collectHerdrCoreSessions()).toEqual([])
     expect(mockExecAsync).not.toHaveBeenCalled()
-    // 停止を検出し、ソケットファイルもなければ HC_SOCKET を付けない
-    expect(herdrCoreAttachEnv({ PATH: '/bin' }).HC_SOCKET).toBeUndefined()
+    // ソケットファイルが一つも無ければ throw する（hc attach がコアを起動するのを防ぐ）
+    expect(() => herdrCoreAttachEnv({ PATH: '/bin' })).toThrow('core is not running')
   }))
 
   it('一覧取得前でも、core.lock が指す存在するソケットをアタッチに使う', withSocketDir(async () => {
@@ -222,6 +222,29 @@ describe('isHerdrCoreRunning / collectHerdrCoreSessions', () => {
     mkdirSync(join(dir, 'herdr-core', 'default'), { recursive: true })
     writeFileSync(join(dir, 'herdr-core', 'default', 'core.lock'), `${live}\n`)
     expect(herdrCoreAttachEnv({ PATH: '/bin' }).HC_SOCKET).toBe(live)
+  }))
+
+  it('クラッシュで残った古いキャッシュのソケットより core.lock の新しいパスを優先する', withSocketDir(async () => {
+    const lockDir = join(dir, 'herdr-core', 'default')
+    mkdirSync(lockDir, { recursive: true })
+    const oldSock = join(lockDir, 'default.sock')
+    server = createServer((c) => c.end())
+    await new Promise<void>((r) => server!.listen(oldSock, () => r()))
+    mockExecAsync.mockResolvedValue({ stdout: JSON.stringify({ terminals: [] }) })
+    await collectHerdrCoreSessions() // キャッシュ = oldSock
+    expect(herdrCoreAttachEnv({ PATH: '/bin' }).HC_SOCKET).toBe(oldSock)
+
+    // 古いソケットファイルは残したまま（クラッシュ相当）、コアが別パスで再起動して core.lock を更新
+    const newSock = join(dir, 'new.sock')
+    writeFileSync(newSock, '')
+    writeFileSync(join(lockDir, 'core.lock'), `${newSock}\n`)
+    expect(herdrCoreAttachEnv({ PATH: '/bin' }).HC_SOCKET).toBe(newSock)
+
+    // 明示指定の HC_SOCKET は core.lock より優先する
+    const explicit = join(dir, 'explicit.sock')
+    writeFileSync(explicit, '')
+    process.env.HC_SOCKET = explicit
+    expect(herdrCoreAttachEnv({ PATH: '/bin' }).HC_SOCKET).toBe(explicit)
   }))
 
   it('状態を報告しているターミナルのみ hc get でメッセージを補い、失敗は無視する', withSocketDir(async () => {

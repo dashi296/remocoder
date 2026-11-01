@@ -43,19 +43,30 @@ function withHerdrCoreSocket(env: NodeJS.ProcessEnv, socket: string): NodeJS.Pro
  * `hc attach` 用の環境変数。ソケットを HC_SOCKET で明示する。
  * 渡さないと hc が自身の環境変数（XDG_RUNTIME_DIR / HC_SESSION）から解決し直し、
  * 一覧と別のパスを選ぶと「HC_SOCKET differs from where the core started」で即終了する。
- * spawn は同期処理のため接続確認はできない。直近の一覧で確認したソケットのファイルが残っていればそれを、
- * なければ候補（core.lock の最新パスを含む）のうちファイルが存在する最初のものを使う。
- * コアは正常停止時にソケットファイルを削除するので、再起動でパスが変わった場合も新しいパスへ移る。
+ *
+ * spawn は同期処理のため接続確認はできず、ソケットファイルの存在で判断する。優先順:
+ * 1. HC_SOCKET: 明示指定（hc 自身も最優先で使う）
+ * 2. core.lock のパス: 最後に起動したコアが書き込むため、クラッシュで古いソケットファイルが残っていても新しいパスを指す
+ * 3. 直近の一覧で接続を確認したソケット
+ * 4. その他の候補（継承した HC_TERMINAL_SOCKET や既定パス）
+ *
+ * どのソケットファイルも無ければコア停止中とみなして throw する。`hc attach` はコア停止中だと
+ * コアを起動してしまうため（実機で確認）、呼び出し側（session_create / IPC）でエラーとして扱う。
  */
 export function herdrCoreAttachEnv(
   base: NodeJS.ProcessEnv = EXEC_ENV,
   resolveEnv: NodeJS.ProcessEnv = process.env,
 ): NodeJS.ProcessEnv {
-  const env = herdrCoreEnv(base)
-  const socket = [lastHerdrCoreSocket, ...herdrCoreSocketCandidates(resolveEnv)].find(
+  const socket = [
+    resolveEnv.HC_SOCKET,
+    readCoreLockSocket(resolveEnv),
+    lastHerdrCoreSocket,
+    ...herdrCoreSocketCandidates(resolveEnv),
+  ].find(
     (p): p is string => !!p && existsSync(p),
   )
-  return socket ? withHerdrCoreSocket(env, socket) : env
+  if (!socket) throw new Error('[herdr-core] core is not running (no socket found)')
+  return withHerdrCoreSocket(herdrCoreEnv(base), socket)
 }
 
 export function herdrCoreAttachArgs(address: string): string[] {
@@ -70,16 +81,27 @@ export function herdrCoreAttachArgs(address: string): string[] {
  * - XDG_RUNTIME_DIR があれば <runtime>/herdr-core/<session>.sock（一般的な Linux）
  * - なければ <state>/herdr-core/<session>/<session>.sock（macOS など）
  */
+function herdrCoreStateDir(env: NodeJS.ProcessEnv): string {
+  return join(env.XDG_STATE_HOME || join(homedir(), '.local/state'), 'herdr-core', env.HC_SESSION || 'default')
+}
+
+/** core.lock の1行目（最後に起動したコアのソケットパス）。コア停止後も残る点に注意 */
+function readCoreLockSocket(env: NodeJS.ProcessEnv): string | null {
+  try {
+    return readFileSync(join(herdrCoreStateDir(env), 'core.lock'), 'utf8').split('\n')[0].trim() || null
+  } catch {
+    return null // コアが一度も起動していない
+  }
+}
+
 export function herdrCoreSocketCandidates(env: NodeJS.ProcessEnv = process.env): string[] {
   const session = env.HC_SESSION || 'default'
-  const stateDir = join(env.XDG_STATE_HOME || join(homedir(), '.local/state'), 'herdr-core', session)
+  const stateDir = herdrCoreStateDir(env)
   const candidates: string[] = []
   if (env.HC_TERMINAL_SOCKET) candidates.push(env.HC_TERMINAL_SOCKET)
   if (env.HC_SOCKET) candidates.push(env.HC_SOCKET)
-  try {
-    const locked = readFileSync(join(stateDir, 'core.lock'), 'utf8').split('\n')[0].trim()
-    if (locked) candidates.push(locked)
-  } catch { /* コアが一度も起動していない */ }
+  const locked = readCoreLockSocket(env)
+  if (locked) candidates.push(locked)
   if (env.XDG_RUNTIME_DIR) candidates.push(join(env.XDG_RUNTIME_DIR, 'herdr-core', `${session}.sock`))
   candidates.push(join(stateDir, `${session}.sock`))
   return [...new Set(candidates)]

@@ -23,6 +23,7 @@ import {
   isHerdrCoreRunning,
   collectHerdrCoreSessions,
   parseHerdrCoreStatusMessage,
+  herdrCoreAttachEnv,
 } from '../herdr-core'
 
 describe('parseHerdrCoreList', () => {
@@ -210,6 +211,8 @@ describe('isHerdrCoreRunning / collectHerdrCoreSessions', () => {
   it('コア停止中は hc を実行せず空配列を返す（hc ls がコアを起動するのを防ぐ）', withSocketDir(async () => {
     expect(await collectHerdrCoreSessions()).toEqual([])
     expect(mockExecAsync).not.toHaveBeenCalled()
+    // 停止を検出したら古いソケットをアタッチに使わない
+    expect(herdrCoreAttachEnv({ PATH: '/bin' }).HC_SOCKET).toBeUndefined()
   }))
 
   it('状態を報告しているターミナルのみ hc get でメッセージを補い、失敗は無視する', withSocketDir(async () => {
@@ -245,6 +248,11 @@ describe('isHerdrCoreRunning / collectHerdrCoreSessions', () => {
     // 確認済みのソケットを HC_SOCKET で渡し、hc が別のコアを起動しないようにする
     const lsEnv = mockExecAsync.mock.calls[0][1].env as NodeJS.ProcessEnv
     expect(lsEnv.HC_SOCKET).toBe(join(dir, 'herdr-core', 'default', 'default.sock'))
+    // アタッチも一覧と同じコアを指す
+    expect(herdrCoreAttachEnv({ PATH: '/bin', HC_TERMINAL_ID: 't10' })).toEqual({
+      PATH: '/bin',
+      HC_SOCKET: join(dir, 'herdr-core', 'default', 'default.sock'),
+    })
   }))
 
   it('remocoder 自身のターミナル（HC_TERMINAL_ID）を除外する', withSocketDir(async () => {

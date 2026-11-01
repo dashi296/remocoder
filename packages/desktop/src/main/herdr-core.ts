@@ -29,6 +29,20 @@ export function herdrCoreEnv(base: NodeJS.ProcessEnv = EXEC_ENV): NodeJS.Process
   return env
 }
 
+/** 直近の一覧取得で接続を確認したコアのソケット。アタッチ時も同じコアを指すために使う */
+let lastHerdrCoreSocket: string | null = null
+
+/**
+ * `hc attach` 用の環境変数。一覧取得で確認したソケットを HC_SOCKET で渡す。
+ * 渡さないと hc が自身の環境変数（XDG_RUNTIME_DIR / HC_SESSION）から解決し直し、
+ * 一覧と別のパスを選ぶと「HC_SOCKET differs from where the core started」で即終了する。
+ */
+export function herdrCoreAttachEnv(base: NodeJS.ProcessEnv = EXEC_ENV): NodeJS.ProcessEnv {
+  const env = herdrCoreEnv(base)
+  if (lastHerdrCoreSocket) env.HC_SOCKET = lastHerdrCoreSocket
+  return env
+}
+
 export function herdrCoreAttachArgs(address: string): string[] {
   return ['attach', '--history', String(HERDR_CORE_ATTACH_HISTORY_LINES), address]
 }
@@ -139,6 +153,7 @@ export function parseHerdrCoreStatusMessage(stdout: string): string | undefined 
  */
 export async function collectHerdrCoreSessions(): Promise<MultiplexerSessionInfo[]> {
   const socket = await findHerdrCoreSocket()
+  lastHerdrCoreSocket = socket
   if (!socket) return []
   // 確認したソケットを明示し、hc が別のパスを解決して新しいコアを起動するのを防ぐ
   const env = { ...herdrCoreEnv(), HC_SOCKET: socket }

@@ -9,7 +9,7 @@ import { v4 as uuidv4 } from 'uuid'
 import { tryParsePermission, stripAnsi } from './permission-parser'
 import { execAsync, EXEC_ENV } from './exec-env'
 import { getSlashCommands } from './slash-command-scanner'
-import { HERDR_CORE_BINARY, herdrCoreAttachArgs, herdrCoreEnv, collectHerdrCoreSessions } from './herdr-core'
+import { HERDR_CORE_BINARY, herdrCoreAttachArgs, herdrCoreAttachEnv, collectHerdrCoreSessions } from './herdr-core'
 
 let AUTH_TOKEN = process.env.REMOTE_TOKEN ?? uuidv4()
 const SERVER_NAME = osHostname()
@@ -24,7 +24,7 @@ const MUX_SPAWN_CONFIG: Record<MultiplexerKind, {
   screen: { binary: 'screen', args: (n) => ['-r', n] },
   zellij: { binary: 'zellij', args: (n) => ['attach', n] },
   herdr:  { binary: 'herdr',  args: (n) => ['session', 'attach', n] },
-  'herdr-core': { binary: HERDR_CORE_BINARY, args: herdrCoreAttachArgs, env: herdrCoreEnv },
+  'herdr-core': { binary: HERDR_CORE_BINARY, args: herdrCoreAttachArgs, env: herdrCoreAttachEnv },
 }
 
 // ─── Claude プロジェクト一覧取得 ───────────────────────────────────────────────
